@@ -2422,6 +2422,7 @@ let updateInFlight = false
 // set, window-all-closed calls app.quit() on every platform so the process
 // actually dies and the hand-off script can proceed immediately.
 let isQuittingForHandoff = false
+let supervisorTerminationRequested = false
 
 // Resolve the staged updater binary. The Tauri installer copies itself to
 // HERMES_HOME/hermes-setup.exe on a successful install (see
@@ -4768,7 +4769,7 @@ function getWindowState(win = mainWindow) {
 function sendBackendExit(payload) {
   // Intentional soft re-home (gateway mode apply) kills the child on purpose —
   // don't surface the "backend stopped" error toast / boot-failure path.
-  if (softRehomeInProgress) {
+  if (softRehomeInProgress || supervisorTerminationRequested) {
     return
   }
 
@@ -4782,7 +4783,11 @@ function sendBackendExit(payload) {
     return
   }
 
-  webContents.send('hermes:backend-exit', payload)
+  try {
+    webContents.send('hermes:backend-exit', payload)
+  } catch {
+    // Renderer teardown can dispose mainFrame before webContents reports itself destroyed.
+  }
 }
 
 function sendClosePreviewRequested() {
@@ -8578,6 +8583,12 @@ function createWindow() {
   wireCommonWindowHandlers(mainWindow, zoomWiringForWindowKind('chat'))
 
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    if (supervisorTerminationRequested && details?.reason === 'killed') {
+      rememberLog('[renderer] stopped during supervised desktop shutdown')
+
+      return
+    }
+
     rememberLog(`[renderer] render-process-gone reason=${details?.reason} exitCode=${details?.exitCode}`)
 
     if (details?.reason === 'crashed' || details?.reason === 'oom') {
@@ -8643,22 +8654,16 @@ function createWindow() {
 
   mainWindow.webContents.on('unresponsive', () => rememberLog('[renderer] webContents became unresponsive'))
 
-  // Electron always passes the event first. The canonical (Electron 36+) shape
-  // is (event, messageDetails); the deprecated positional shape is
-  // (event, level, message, line, sourceId). Handle both. `level` is numeric
-  // (0..3), where 3 === error.
-  mainWindow.webContents.on('console-message', (_event, detailsOrLevel, message, line, sourceId) => {
-    const details = detailsOrLevel && typeof detailsOrLevel === 'object' ? detailsOrLevel : null
-    const level = details ? details.level : detailsOrLevel
-
-    if (level !== 3) {
+  // Electron 36 projects console metadata on the event object itself. Declaring
+  // legacy positional parameters causes Electron to emit a deprecation warning.
+  mainWindow.webContents.on('console-message', details => {
+    if (details.level !== 'error') {
       return
     }
 
-    const text = details ? details.message : message
-    const src = details ? details.sourceUrl : sourceId
-    const lineNo = details ? details.lineNumber : line
-    rememberLog(`[renderer console] ${text} (${src}:${lineNo})`)
+    rememberLog(
+      `[renderer console] ${details.message} (${details.sourceId}:${details.lineNumber})`
+    )
   })
 
   if (DEV_SERVER) {
@@ -10842,6 +10847,27 @@ function configureSpellChecker() {
     rememberLog(`Spellchecker setup failed: ${error.message}`)
   }
 }
+
+function requestSupervisorTermination(signal) {
+  if (supervisorTerminationRequested) {
+    return
+  }
+
+  supervisorTerminationRequested = true
+  rememberLog(`[lifecycle] supervised shutdown signal=${signal}`)
+
+  try {
+    app.quit()
+  } catch {
+    app.exit(0)
+  }
+
+  const forcedExit = setTimeout(() => app.exit(0), 4_500)
+  forcedExit.unref?.()
+}
+
+process.once('SIGTERM', () => requestSupervisorTermination('SIGTERM'))
+process.once('SIGINT', () => requestSupervisorTermination('SIGINT'))
 
 app.on('before-quit', event => {
   if ((sshConnections.size > 0 || sshBootstrapCoordinator.promises().length > 0) && !sshQuitTeardownDone) {

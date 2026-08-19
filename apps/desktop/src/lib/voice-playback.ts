@@ -170,6 +170,18 @@ function openSpeechStream(wsUrl: string, options: VoicePlaybackOptions): SpeechS
       return
     }
 
+    try {
+      scheduleAudio(data)
+    } catch {
+      settle(started ? 'done' : 'fallback')
+    }
+  }
+
+  const scheduleAudio = (data: ArrayBuffer) => {
+    if (!context) {
+      return
+    }
+
     // Provider chunks are not sample-aligned — carry any odd byte over.
     let bytes = new Uint8Array(data)
 
@@ -234,8 +246,17 @@ function openSpeechStream(wsUrl: string, options: VoicePlaybackOptions): SpeechS
 
     if (frame.type === 'start') {
       streamRate = frame.sample_rate || 24_000
-      context = new AudioContext()
+
+      try {
+        context = new AudioContext()
+      } catch {
+        settle(started ? 'done' : 'fallback')
+
+        return
+      }
+
       nextStartAt = 0
+      void context.resume().catch(() => settle(started ? 'done' : 'fallback'))
     } else if (frame.type === 'end') {
       finishWhenDrained()
     } else if (frame.type === 'fallback') {

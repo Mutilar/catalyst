@@ -40,7 +40,13 @@ function getPlaybackAudioContext(): AudioContext | null {
     return null
   }
 
-  playbackAudioContext = new AudioContextCtor()
+  try {
+    playbackAudioContext = new AudioContextCtor()
+  } catch {
+    playbackAudioContext = null
+
+    return null
+  }
 
   return playbackAudioContext
 }
@@ -103,19 +109,25 @@ function getElementAnalyser(audioElement: HTMLAudioElement): ElementAnalyser | n
       return null
     }
 
-    const source = context.createMediaElementSource(audioElement)
-    const analyser = context.createAnalyser()
+    try {
+      const source = context.createMediaElementSource(audioElement)
+      const analyser = context.createAnalyser()
 
-    analyser.fftSize = 512
-    analyser.smoothingTimeConstant = 0.65
-    source.connect(analyser)
-    analyser.connect(context.destination)
-    entry = { analyser, source }
-    elementAnalysers.set(audioElement, entry)
+      analyser.fftSize = 512
+      analyser.smoothingTimeConstant = 0.65
+      source.connect(analyser)
+      analyser.connect(context.destination)
+      entry = { analyser, source }
+      elementAnalysers.set(audioElement, entry)
+    } catch {
+      void context.suspend().catch(() => undefined)
+
+      return null
+    }
   }
 
   activeAnalyserConsumers += 1
-  void playbackAudioContext?.resume()
+  void playbackAudioContext?.resume().catch(() => undefined)
 
   return entry
 }

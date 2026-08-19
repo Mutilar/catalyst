@@ -54,6 +54,19 @@ class FakeAudioContext {
   }
 }
 
+class ThrowingAudioContext extends FakeAudioContext {
+  constructor() {
+    super()
+    throw new Error('audio device unavailable')
+  }
+}
+
+class RejectingResumeAudioContext extends FakeAudioContext {
+  override async resume() {
+    throw new Error('audio renderer unavailable')
+  }
+}
+
 function stubCanvas2d() {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
     clearRect: vi.fn(),
@@ -83,8 +96,11 @@ describe('PlaybackWaveform audio context lifecycle', () => {
     vi.unstubAllGlobals()
   })
 
-  async function setup(raf: () => number = () => 1) {
-    vi.stubGlobal('AudioContext', FakeAudioContext)
+  async function setup(
+    raf: () => number = () => 1,
+    AudioContextCtor: typeof FakeAudioContext = FakeAudioContext
+  ) {
+    vi.stubGlobal('AudioContext', AudioContextCtor)
     vi.stubGlobal('requestAnimationFrame', raf)
     vi.stubGlobal('cancelAnimationFrame', () => undefined)
     stubCanvas2d()
@@ -136,5 +152,19 @@ describe('PlaybackWaveform audio context lifecycle', () => {
     // A paused element yields a flat spectrum forever; re-arming at 60Hz here is
     // what kept the renderer awake between utterances.
     expect(raf).not.toHaveBeenCalled()
+  })
+
+  it('degrades without throwing when the audio device rejects context creation', async () => {
+    const PlaybackWaveform = await setup(() => 1, ThrowingAudioContext)
+
+    expect(() => render(<PlaybackWaveform audioElement={makeAudio(false)} />)).not.toThrow()
+  })
+
+  it('contains rejected context resume without an unhandled rejection', async () => {
+    const PlaybackWaveform = await setup(() => 1, RejectingResumeAudioContext)
+    const view = render(<PlaybackWaveform audioElement={makeAudio(false)} />)
+
+    await Promise.resolve()
+    view.unmount()
   })
 })
