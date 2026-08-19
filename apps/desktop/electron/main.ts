@@ -30,6 +30,7 @@ import {
 } from 'electron'
 import nodePty from 'node-pty'
 
+import { apiIpcFailure, shouldRetryApiRequest } from './api-ipc-failure'
 import { stopBackendChild as stopBackendChildImpl } from './backend-child'
 import { dashboardFallbackArgs, sourceDeclaresServe } from './backend-command'
 import { createBackendConnectionState } from './backend-connection-state'
@@ -423,9 +424,7 @@ function loadInstallStamp() {
 
       if (parsed && typeof parsed === 'object' && typeof parsed.commit === 'string' && parsed.commit.length >= 7) {
         if (parsed.schemaVersion !== INSTALL_STAMP_SCHEMA_VERSION) {
-          console.warn(
-            `[hermes] install-stamp.json schemaVersion ${parsed.schemaVersion} != expected ${INSTALL_STAMP_SCHEMA_VERSION}; ignoring`
-          )
+          console.warn('⚠️ desktop install-stamp incompatible code=schema-mismatch')
 
           continue
         }
@@ -440,9 +439,11 @@ function loadInstallStamp() {
           path: p
         })
       }
-    } catch (e) {
-      console.warn(`[hermes] install-stamp.json found at ${p} , but parsing failed with ${e}`)
-      // Either ENOENT or malformed JSON; try the next candidate
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+        console.warn('⚠️ desktop install-stamp invalid code=parse-failed')
+      }
+      // An absent candidate is expected; a malformed candidate is bounded above.
     }
   }
 
@@ -453,14 +454,12 @@ const INSTALL_STAMP = loadInstallStamp()
 
 if (INSTALL_STAMP) {
   console.log(
-    `[hermes] install stamp: ${INSTALL_STAMP.commit.slice(0, 12)}${INSTALL_STAMP.branch ? ` (${INSTALL_STAMP.branch})` : ''}${INSTALL_STAMP.dirty ? ' [DIRTY]' : ''} from ${INSTALL_STAMP.source || 'unknown'}`
+    `🟢 desktop install-stamp revision=${INSTALL_STAMP.commit.slice(0, 12)} dirty=${INSTALL_STAMP.dirty}`
   )
 } else if (IS_PACKAGED) {
   // Dev builds without a stamp are normal; packaged builds without one
   // mean the bootstrap won't know what to clone. Surface clearly.
-  console.error(
-    '[hermes] WARNING: no install-stamp.json found in packaged build. First-launch bootstrap will not have a pinned ref to install.'
-  )
+  console.error('🔴 desktop install-stamp unavailable code=missing-packaged-stamp')
 }
 
 // HERMES_HOME — the user-facing root for everything Hermes-related. Mirrors
@@ -3880,7 +3879,19 @@ function multipartBody(upload) {
   return { body, contentType: `multipart/form-data; boundary=${boundary}` }
 }
 
-function fetchJson(url, token, options: any = {}) {
+async function fetchJson(url, token, options: any = {}) {
+  try {
+    return await fetchJsonOnce(url, token, options)
+  } catch (error) {
+    if (!shouldRetryApiRequest(error, options.method, Boolean(options.upload))) {
+      throw error
+    }
+
+    return await fetchJsonOnce(url, token, { ...options, freshConnection: true })
+  }
+}
+
+function fetchJsonOnce(url, token, options: any = {}) {
   return new Promise((resolve, reject) => {
     const { body, contentType } = options.upload
       ? multipartBody(options.upload)
@@ -3903,6 +3914,7 @@ function fetchJson(url, token, options: any = {}) {
       parsed,
       {
         method: options.method || 'GET',
+        agent: options.freshConnection ? false : undefined,
         headers: {
           'Content-Type': contentType,
           'X-Hermes-Session-Token': token,
@@ -9384,6 +9396,7 @@ async function mergeRemoteProfileSessions(searchParams, remoteProfiles) {
 }
 
 ipcMain.handle('hermes:api', async (_event, request) => {
+  try {
   // Remote-profile session requests would otherwise hit the local primary off
   // each profile's on-disk state.db — fine for local profiles, but a remote
   // profile's sessions live on its remote host, so the UI's IDs 404 (or mutations
@@ -9434,7 +9447,7 @@ ipcMain.handle('hermes:api', async (_event, request) => {
     const restAuth = resolveOauthRestAuth(nativeAt)
 
     if (restAuth.kind === 'bearer') {
-      return fetchJson(url, null, {
+      return await fetchJson(url, null, {
         method: request?.method,
         body: request?.body,
         timeoutMs,
@@ -9442,19 +9455,22 @@ ipcMain.handle('hermes:api', async (_event, request) => {
       })
     }
 
-    return fetchJsonViaOauthSession(url, {
+    return await fetchJsonViaOauthSession(url, {
       method: request?.method,
       body: request?.body,
       timeoutMs
     })
   }
 
-  return fetchJson(url, connection.token, {
+  return await fetchJson(url, connection.token, {
     method: request?.method,
     body: request?.body,
     upload: request?.upload,
     timeoutMs
   })
+  } catch (error) {
+    return apiIpcFailure(error)
+  }
 })
 
 // One deduper per cross-window cue — the choke point every window shares. Main

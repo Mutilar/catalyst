@@ -136,6 +136,21 @@ function UgUiSection({ value }: { value: unknown }) {
     )
   }
 
+  if (type === 'code') {
+    const value = text(section.value)
+
+    return (
+      <section className="rounded-[0.25rem] bg-(--ui-bg-quinary) px-2 py-1.5">
+        {(heading || text(section.label)) && (
+          <p className="mb-1 font-medium text-(--ui-text-primary)">{heading || text(section.label)}</p>
+        )}
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap wrap-anywhere font-mono text-[0.68rem] text-(--ui-text-secondary)">
+          {value}
+        </pre>
+      </section>
+    )
+  }
+
   if (type === 'alert_list' && Array.isArray(section.alerts)) {
     if (section.alerts.length === 0) {
       return null

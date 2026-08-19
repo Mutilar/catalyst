@@ -59,6 +59,13 @@ describe('McpUguiDocument', () => {
                   '> 1071: fn dashboard_log_sources()'
                 ]
               ]
+            },
+            {
+              id: 'canonical-data',
+              type: 'code',
+              label: 'Canonical result data',
+              value:
+                '{"matches":[{"line":1071,"path":"run/src/tui.rs","text":"fn dashboard_log_sources()"}],"truncated":false}'
             }
           ]
         }}
@@ -69,5 +76,11 @@ describe('McpUguiDocument', () => {
     expect(screen.getByText('run/src/tui.rs')).toBeTruthy()
     expect(screen.getByText('fn dashboard_log_sources()')).toBeTruthy()
     expect(screen.getByText('> 1071: fn dashboard_log_sources()')).toBeTruthy()
+    expect(screen.getByText('Canonical result data')).toBeTruthy()
+    expect(
+      screen.getByText(
+        '{"matches":[{"line":1071,"path":"run/src/tui.rs","text":"fn dashboard_log_sources()"}],"truncated":false}'
+      )
+    ).toBeTruthy()
   })
 })

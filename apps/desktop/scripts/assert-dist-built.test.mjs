@@ -14,12 +14,16 @@ function makeDist(extra) {
   return { tempRoot, distDir }
 }
 
-test('checkDistBuilt passes when index.html + an assets JS bundle exist', () => {
-  const { tempRoot, distDir } = makeDist(d => {
-    fs.writeFileSync(path.join(d, 'index.html'), '<!doctype html><div id=root></div>', 'utf8')
-    fs.mkdirSync(path.join(d, 'assets'))
-    fs.writeFileSync(path.join(d, 'assets', 'index-abc123.js'), 'console.log(1)', 'utf8')
-  })
+function writeCompleteDist(distDir) {
+  fs.writeFileSync(path.join(distDir, 'index.html'), '<!doctype html><div id=root></div>', 'utf8')
+  fs.mkdirSync(path.join(distDir, 'assets'))
+  fs.writeFileSync(path.join(distDir, 'assets', 'index-abc123.js'), 'console.log(1)', 'utf8')
+  fs.writeFileSync(path.join(distDir, 'electron-main.mjs'), 'export {}', 'utf8')
+  fs.writeFileSync(path.join(distDir, 'electron-preload.js'), 'module.exports = {}', 'utf8')
+}
+
+test('checkDistBuilt passes when renderer, main, and preload outputs exist', () => {
+  const { tempRoot, distDir } = makeDist(writeCompleteDist)
   try {
     assert.deepEqual(checkDistBuilt(distDir), { ok: true })
   } finally {
@@ -78,6 +82,30 @@ test('checkDistBuilt fails when assets/ has no JS bundle', () => {
     const result = checkDistBuilt(distDir)
     assert.equal(result.ok, false)
     assert.match(result.error, /no built JS bundle/)
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('checkDistBuilt fails when Electron main is missing', () => {
+  const { tempRoot, distDir } = makeDist(writeCompleteDist)
+  fs.rmSync(path.join(distDir, 'electron-main.mjs'))
+  try {
+    const result = checkDistBuilt(distDir)
+    assert.equal(result.ok, false)
+    assert.match(result.error, /electron-main\.mjs is missing/)
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('checkDistBuilt fails when Electron preload is missing', () => {
+  const { tempRoot, distDir } = makeDist(writeCompleteDist)
+  fs.rmSync(path.join(distDir, 'electron-preload.js'))
+  try {
+    const result = checkDistBuilt(distDir)
+    assert.equal(result.ok, false)
+    assert.match(result.error, /electron-preload\.js is missing/)
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true })
   }

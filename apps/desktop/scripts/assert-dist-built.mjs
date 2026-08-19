@@ -41,6 +41,16 @@ export function checkDistBuilt(distDir) {
     return { ok: false, error: `dist/assets has no built JS bundle (expected vite output under ${assetsDir})` }
   }
 
+  for (const name of ["electron-main.mjs", "electron-preload.js"]) {
+    const output = join(distDir, name)
+    if (!existsSync(output) || !statSync(output).isFile()) {
+      return { ok: false, error: `dist/${name} is missing at ${output}` }
+    }
+    if (statSync(output).size === 0) {
+      return { ok: false, error: `dist/${name} is empty at ${output}` }
+    }
+  }
+
   return { ok: true }
 }
 
@@ -59,7 +69,7 @@ function main() {
     process.exit(1)
   }
 
-  console.log("✓ assert-dist-built: dist/index.html + assets present")
+  console.log("✓ assert-dist-built: renderer + electron main + preload present")
 }
 
 if (isMain(import.meta.url)) {
