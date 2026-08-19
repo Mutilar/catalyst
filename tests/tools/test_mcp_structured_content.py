@@ -140,4 +140,67 @@ class TestStructuredContentPreservation:
         handler = mcp_tool._make_tool_handler("test-server", "my-tool", 30.0)
         raw = handler({})
         data = json.loads(raw)
-        assert data["result"] == payload
+        assert data == {"result": "", "structuredContent": payload}
+
+    def test_application_refusal_does_not_trip_transport_breaker(self, _patch_mcp_server):
+        session = _patch_mcp_server
+        session.call_tool = AsyncMock(
+            return_value=_FakeCallToolResult(
+                content=[_FakeContentBlock("malformed-args")],
+                is_error=True,
+            )
+        )
+        mcp_tool._reset_server_error("test-server")
+        handler = mcp_tool._make_tool_handler("test-server", "morph", 30.0)
+
+        for _ in range(mcp_tool._CIRCUIT_BREAKER_THRESHOLD + 1):
+            assert json.loads(handler({})) == {"error": "malformed-args"}
+
+        assert session.call_tool.await_count == mcp_tool._CIRCUIT_BREAKER_THRESHOLD + 1
+        assert mcp_tool._server_error_counts.get("test-server", 0) == 0
+        assert "test-server" not in mcp_tool._server_breaker_opened_at
+
+    def test_advertised_ugui_is_negotiated_and_preserved(self, _patch_mcp_server):
+        session = _patch_mcp_server
+        document = {
+            "schema": "lucid-ugui-response/1",
+            "id": "lucid.response",
+            "type": "lucid",
+            "header": [],
+            "sections": [],
+            "actions": [],
+        }
+        session.call_tool = AsyncMock(
+            return_value=_FakeCallToolResult(content=[], structuredContent=document)
+        )
+        mcp_tool._servers["test-server"].initialize_result = SimpleNamespace(
+            capabilities=SimpleNamespace(
+                experimental={
+                    "com.asg.lucid/response-modality": {
+                        "revision": 1,
+                        "default": "gestalt",
+                        "modes": ["gestalt", "envelope", "ugui"],
+                    }
+                }
+            )
+        )
+
+        handler = mcp_tool._make_tool_handler("test-server", "morph", 30.0)
+        assert json.loads(handler({})) == {"result": "", "structuredContent": document}
+        call = session.call_tool.await_args
+        assert call is not None
+        assert call.kwargs["meta"] == {
+            "com.asg.lucid/response-modality": {"mode": "ugui"}
+        }
+
+    def test_legacy_server_receives_no_unadvertised_metadata(self, _patch_mcp_server):
+        session = _patch_mcp_server
+        session.call_tool = AsyncMock(
+            return_value=_FakeCallToolResult(content=[_FakeContentBlock("ok")])
+        )
+
+        handler = mcp_tool._make_tool_handler("test-server", "tool", 30.0)
+        assert json.loads(handler({})) == {"result": "ok"}
+        call = session.call_tool.await_args
+        assert call is not None
+        assert "meta" not in call.kwargs

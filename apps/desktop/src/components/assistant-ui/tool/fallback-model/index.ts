@@ -2,6 +2,7 @@ import { type ToolTitleKey, translateNow } from '@/i18n'
 import { normalizeExternalUrl } from '@/lib/external-link'
 import { summarizeShellCommand } from '@/lib/summarize-command'
 import { capitalize, normalize } from '@/lib/text'
+import { mcpToolTitle } from '@/lib/tool-presentation'
 import { extractToolErrorMessage, formatToolResultSummary } from '@/lib/tool-result-summary'
 
 import {
@@ -227,6 +228,18 @@ const PREFIX_META: { icon?: string; labelKey: string; prefix: string; tone: Tool
 ]
 
 function toolMeta(name: string): ToolMeta {
+  const mcpTitle = mcpToolTitle(name)
+
+  if (mcpTitle) {
+    return {
+      done: mcpTitle,
+      pending: mcpTitle,
+      pendingAction: '',
+      icon: 'server-process',
+      tone: 'agent'
+    }
+  }
+
   if (isToolTitleKey(name)) {
     const meta = TOOL_META[name]
 

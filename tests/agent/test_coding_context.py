@@ -353,6 +353,25 @@ class TestRuntimeMode:
         assert any("coding agent" in b for b in blocks)
         assert any("Workspace" in b for b in blocks)
 
+    def test_agent_experiments_uses_lucid_guidance_not_hermes_file_tools(self, tmp_path):
+        _git_init(tmp_path)
+        (tmp_path / "envelope").mkdir()
+        (tmp_path / "envelope" / "LUCID.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "quine" / "canon").mkdir(parents=True)
+        (tmp_path / "quine" / "canon" / "roles.json").write_text("{}", encoding="utf-8")
+        mode = cc.resolve_runtime_mode(
+            platform="cli",
+            cwd=tmp_path,
+            config={"agent": {"coding_context": "on"}},
+        )
+        brief = mode.system_blocks()[0]
+        assert brief == cc.AE_CODING_AGENT_GUIDANCE
+        assert "LUCID GET" in brief
+        assert "RUN alone owns" in brief
+        assert "read_file" not in brief
+        assert "patch" not in brief
+        assert "terminal" in brief  # named only as a prohibited substitute
+
     def test_coding_instructions_append_their_own_block(self, tmp_path):
         _git_init(tmp_path)
         cfg = {

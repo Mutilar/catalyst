@@ -13,6 +13,7 @@ import {
   toChatMessages,
   upsertToolPart
 } from './chat-messages'
+import { MODEL_VISIBLE_TOOL_RESULT_KEY } from './tool-presentation'
 
 describe('toChatMessages', () => {
   it('keeps a turn with interleaved tool-only rows in a single bubble', () => {
@@ -893,6 +894,29 @@ describe('upsertToolPart', () => {
     expect((part as Extract<ChatMessagePart, { type: 'tool-call' }>).result).toMatchObject({
       data: { web: [{ title: 'Suva forecast' }] },
       summary: 'Did 1 search in 0.5s'
+    })
+  })
+
+  it('retains exact MCP model output separately from Hermes presentation metadata', () => {
+    const exact = { error: '🔴 LUCID · morph · malformed-args' }
+
+    const [completed] = upsertToolPart(
+      [],
+      {
+        args: {},
+        duration_s: 1.789,
+        error: exact.error,
+        name: 'mcp__LUCID__morph',
+        result: exact,
+        tool_id: 'morph-1'
+      },
+      'complete'
+    )
+
+    expect(completed?.type).toBe('tool-call')
+    expect((completed as Extract<ChatMessagePart, { type: 'tool-call' }>).result).toMatchObject({
+      duration_s: 1.789,
+      [MODEL_VISIBLE_TOOL_RESULT_KEY]: exact
     })
   })
 })

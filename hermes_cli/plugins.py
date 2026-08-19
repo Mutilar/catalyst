@@ -141,6 +141,9 @@ VALID_HOOKS: Set[str] = {
     # Plugins return a string to replace the response text, or None/empty to leave unchanged.
     # First non-None string wins. Useful for vocabulary/personality transformation.
     "transform_llm_output",
+    # Final-response contract gate. Repository-aware plugins may request one
+    # bounded conversational correction before a proposed final is emitted.
+    "pre_final",
     "pre_llm_call",
     "post_llm_call",
     # Verification-loop gate. Fired once per turn when the agent has edited code
@@ -2324,6 +2327,41 @@ def get_pre_verify_continue_message(
         if isinstance(message, str) and message.strip():
             return message.strip()
 
+    return None
+
+
+def get_pre_final_continue_message(
+    *,
+    session_id: str = "",
+    platform: str = "",
+    model: str = "",
+    attempt: int = 0,
+    final_response: str = "",
+    workspace_root: str = "",
+) -> Optional[str]:
+    """Return the first bounded ``pre_final`` correction requested by a plugin.
+
+    This hook observes only the proposed final response and workspace identity.
+    It grants no capability and is not a repository verification mechanism.
+    """
+    hook_results = invoke_hook(
+        "pre_final",
+        session_id=session_id,
+        platform=platform,
+        model=model,
+        attempt=attempt,
+        final_response=final_response,
+        workspace_root=workspace_root,
+    )
+    for result in hook_results:
+        if not isinstance(result, dict):
+            continue
+        action = str(result.get("action") or result.get("decision") or "").strip().lower()
+        if action not in ("continue", "block"):
+            continue
+        message = result.get("message") or result.get("reason")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
     return None
 
 

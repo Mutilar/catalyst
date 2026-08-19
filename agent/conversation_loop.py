@@ -6080,74 +6080,59 @@ def run_conversation(
                         messages[-1].get("_thinking_prefill")
                         or messages[-1].get("_empty_recovery_synthetic")
                         or messages[-1].get("_empty_terminal_sentinel")
+                        or messages[-1].get("_pre_final_synthetic")
                     )
                 ):
                     messages.pop()
 
                 try:
-                    from agent.verification_stop import (
-                        build_verify_on_stop_nudge,
-                        verify_on_stop_enabled,
+                    from agent.coding_context import project_facts_for
+                    from hermes_cli.plugins import (
+                        get_pre_final_continue_message,
+                        has_hook,
                     )
 
-                    if verify_on_stop_enabled():
-                        _verify_nudge = build_verify_on_stop_nudge(
-                            session_id=getattr(agent, "session_id", None),
-                            changed_paths=getattr(agent, "_turn_file_mutation_paths", set()),
-                            attempts=getattr(agent, "_verification_stop_nudges", 0),
+                    _attestation_attempt = getattr(agent, "_pre_final_nudges", 0)
+                    _facts = project_facts_for()
+                    _workspace_root = str((_facts or {}).get("root") or "")
+                    if has_hook("pre_final") and _attestation_attempt < 1:
+                        _attestation_nudge = get_pre_final_continue_message(
+                            session_id=getattr(agent, "session_id", None) or "",
+                            platform=getattr(agent, "platform", "") or "",
+                            model=getattr(agent, "model", "") or "",
+                            attempt=_attestation_attempt,
+                            final_response=final_response,
+                            workspace_root=_workspace_root,
                         )
                     else:
-                        _verify_nudge = None
+                        _attestation_nudge = None
                 except Exception:
-                    logger.debug("verification stop-loop check failed", exc_info=True)
-                    _verify_nudge = None
+                    logger.debug("pre_final attestation hook failed", exc_info=True)
+                    _attestation_nudge = None
 
-                if _verify_nudge:
-                    agent._verification_stop_nudges = (
-                        getattr(agent, "_verification_stop_nudges", 0) + 1
-                    )
-                    final_msg["finish_reason"] = "verification_required"
-                    # The assistant response is real content — persist it and
-                    # emit to the UI as an interim message so the user sees the
-                    # attempted final answer before the verification loop runs.
-                    # Only the nudge is flagged synthetic so it gets stripped
-                    # from the durable transcript (#65919 §7).
-                    agent._emit_interim_assistant_message(final_msg)
+                if _attestation_nudge:
+                    agent._pre_final_nudges = _attestation_attempt + 1
+                    final_msg["finish_reason"] = "attestation_required"
+                    final_msg["_pre_final_synthetic"] = True
                     messages.append(final_msg)
-                    try:
-                        agent._flush_messages_to_session_db(messages, conversation_history)
-                    except Exception:
-                        logger.debug("verify-on-stop interim flush failed", exc_info=True)
                     messages.append({
                         "role": "user",
-                        "content": _verify_nudge,
-                        "_verification_stop_synthetic": True,
+                        "content": _attestation_nudge,
+                        "_pre_final_synthetic": True,
                     })
                     agent._session_messages = messages
-                    # Run the verification-stop loop silently — the nudge is an
-                    # internal turn that should not add noise to the user's
-                    # terminal. Keep a debug breadcrumb in agent.log for tracing.
-                    logger.debug("verification stop-loop nudge issued (attempt %d)",
-                                 agent._verification_stop_nudges)
-                    # Keep the attempted answer only as an explicit fallback for
-                    # continuation-budget exhaustion.  ``final_response`` itself
-                    # must be cleared so the finalizer can distinguish this gate
-                    # from unrelated error/recovery exits. (#61631)
-                    # Track whether this candidate was already streamed so the
-                    # finalizer can mark the turn previewed only if the
-                    # candidate is actually reused as the final response.
-                    _pending_verification_response = final_response
-                    _pending_verification_response_previewed = (
-                        agent._interim_content_was_streamed(final_response or "")
-                    )
+                    logger.debug("pre_final attestation nudge issued")
+                    # A candidate that failed its terminal attestation is not a
+                    # legal budget-exhaustion fallback.
+                    _pending_verification_response = None
+                    _pending_verification_response_previewed = False
                     final_response = None
                     continue
 
                 # User verification-loop gate: when the agent edited code this
-                # turn, let a registered `pre_verify` hook (plugin/shell) keep it
-                # going one more turn. The shipped guidance is folded into the
-                # evidence-based verify-on-stop nudge above, so this path has no
-                # default continuation cost.
+                # turn, let an explicitly registered `pre_verify` hook keep it
+                # going one more turn. Catalyst ships no verification directive;
+                # project and user policy own this optional continuation.
                 _verify_nudge2 = None
                 _edited = sorted(getattr(agent, "_turn_file_mutation_paths", set()) or [])
                 _attempt = getattr(agent, "_pre_verify_nudges", 0)

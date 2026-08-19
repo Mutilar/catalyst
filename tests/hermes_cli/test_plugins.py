@@ -17,6 +17,7 @@ from hermes_cli.plugins import (
     PluginManifest,
     get_plugin_command_handler,
     get_plugin_commands,
+    get_pre_final_continue_message,
     get_pre_tool_call_block_message,
     get_pre_verify_continue_message,
     has_middleware,
@@ -1089,6 +1090,36 @@ class TestGetPreVerifyContinueMessage:
         assert seen["coding"] is True
         assert seen["attempt"] == 2
         assert seen["changed_paths"] == ["a.py"]
+
+
+class TestGetPreFinalContinueMessage:
+    def test_first_bounded_correction_wins_and_context_is_forwarded(self, monkeypatch):
+        seen = {}
+
+        def capture(hook_name, **kwargs):
+            seen["hook"] = hook_name
+            seen.update(kwargs)
+            return [{"action": "continue", "message": "  fix suffix  "}]
+
+        monkeypatch.setattr("hermes_cli.plugins.invoke_hook", capture)
+        assert (
+            get_pre_final_continue_message(
+                final_response="done",
+                workspace_root="/repo",
+                attempt=0,
+            )
+            == "fix suffix"
+        )
+        assert seen["hook"] == "pre_final"
+        assert seen["final_response"] == "done"
+        assert seen["workspace_root"] == "/repo"
+
+    def test_non_directives_do_not_block_final(self, monkeypatch):
+        monkeypatch.setattr(
+            "hermes_cli.plugins.invoke_hook",
+            lambda hook_name, **kwargs: [{"action": "allow"}, None],
+        )
+        assert get_pre_final_continue_message(final_response="done") is None
 
 
 class TestThreadToolWhitelist:

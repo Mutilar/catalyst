@@ -170,27 +170,18 @@ def test_uv_run_pytest_matches_detected_pytest(tmp_path, monkeypatch):
     assert evidence.scope == "targeted"
 
 
-def test_temp_script_records_ad_hoc_evidence_without_canonical_suite(tmp_path, monkeypatch):
+def test_prefixed_temp_script_is_not_verification_evidence(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
     (tmp_path / "package.json").write_text("{}", encoding="utf-8")
     script = Path(tempfile.gettempdir()) / f"hermes-ad-hoc-{tmp_path.name}.py"
-    script.write_text("print('ok')\n", encoding="utf-8")
-    try:
-        evidence = classify_verification_command(
-            f"python {script}",
-            cwd=tmp_path,
-            session_id="s1",
-            exit_code=0,
-            output="ok",
-        )
-    finally:
-        script.unlink(missing_ok=True)
-
-    assert evidence is not None
-    assert evidence.canonical_command == "ad-hoc verification script"
-    assert evidence.kind == "ad_hoc"
-    assert evidence.scope == "targeted"
-    assert evidence.status == "passed"
+    evidence = classify_verification_command(
+        f"python {script}",
+        cwd=tmp_path,
+        session_id="s1",
+        exit_code=0,
+        output="ok",
+    )
+    assert evidence is None
 
 
 def test_unprefixed_temp_script_is_not_ad_hoc_evidence(tmp_path, monkeypatch):
@@ -286,6 +277,7 @@ def test_file_tool_stales_evidence_by_session_id_for_absolute_edit(tmp_path, mon
     )
 
     from tools.file_tools import write_file_tool
+    monkeypatch.setattr("tools.file_tools._check_sensitive_path", lambda *_args, **_kwargs: None)
 
     result = json.loads(
         write_file_tool(
@@ -296,6 +288,7 @@ def test_file_tool_stales_evidence_by_session_id_for_absolute_edit(tmp_path, mon
         )
     )
 
+    assert "files_modified" in result, result
     assert result["files_modified"] == [str(target.resolve())]
     assert verification_status(session_id="conversation", cwd=tmp_path)["status"] == "stale"
     assert verification_status(session_id="turn", cwd=tmp_path)["status"] == "unverified"
@@ -393,34 +386,16 @@ def test_recording_expires_old_edit_only_state(tmp_path, monkeypatch):
     assert status["changed_paths"] == []
 
 
-def test_windows_backslash_ad_hoc_script_path_is_matched(tmp_path, monkeypatch):
-    """Ad-hoc verification scripts with Windows backslash paths must be
-    matched by ``_find_ad_hoc_match`` trying ``posix=False`` in addition to
-    the default ``posix=True``. (#53553 / #65919)
-
-    On Linux, ``Path`` doesn't parse Windows backslash paths, so we mock
-    ``_is_temp_script_path`` to simulate the Windows environment where the
-    path resolves correctly. The test verifies the posix=False splitting
-    fallback — the actual fix from #53553.
-    """
-    from agent.verification_evidence import _find_ad_hoc_match
-
+def test_windows_temp_script_is_not_verification_evidence(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
     (tmp_path / "package.json").write_text("{}", encoding="utf-8")
-
-    # On Windows, shlex.split(posix=True) eats backslashes as escape chars;
-    # posix=False preserves them. Mock _is_temp_script_path so the test
-    # focuses on the splitting fallback without needing a real Windows FS.
-    def mock_is_temp_script(token, root):
-        return "hermes-ad-hoc" in token and ".py" in token
-
-    monkeypatch.setattr(
-        "agent.verification_evidence._is_temp_script_path",
-        mock_is_temp_script,
-    )
-
     win_script = r"C:\Users\test\AppData\Local\Temp\hermes-ad-hoc-check.py"
-    result = _find_ad_hoc_match(f"python {win_script}", tmp_path)
-    assert result is not None, (
-        "Windows backslash path should be matched via posix=False fallback"
+    assert (
+        classify_verification_command(
+            f"python {win_script}",
+            cwd=tmp_path,
+            session_id="s1",
+            exit_code=0,
+        )
+        is None
     )

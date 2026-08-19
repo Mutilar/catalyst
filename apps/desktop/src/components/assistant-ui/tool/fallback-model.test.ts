@@ -48,6 +48,27 @@ describe('buildToolView image handling', () => {
   })
 })
 
+describe('buildToolView MCP identity', () => {
+  it('renders semantic server and operation identity instead of transport internals', () => {
+    const view = buildToolView(
+      part({
+        args: {},
+        isError: true,
+        result: { duration_s: 1.789, error: 'malformed' },
+        toolName: 'mcp__LUCID__morph'
+      }),
+      ''
+    )
+
+    expect(view.title).toBe('LUCID morph')
+    expect(view.durationLabel).toBe('1.8s')
+  })
+
+  it('uses the same identity rule for every MCP server and operation', () => {
+    expect(buildToolView(part({ toolName: 'mcp__FILES__read_document' }), '').title).toBe('FILES read document')
+  })
+})
+
 describe('buildToolView terminal exit-code status', () => {
   const terminal = (result: Record<string, unknown>) => buildToolView(part({ result, toolName: 'terminal' }), '')
 

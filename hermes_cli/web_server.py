@@ -3175,6 +3175,12 @@ async def get_status(profile: Optional[str] = None):
         # bootstrap, and anyone who can curl the host — i.e. exactly the audience
         # ``PUBLIC_API_PATHS`` documents this endpoint as serving.
         status = {
+            "schema": "hermes-agent-health/1",
+            "service": "hermes-agent",
+            "ready": True,
+            "runtime_owner": "RUN" if os.environ.get("HERMES_BACKEND_LIFECYCLE") == "run" else "standalone",
+            "source_generation": os.environ.get("AE_RUN_PROFILE_HASH"),
+            "launch_generation": os.environ.get("AE_RUN_LAUNCH_HASH"),
             "version": __version__,
             "release_date": __release_date__,
             "config_version": current_ver,

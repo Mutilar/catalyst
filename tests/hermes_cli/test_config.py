@@ -1987,20 +1987,20 @@ class TestVerifyOnStopMigration:
             raw = yaml.safe_load((tmp_path / "config.yaml").read_text())
             assert raw["agent"]["verify_on_stop"] is False
 
-    def test_missing_key_seeded_false(self, tmp_path):
+    def test_missing_key_uses_retired_false_default_without_config_bloat(self, tmp_path):
         with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
             self._write(tmp_path, "_config_version: 30\nagent:\n  max_turns: 5\n")
             migrate_config(interactive=False, quiet=True)
             raw = yaml.safe_load((tmp_path / "config.yaml").read_text())
-            assert raw["agent"]["verify_on_stop"] is False
+            assert "verify_on_stop" not in raw["agent"]
             assert raw["agent"]["max_turns"] == 5
 
-    def test_no_agent_section_seeded_false(self, tmp_path):
+    def test_no_agent_section_needs_no_retired_key(self, tmp_path):
         with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
             self._write(tmp_path, "_config_version: 30\nmodel:\n  provider: openrouter\n")
             migrate_config(interactive=False, quiet=True)
             raw = yaml.safe_load((tmp_path / "config.yaml").read_text())
-            assert raw["agent"]["verify_on_stop"] is False
+            assert "verify_on_stop" not in raw.get("agent", {})
 
     def test_pre_v32_literal_true_flipped_to_false(self, tmp_path):
         # The first ship of verify-on-stop baked a literal `true` into configs

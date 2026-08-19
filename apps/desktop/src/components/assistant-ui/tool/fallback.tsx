@@ -35,6 +35,11 @@ import { useI18n } from '@/i18n'
 import { PrettyLink, LinkifiedText as SharedLinkifiedText, urlSlugTitleLabel } from '@/lib/external-link'
 import { AlertCircle, CheckCircle2 } from '@/lib/icons'
 import { normalize } from '@/lib/text'
+import {
+  extractToolUguiDocument,
+  mcpToolIdentity,
+  modelVisibleToolResult
+} from '@/lib/tool-presentation'
 import { useEnterAnimation } from '@/lib/use-enter-animation'
 import { cn } from '@/lib/utils'
 import { recordPreviewArtifact } from '@/store/preview-status'
@@ -62,6 +67,7 @@ import {
   type ToolStatus,
   type ToolTitleAction
 } from './fallback-model'
+import { McpUguiDocument } from './mcp-ugui'
 
 // `true` when a ToolEntry is rendered inside an embedding wrapper that owns
 // the per-row chrome (timer / preview). The flat ToolGroupSlot sets this
@@ -136,6 +142,15 @@ export function technicalTrace(args: unknown, result: unknown): string {
     .map(([label, value]) => `${label}:\n${prettyTechnicalValue(value)}`)
 
   return clampForDisplay(parts.join('\n\n'))
+}
+
+export function mcpModelTrace(args: unknown, result: unknown): string {
+  return clampForDisplay(
+    [
+      `Input:\n${prettyTechnicalValue(args ?? {})}`,
+      `Output:\n${prettyTechnicalValue(modelVisibleToolResult(result))}`
+    ].join('\n\n')
+  )
 }
 
 function statusGlyph(status: ToolStatus, copy: ToolStatusCopy): ReactNode {
@@ -290,6 +305,7 @@ function ToolEntry({ part }: ToolEntryProps) {
   // stream delta — the freeze on big `/learn` runs. Re-derive a stable part from
   // the referentially-stable args/result so the memos hold across deltas.
   const { args, isError, result, toolCallId, toolName } = part
+  const isMcpTool = Boolean(mcpToolIdentity(toolName))
 
   const stablePart = useMemo<ToolPart>(
     () => ({ args, isError, result, toolCallId, toolName, type: 'tool-call' }),
@@ -303,8 +319,14 @@ function ToolEntry({ part }: ToolEntryProps) {
   // re-render every mounted tool row (the factory caches a per-id atom).
   const sideDiff = useStore($toolInlineDiff(toolCallId ?? ''))
   const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(result)
+
+  const mcpUgui = useMemo(
+    () => extractToolUguiDocument(toolName, args, result),
+    [args, result, toolName]
+  )
+
   const isFileEdit = isFileEditTool(toolName)
-  const defaultOpen = Boolean(inlineDiff)
+  const defaultOpen = Boolean(inlineDiff || mcpUgui)
   const open = useDisclosureOpen(disclosureId, defaultOpen)
   const canDismiss = !isPending && !embedded
   // Only animate entries that mount while their message is actively
@@ -377,6 +399,8 @@ function ToolEntry({ part }: ToolEntryProps) {
   const detailMatchesTitle = useMemo(() => looksRedundant(view.title, view.detail), [view.title, view.detail])
 
   const showDetail =
+    !isMcpTool &&
+    !mcpUgui &&
     !view.inlineDiff &&
     (Boolean(view.stdout || view.stderr) ||
       (view.status === 'error' && Boolean(detailSections.summary || detailSections.body)) ||
@@ -398,12 +422,19 @@ function ToolEntry({ part }: ToolEntryProps) {
     view.stderr ||
     view.terminalCommand ||
     view.terminalExitCode !== undefined ||
+    isMcpTool ||
     toolViewMode === 'technical'
   )
 
   // copyAction reads the uncapped view.detail; clampForDisplay below only bounds
   // what's painted, so the row's Copy button still yields the full output.
-  const copyAction = useMemo(() => toolCopyPayload(stablePart, view), [stablePart, view])
+  const mcpTrace = useMemo(() => mcpModelTrace(args, result), [args, result])
+
+  const copyAction = useMemo(() => {
+    const standard = toolCopyPayload(stablePart, view)
+
+    return isMcpTool ? { ...standard, text: mcpTrace } : standard
+  }, [isMcpTool, mcpTrace, stablePart, view])
 
   const diffStats = useMemo(
     () => (isFileEdit && view.inlineDiff ? countDiffLineStats(view.inlineDiff) : null),
@@ -525,6 +556,17 @@ function ToolEntry({ part }: ToolEntryProps) {
           {part.toolName === 'terminal' && toolViewMode !== 'technical' && (
             <TerminalTranscript command={view.terminalCommand} exitCode={view.terminalExitCode} />
           )}
+          {mcpUgui ? (
+            <>
+              <McpUguiDocument document={mcpUgui} />
+              <details className="max-w-full">
+                <summary className={cn(TOOL_SECTION_LABEL_CLASS, 'mb-0 cursor-pointer')}>Exact input / output</summary>
+                <pre className={cn(TOOL_SECTION_PRE_CLASS, 'mt-1 whitespace-pre-wrap wrap-anywhere')}>{mcpTrace}</pre>
+              </details>
+            </>
+          ) : isMcpTool ? (
+            <pre className={cn(TOOL_SECTION_PRE_CLASS, 'whitespace-pre-wrap wrap-anywhere')}>{mcpTrace}</pre>
+          ) : null}
           {view.imageUrl && (
             <div className="max-w-72 overflow-hidden rounded-[0.25rem] border border-(--ui-stroke-tertiary)">
               <ZoomableImage alt={copy.outputAlt} className="h-auto w-full object-cover" src={view.imageUrl} />
@@ -616,12 +658,12 @@ function ToolEntry({ part }: ToolEntryProps) {
                 )}
               </div>
             ))}
-          {toolViewMode === 'technical' && !(isFileEdit && view.inlineDiff) && (
+          {toolViewMode === 'technical' && !isMcpTool && !mcpUgui && !(isFileEdit && view.inlineDiff) && (
             <pre className={cn(TOOL_SECTION_PRE_CLASS, 'whitespace-pre-wrap wrap-anywhere')}>
               {technicalTrace(part.args, part.result)}
             </pre>
           )}
-          {toolViewMode === 'technical' && isFileEdit && view.inlineDiff && (
+          {toolViewMode === 'technical' && !isMcpTool && !mcpUgui && isFileEdit && view.inlineDiff && (
             <details className="max-w-full">
               <summary className={cn(TOOL_SECTION_LABEL_CLASS, 'mb-0 cursor-pointer')}>Tool payload</summary>
               <pre className={cn(TOOL_SECTION_PRE_CLASS, 'mt-1 whitespace-pre-wrap wrap-anywhere')}>

@@ -264,6 +264,18 @@ CODING_AGENT_GUIDANCE = (
     "answer, not a preamble."
 )
 
+AE_CODING_AGENT_GUIDANCE = (
+    "This AgentExperiments workspace owns its agent lifecycle through LUCID, RUN, "
+    "QUINE, and its loaded AGENTS canon. Follow those repository instructions as "
+    "the execution authority. Use LUCID GET for registered reads and search, SET "
+    "for registered atomic writes, MORPH for projections, DISPATCH for bounded "
+    "work and quality operations, STEER for active work, and CANCEL for exact "
+    "termination. RUN alone owns managed process lifecycle. Do not substitute "
+    "Hermes file, terminal, ad-hoc script, kanban, or generic verification flows "
+    "where an AE-owned LUCID seam exists. Use a repository-declared fallback only "
+    "when the canonical seam is unavailable and the loaded canon permits it."
+)
+
 
 # ── Context profiles (declarative posture definitions) ──────────────────────
 
@@ -468,6 +480,17 @@ def _detect_profile_name(mode: str, platform: str, cwd_str: str) -> str:
     return GENERAL_PROFILE.name
 
 
+def _is_agent_experiments_workspace(cwd: Path) -> bool:
+    root = _git_root(cwd) or _marker_root(cwd)
+    if root is None:
+        return False
+    markers = (
+        root / "envelope" / "LUCID.json",
+        root / "quine" / "canon" / "roles.json",
+    )
+    return all(path.is_file() and not path.is_symlink() for path in markers)
+
+
 # ── RuntimeMode (the seam) ──────────────────────────────────────────────────
 
 
@@ -531,8 +554,9 @@ class RuntimeMode:
             return []
         blocks: list[str] = []
         if self.profile.guidance:
-            brief = self.profile.guidance
-            edit_line = _edit_format_line(self.model)
+            ae_workspace = _is_agent_experiments_workspace(self.cwd)
+            brief = AE_CODING_AGENT_GUIDANCE if ae_workspace else self.profile.guidance
+            edit_line = "" if ae_workspace else _edit_format_line(self.model)
             if edit_line:
                 brief = f"{brief}\n{edit_line}"
             blocks.append(brief)

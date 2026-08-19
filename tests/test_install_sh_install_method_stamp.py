@@ -38,3 +38,14 @@ def test_install_sh_stamps_code_tree_not_home() -> None:
         "dir may be shared with a Docker gateway whose 'docker' stamp would "
         "clobber it and block host-side `hermes update`"
     )
+
+
+def test_install_sh_attests_backend_and_bundled_plugin_generation_atomically() -> None:
+    text = INSTALL_SH.read_text()
+    assert 'receipt="$INSTALL_DIR/.install_generation.json"' in text
+    assert "catalyst-install-generation/1" in text
+    assert "agent/verification_stop.py" in text
+    assert "plugins/ae-attestation/__init__.py" in text
+    assert 'plugins_tree="$(git -C "$INSTALL_DIR" rev-parse HEAD:plugins' in text
+    assert 'mv -f "$tmp" "$receipt"' in text
+    assert text.count("write_install_generation_receipt") >= 3

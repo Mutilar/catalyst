@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { shouldBoundToolGroup, technicalTrace, UNBOUNDABLE_TOOLS } from './fallback'
+import { MODEL_VISIBLE_TOOL_RESULT_KEY } from '@/lib/tool-presentation'
+
+import { mcpModelTrace, shouldBoundToolGroup, technicalTrace, UNBOUNDABLE_TOOLS } from './fallback'
 
 describe('shouldBoundToolGroup', () => {
   it('bounds long runs of ordinary tool calls', () => {
@@ -33,5 +35,20 @@ describe('technicalTrace', () => {
   it('leaves scalar strings untouched', () => {
     expect(technicalTrace(undefined, 'plain text')).toBe('Result:\nplain text')
     expect(technicalTrace(undefined, '"already quoted"')).toBe('Result:\n"already quoted"')
+  })
+})
+
+describe('mcpModelTrace', () => {
+  it('shows exact model-visible input and output without Hermes timing metadata', () => {
+    expect(
+      mcpModelTrace(
+        {},
+        {
+          duration_s: 1.789,
+          error: '🔴 LUCID · morph · malformed-args',
+          [MODEL_VISIBLE_TOOL_RESULT_KEY]: { error: '🔴 LUCID · morph · malformed-args' }
+        }
+      )
+    ).toBe('Input:\n{}\n\nOutput:\n{\n  "error": "🔴 LUCID · morph · malformed-args"\n}')
   })
 })

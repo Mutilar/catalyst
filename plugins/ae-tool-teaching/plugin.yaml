@@ -1,0 +1,8 @@
+name: ae-tool-teaching
+version: "1.0.0"
+description: "AE-only PENGUIN teaching moment for noncanonical tool calls; deterministic HARNESS policy owns holds and validated suggestions never execute."
+author: "Microsoft Applied Sciences"
+kind: backend
+hooks:
+  - pre_tool_call
+  - transform_tool_result

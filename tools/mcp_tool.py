@@ -3570,6 +3570,7 @@ _server_error_counts: Dict[str, int] = {}
 _server_breaker_opened_at: Dict[str, float] = {}
 _CIRCUIT_BREAKER_THRESHOLD = 3
 _CIRCUIT_BREAKER_COOLDOWN_SEC = 60.0
+_RESPONSE_MODALITY_EXTENSION = "com.asg.lucid/response-modality"
 
 
 def _bump_server_error(server_name: str) -> None:
@@ -3594,6 +3595,25 @@ def _reset_server_error(server_name: str) -> None:
     """
     _server_error_counts[server_name] = 0
     _server_breaker_opened_at.pop(server_name, None)
+
+
+def _preferred_tool_call_meta(server: Any) -> Optional[dict]:
+    """Prefer UGUI only when the MCP server advertises that shared extension."""
+    initialize_result = getattr(server, "initialize_result", None)
+    capabilities = getattr(initialize_result, "capabilities", None)
+    if isinstance(capabilities, dict):
+        experimental = capabilities.get("experimental")
+    else:
+        experimental = getattr(capabilities, "experimental", None)
+    if not isinstance(experimental, dict):
+        return None
+    advertisement = experimental.get(_RESPONSE_MODALITY_EXTENSION)
+    if not isinstance(advertisement, dict):
+        return None
+    modes = advertisement.get("modes")
+    if not isinstance(modes, list) or "ugui" not in modes:
+        return None
+    return {_RESPONSE_MODALITY_EXTENSION: {"mode": "ugui"}}
 
 
 def _signal_reconnect(server: Any) -> bool:
@@ -4609,13 +4629,20 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
         async def _call():
             _mark_server_call_started(server)
             async with server._rpc_lock:
+                session = server.session
+                if session is None:
+                    raise ConnectionError(f"MCP server '{server_name}' lost its session before tools/call")
                 # Snapshot the agent's context so an elicitation callback
                 # triggered during this call (fired on the MCP recv loop
                 # task, which doesn't inherit our contextvars) can replay
                 # it and detect the gateway platform / session for routing.
                 server._pending_call_context = contextvars.copy_context()
                 try:
-                    result = await server.session.call_tool(tool_name, arguments=args)
+                    meta = _preferred_tool_call_meta(server)
+                    if meta is None:
+                        result = await session.call_tool(tool_name, arguments=args)
+                    else:
+                        result = await session.call_tool(tool_name, arguments=args, meta=meta)
                 finally:
                     server._pending_call_context = None
             # The RPC round-trip completed — the session is demonstrably
@@ -4698,12 +4725,10 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
             # is the primary payload; structuredContent supplements it.
             structured = getattr(result, "structuredContent", None)
             if structured is not None:
-                if text_result:
-                    return json.dumps({
-                        "result": text_result,
-                        "structuredContent": structured,
-                    }, ensure_ascii=False)
-                return json.dumps({"result": structured}, ensure_ascii=False)
+                return json.dumps({
+                    "result": text_result,
+                    "structuredContent": structured,
+                }, ensure_ascii=False)
             return json.dumps({"result": text_result}, ensure_ascii=False)
 
         def _call_once():
@@ -4711,15 +4736,12 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
 
         try:
             result = _call_once()
-            # Check if the MCP tool itself returned an error
-            try:
-                parsed = json.loads(result)
-                if "error" in parsed:
-                    _bump_server_error(server_name)
-                else:
-                    _reset_server_error(server_name)  # success — reset
-            except (json.JSONDecodeError, TypeError):
-                _reset_server_error(server_name)  # non-JSON = success
+            # The RPC completed, so the MCP transport is healthy. A tool-level
+            # ``isError`` result is an application outcome (malformed args,
+            # policy refusal, missing noun), not evidence that the server is
+            # unreachable. Only transport exceptions below may trip the shared
+            # server circuit breaker.
+            _reset_server_error(server_name)
             return result
         except InterruptedError:
             return _interrupted_call_result()

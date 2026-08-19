@@ -119,31 +119,19 @@ class TestDetectDangerousRm:
         assert key is not None
         assert "delete" in desc.lower()
 
-    def test_nonrecursive_verification_artifact_cleanup_is_not_dangerous(self):
-        with mock_patch("tempfile.gettempdir", return_value="/tmp"):
-            for prefix in ("hermes-verify-", "hermes-ad-hoc-"):
-                assert detect_dangerous_command(f"rm -f /tmp/{prefix}example.py") == (
-                    False,
-                    None,
-                    None,
-                )
+    def test_temp_verification_names_have_no_delete_exemption(self, tmp_path):
+        paths = [
+            "/tmp/hermes-verify-example.py",
+            "/tmp/hermes-ad-hoc-example.py",
+            str(tmp_path / "hermes-verify-example.py"),
+        ]
+        for path in paths:
+            dangerous, key, desc = detect_dangerous_command(f"rm -f {path}")
+            assert dangerous is True
+            assert key is not None
+            assert "delete" in desc.lower()
 
-    def test_symlinked_temp_dir_only_exempts_canonical_target(self, tmp_path):
-        real_temp = tmp_path / "real-temp"
-        real_temp.mkdir()
-        linked_temp = tmp_path / "linked-temp"
-        linked_temp.symlink_to(real_temp, target_is_directory=True)
-        basename = "hermes-verify-example.py"
-
-        with mock_patch("tempfile.gettempdir", return_value=str(linked_temp)):
-            assert detect_dangerous_command(f"rm -f {linked_temp / basename}")[0] is True
-            assert detect_dangerous_command(f"rm -f {real_temp / basename}") == (
-                False,
-                None,
-                None,
-            )
-
-    def test_verification_cleanup_exemption_rejects_broader_deletions(self):
+    def test_verification_named_deletions_remain_dangerous(self):
         commands = (
             "rm -rf /tmp/hermes-verify-example.py",
             "rm -f /tmp/hermes-verify-example.py /tmp/other.py",

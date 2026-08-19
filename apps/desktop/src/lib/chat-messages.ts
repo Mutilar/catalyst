@@ -5,6 +5,7 @@ import { dedupeGeneratedImageEchoesInParts } from '@/lib/generated-images'
 import { mediaDisplayLabel, mediaMarkdownHref } from '@/lib/media'
 import { normalize } from '@/lib/text'
 import { parseTodos } from '@/lib/todos'
+import { mcpToolIdentity, MODEL_VISIBLE_TOOL_RESULT_KEY } from '@/lib/tool-presentation'
 import type { SessionMessage, UsageStats } from '@/types/hermes'
 
 export type ChatMessagePart = Exclude<ThreadMessageLike['content'], string>[number]
@@ -595,9 +596,14 @@ function toolArgs(payload: GatewayEventPayload | undefined, prevArgs?: unknown):
 function toolResult(
   payload: GatewayEventPayload | undefined,
   prevResult?: unknown,
-  prevArgs?: unknown
+  prevArgs?: unknown,
+  toolName = ''
 ): Record<string, unknown> {
   const parsedResult = parseMaybeJsonObject(payload?.result)
+
+  const exactMcpResult = mcpToolIdentity(toolName)
+    ? { [MODEL_VISIBLE_TOOL_RESULT_KEY]: payload?.result ?? parsedResult }
+    : {}
 
   return {
     ...parsedResult,
@@ -607,7 +613,8 @@ function toolResult(
     ...(payload?.preview ? { preview: payload.preview } : {}),
     ...(payload?.duration_s !== undefined ? { duration_s: payload.duration_s } : {}),
     ...carryTodos(payload, prevResult, prevArgs),
-    ...(payload?.error ? { error: payload.error } : {})
+    ...(payload?.error ? { error: payload.error } : {}),
+    ...exactMcpResult
   }
 }
 
@@ -638,7 +645,10 @@ export function upsertToolPart(
     toolName: name,
     args: args as never,
     argsText: JSON.stringify(args),
-    ...(phase === 'complete' && { result: toolResult(payload, prevResult, prevArgs), isError: Boolean(payload?.error) })
+    ...(phase === 'complete' && {
+      result: toolResult(payload, prevResult, prevArgs, name),
+      isError: Boolean(payload?.error)
+    })
   } satisfies ChatMessagePart
 
   if (index === -1) {

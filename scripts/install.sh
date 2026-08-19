@@ -1362,6 +1362,30 @@ setup_venv() {
     log_success "Virtual environment ready (Python $PYTHON_VERSION)"
 }
 
+write_install_generation_receipt() {
+    local revision agent_object plugin_object plugins_tree dirty tmp receipt
+    receipt="$INSTALL_DIR/.install_generation.json"
+    tmp="$receipt.tmp.$$"
+    revision="$(git -C "$INSTALL_DIR" rev-parse --verify HEAD 2>/dev/null || true)"
+    agent_object="$(git -C "$INSTALL_DIR" hash-object agent/verification_stop.py 2>/dev/null || true)"
+    plugin_object="$(git -C "$INSTALL_DIR" hash-object plugins/ae-attestation/__init__.py 2>/dev/null || true)"
+    plugins_tree="$(git -C "$INSTALL_DIR" rev-parse HEAD:plugins 2>/dev/null || true)"
+    if [ ${#revision} -lt 40 ] || [ ${#agent_object} -lt 40 ] || [ ${#plugin_object} -lt 40 ] || [ ${#plugins_tree} -lt 40 ]; then
+        log_error "Cannot attest installed Catalyst source generation"
+        rm -f "$tmp"
+        return 1
+    fi
+    if git -C "$INSTALL_DIR" diff --quiet --ignore-submodules -- 2>/dev/null; then
+        dirty=false
+    else
+        dirty=true
+    fi
+    umask 077
+    printf '{"schema":"catalyst-install-generation/1","revision":"%s","dirty":%s,"agent_object":"%s","attestation_plugin_object":"%s","plugins_tree":"%s"}\n' \
+        "$revision" "$dirty" "$agent_object" "$plugin_object" "$plugins_tree" > "$tmp"
+    mv -f "$tmp" "$receipt"
+}
+
 install_deps() {
     log_info "Installing dependencies..."
 
@@ -3038,6 +3062,7 @@ run_stage_body() {
             # clobbered by the container's 'docker' stamp and wrongly blocks
             # 'hermes update' on this host install. See detect_install_method().
             echo "git" > "$INSTALL_DIR/.install_method"
+            write_install_generation_receipt
             ;;
         *)
             log_error "Unknown stage: $stage"
@@ -3122,6 +3147,7 @@ main() {
     # stamp and wrongly blocks 'hermes update' on this host install.
     # See detect_install_method().
     echo "git" > "$INSTALL_DIR/.install_method"
+    write_install_generation_receipt
 }
 
 if [ "$MANIFEST_MODE" = true ]; then

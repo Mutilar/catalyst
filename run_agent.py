@@ -229,13 +229,9 @@ _EPHEMERAL_SCAFFOLDING_FLAGS = (
     "_empty_recovery_synthetic",
     "_empty_terminal_sentinel",
     "_thinking_prefill",
-    # verify-on-stop and pre_verify nudges append a synthetic user nudge to
-    # keep the agent going one more turn before it can claim completion.
-    # The nudge exists only to drive the verification loop; persisting it
-    # poisons the resumed transcript and breaks prompt-prefix cache reuse
-    # on later turns. The assistant candidate is NOT synthetic — it is
-    # persisted and emitted as an interim message (#65919).
-    "_verification_stop_synthetic",
+    # Project-owned pre-final and pre-verify hooks may request one bounded
+    # conversational correction. Neither the candidate nor nudge is durable.
+    "_pre_final_synthetic",
     "_pre_verify_synthetic",
     # kanban worker stop-guard: narrated exit without kanban_complete/block
     "_kanban_stop_synthetic",
