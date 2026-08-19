@@ -1100,12 +1100,28 @@ def _discover_entrypoint_plugins() -> list[tuple[str, str, str, str]]:
     return entries
 
 
-def _plugin_status(name: str, enabled: set, disabled: set, key: str = "") -> str:
+def _plugin_status(
+    name: str,
+    enabled: set,
+    disabled: set,
+    key: str = "",
+    *,
+    source: str = "",
+    directory: Optional[Path] = None,
+) -> str:
     """Return the user-facing activation state for a plugin name or key."""
     if name in disabled or key in disabled:
         return "disabled"
     if name in enabled or key in enabled:
         return "enabled"
+    if source == "bundled" and directory is not None:
+        manifest = _read_manifest(directory)
+        if isinstance(manifest, dict) and manifest.get("kind") in {
+            "backend",
+            "model-provider",
+            "platform",
+        }:
+            return "enabled"
     return "not enabled"
 
 
@@ -1117,7 +1133,15 @@ def _filter_plugin_entries(entries: list, args: Any, enabled: set, disabled: set
     if getattr(args, "enabled", False):
         filtered = [
             entry for entry in filtered
-            if _plugin_status(entry[0], enabled, disabled, key=entry[5]) == "enabled"
+            if _plugin_status(
+                entry[0],
+                enabled,
+                disabled,
+                key=entry[5],
+                source=entry[3],
+                directory=entry[4],
+            )
+            == "enabled"
         ]
     return filtered
 
@@ -1142,7 +1166,9 @@ def cmd_list(args: Any | None = None) -> None:
         payload = [
             {
                 "name": name,
-                "status": _plugin_status(name, enabled, disabled, key=key),
+                "status": _plugin_status(
+                    name, enabled, disabled, key=key, source=source, directory=_dir
+                ),
                 "version": str(version),
                 "description": description,
                 "source": source,
@@ -1154,7 +1180,9 @@ def cmd_list(args: Any | None = None) -> None:
 
     if getattr(args, "plain", False):
         for name, version, _description, source, _dir, key in entries:
-            status = _plugin_status(name, enabled, disabled, key=key)
+            status = _plugin_status(
+                name, enabled, disabled, key=key, source=source, directory=_dir
+            )
             print(f"{status:12} {source:8} {str(version):8} {name}")
         return
 
@@ -1170,7 +1198,9 @@ def cmd_list(args: Any | None = None) -> None:
     table.add_column("Source", style="dim")
 
     for name, version, description, source, _dir, key in entries:
-        status_name = _plugin_status(name, enabled, disabled, key=key)
+        status_name = _plugin_status(
+            name, enabled, disabled, key=key, source=source, directory=_dir
+        )
         if status_name == "disabled":
             status = "[red]disabled[/red]"
         elif status_name == "enabled":

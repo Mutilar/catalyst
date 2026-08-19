@@ -416,6 +416,13 @@ def build_turn_context(
     except Exception:
         logger.debug("between-turns MCP tool refresh skipped", exc_info=True)
 
+    try:
+        from agent.harness_capsule import observe_agent_tool_schema
+
+        observe_agent_tool_schema(agent)
+    except Exception:
+        logger.debug("AE harness tool-schema observation skipped", exc_info=True)
+
     # Sanitize surrogate characters from user input.
     if isinstance(user_message, str):
         user_message = sanitize_surrogates(user_message)

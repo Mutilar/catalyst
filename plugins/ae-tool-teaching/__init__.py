@@ -1,8 +1,8 @@
-"""AE PENGUIN tool-call teaching.
+"""AE PENGUIN authority-none tool-call teaching.
 
-HARNESS policy decides whether a call is held. PENGUIN may only suggest one
-existing LUCID call; deterministic validation is authoritative and no suggestion
-executes or replays either the original or candidate call.
+The generated LUCID KX universe classifies source calls and binds one exact
+canonical candidate. HARNESS alone owns allow/whisper/hold/enforce policy;
+this plugin never executes or replays either call.
 """
 
 from __future__ import annotations
@@ -12,33 +12,33 @@ import json
 import os
 import re
 import shlex
+import sys
 import threading
-import urllib.request
+import time
+
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Optional
 
 SUGGESTION_SCHEMA = "penguin-tool-suggestion/1"
 CANDIDATE_SCHEMA = "penguin-tool-suggestion-candidate/1"
-_MODE_ENV = "AE_PENGUIN_TOOL_INTERPRETATION"
-_HOLD_FOCUSED_ENV = "AE_PENGUIN_TOOL_HOLD_FOCUSED"
 _MAX_COMMAND_BYTES = 16_384
-_MAX_RESPONSE_BYTES = 16_384
 _MAX_TRAJECTORIES = 256
 _AREA_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
 _STATE_LOCK = threading.Lock()
+_MISSING = object()
+_TRANSFORMS = {
+    "identity",
+    "singleton-list",
+    "repo-relative",
+    "repo-relative-list",
+    "path-parent",
+    "focused-path",
+    "search-mode",
+}
 _HELD_CALLS: OrderedDict[tuple[str, str], int] = OrderedDict()
 _OVERRIDDEN_CALLS: OrderedDict[tuple[str, str], int] = OrderedDict()
 _PENDING_CANDIDATES: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
-
-
-def _mode() -> str:
-    value = os.environ.get(_MODE_ENV, "heuristic").strip().lower()
-    return value if value in {"off", "heuristic", "intelligent"} else "heuristic"
-
-
-def _truthy(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _ae_root(args: dict[str, Any]) -> Optional[Path]:
@@ -82,6 +82,7 @@ def _area_from(value: str, kind: str) -> Optional[str]:
         value = path.as_posix().strip("./")
     else:
         return None
+    value = value or "workspace"
     return value if _AREA_RE.fullmatch(value) else None
 
 
@@ -112,27 +113,98 @@ def _workspace_area(root: Path, args: dict[str, Any]) -> str:
     return value if _AREA_RE.fullmatch(value) else "workspace"
 
 
-
 def _registry(root: Path) -> Optional[dict[str, Any]]:
     try:
-        lucid = json.loads((root / "envelope/LUCID.json").read_text(encoding="utf-8"))
+        registry = json.loads(
+            (root / "envelope/LUCID-TOOL-TEACHING.json").read_text(encoding="utf-8")
+        )
     except (OSError, UnicodeError, ValueError, TypeError):
         return None
-    registry = lucid.get("tool_suggestion_registry")
-    if not isinstance(registry, dict) or registry.get("schema") != "lucid-tool-suggestion-registry/1":
+    if (
+        not isinstance(registry, dict)
+        or registry.get("schema") != "lucid-kx-tool-teaching/1"
+        or registry.get("authority") != "none"
+        or registry.get("policy_owner") != "HARNESS"
+        or registry.get("verbs") != ["show", "get", "set", "morph", "dispatch", "steer", "cancel"]
+    ):
         return None
+    target_registry = registry.get("target_registry")
     targets = registry.get("targets")
-    if not isinstance(targets, list) or not targets or len(targets) > 64:
+    if (
+        not isinstance(target_registry, dict)
+        or len(target_registry) != 7
+        or not isinstance(targets, list)
+        or not targets
+        or len(targets) > 128
+    ):
         return None
     return registry
 
 
-def _command_intent(
+def _canonical_hash(value: Any) -> str:
+    canonical = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _argument_shape(value: Any, depth: int = 0) -> Any:
+    if depth >= 12:
+        return "value"
+    if isinstance(value, dict):
+        return {
+            str(key): _argument_shape(child, depth + 1)
+            for key, child in sorted(value.items(), key=lambda item: str(item[0]))[:64]
+        }
+    if isinstance(value, list):
+        return [_argument_shape(child, depth + 1) for child in value[:32]]
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return 1
+    if value is None:
+        return None
+    return "value"
+
+
+def _call_hash(tool_name: str, args: dict[str, Any], target_id: Any, operation: Any) -> str:
+    return _canonical_hash(
+        {
+            "tool": tool_name,
+            "target": target_id,
+            "operation": operation,
+            "argument_shape": _argument_shape(args),
+        }
+    )
+
+
+def _base_intent(
     tool_name: str,
     args: dict[str, Any],
-    registry: dict[str, Any],
+    target: dict[str, Any],
+    source: dict[str, Any],
+    *,
+    area: str,
+    focused: bool,
+    release: bool,
+) -> dict[str, Any]:
+    return {
+        "tool": tool_name,
+        "executable": source.get("executable", tool_name),
+        "operation": source.get("operation"),
+        "target": target.get("id"),
+        "area": area,
+        "focused": focused,
+        "release": release,
+        "call_hash": _call_hash(tool_name, args, target.get("id"), source.get("operation")),
+    }
+
+
+def _argv_intent(
+    tool_name: str,
+    args: dict[str, Any],
+    target: dict[str, Any],
+    source: dict[str, Any],
     root: Path,
-) -> Optional[tuple[dict[str, Any], dict[str, Any]]]:
+) -> Optional[dict[str, Any]]:
     if tool_name != "terminal":
         return None
     command = args.get("command")
@@ -147,218 +219,350 @@ def _command_intent(
     invocation_tokens = _unwrap_invocation(tokens)
     if not invocation_tokens:
         return None
+    prefixes = source.get("argv_prefixes")
+    if not isinstance(prefixes, list):
+        return None
+    prefix = next((prefix for prefix in prefixes if _prefix_matches(invocation_tokens, prefix)), None)
+    if prefix is None:
+        return None
+    invocation = invocation_tokens[len(prefix) :]
+    action = source.get("action_token")
+    if isinstance(action, str) and action not in invocation:
+        return None
+    focus_flags = source.get("focus_flags")
+    release_flags = source.get("release_flags")
+    area_flags = source.get("area_flags")
+    if (
+        not isinstance(focus_flags, list)
+        or not isinstance(release_flags, list)
+        or not isinstance(area_flags, list)
+    ):
+        return None
+    focused = any(_flag_present(invocation, flag) for flag in focus_flags)
+    area = _workspace_area(root, args)
+    for rule in area_flags:
+        if not isinstance(rule, dict):
+            continue
+        flag = rule.get("flag")
+        kind = rule.get("kind")
+        if not isinstance(flag, str) or not isinstance(kind, str):
+            continue
+        value = _flag_value(invocation, flag)
+        if value is not None:
+            derived = _area_from(value, kind)
+            if derived is None:
+                return None
+            area = derived
+            focused = True
+            break
+    if source.get("positional_focus") is True:
+        positional = next(
+            (
+                token
+                for token in invocation
+                if not token.startswith("-")
+                and token != action
+                and ("/" in token or token.endswith((".py", ".rs", ".ts", ".tsx")))
+            ),
+            None,
+        )
+        if positional is not None:
+            focused = True
+            derived = _area_from(positional, "path-parent")
+            if derived is not None:
+                area = derived
+    intent = _base_intent(
+        tool_name,
+        args,
+        target,
+        source,
+        area=area,
+        focused=focused,
+        release=any(_flag_present(invocation, flag) for flag in release_flags),
+    )
+    return intent if _intent_valid(intent) else None
+
+
+def _typed_intent(
+    tool_name: str,
+    args: dict[str, Any],
+    target: dict[str, Any],
+    source: dict[str, Any],
+    root: Path,
+) -> Optional[dict[str, Any]]:
+    if source.get("tool") != tool_name:
+        return None
+    allowed = source.get("allowed_args")
+    required = source.get("required_args")
+    if (
+        not isinstance(allowed, list)
+        or not isinstance(required, list)
+        or any(key not in allowed for key in args)
+        or any(key not in args for key in required)
+        or any(bool(args.get(key)) for key in source.get("reject_truthy", []))
+    ):
+        return None
+    declaration = source.get("intent")
+    if not isinstance(declaration, dict):
+        return None
+    try:
+        resolved = _resolve_binding(declaration, {}, args, root)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if (
+        not isinstance(resolved, dict)
+        or not isinstance(resolved.get("area"), str)
+        or not isinstance(resolved.get("focused"), bool)
+        or not isinstance(resolved.get("release"), bool)
+    ):
+        return None
+    intent = _base_intent(
+        tool_name,
+        args,
+        target,
+        source,
+        area=resolved["area"],
+        focused=resolved["focused"],
+        release=resolved["release"],
+    )
+    return intent if _intent_valid(intent) else None
+
+
+def _intent_valid(intent: dict[str, Any]) -> bool:
+    return (
+        all(
+            isinstance(intent.get(key), str) and bool(intent[key])
+            for key in ("tool", "executable", "operation", "target", "area", "call_hash")
+        )
+        and isinstance(intent.get("focused"), bool)
+        and isinstance(intent.get("release"), bool)
+        and _AREA_RE.fullmatch(intent["area"]) is not None
+    )
+
+
+def _source_intent(
+    tool_name: str,
+    args: dict[str, Any],
+    registry: dict[str, Any],
+    root: Path,
+) -> Optional[tuple[dict[str, Any], dict[str, Any]]]:
+    classifiers = {"argv": _argv_intent, "typed": _typed_intent}
     for target in registry["targets"]:
         if not isinstance(target, dict):
             continue
         source = target.get("source")
         if not isinstance(source, dict) or source.get("tool") != tool_name:
             continue
-        prefixes = source.get("argv_prefixes")
-        if not isinstance(prefixes, list):
+        kind = source.get("kind")
+        classifier = classifiers.get(kind) if isinstance(kind, str) else None
+        if classifier is None:
             continue
-        prefix = next(
-            (prefix for prefix in prefixes if _prefix_matches(invocation_tokens, prefix)), None
-        )
-        if prefix is None:
-            continue
-        invocation = invocation_tokens[len(prefix) :]
-        action = source.get("action_token")
-        if isinstance(action, str) and action not in invocation:
-            continue
-        focus_flags = source.get("focus_flags")
-        if not isinstance(focus_flags, list) or not all(isinstance(flag, str) for flag in focus_flags):
-            continue
-        release_flags = source.get("release_flags")
-        if not isinstance(release_flags, list) or not all(isinstance(flag, str) for flag in release_flags):
-            continue
-        focused = any(_flag_present(invocation, flag) for flag in focus_flags)
-        area = _workspace_area(root, args)
-        area_flags = source.get("area_flags")
-        if not isinstance(area_flags, list):
-            continue
-        for rule in area_flags:
-            if not isinstance(rule, dict):
-                continue
-            flag = rule.get("flag")
-            kind = rule.get("kind")
-            if not isinstance(flag, str) or not isinstance(kind, str):
-                continue
-            value = _flag_value(invocation, flag)
-            if value is not None:
-                derived = _area_from(value, kind)
-                if derived is None:
-                    return None
-                area = derived
-                focused = True
-                break
-        if source.get("positional_focus") is True:
-            positional = next(
-                (
-                    token
-                    for token in invocation
-                    if not token.startswith("-")
-                    and token != action
-                    and ("/" in token or token.endswith((".py", ".rs", ".ts", ".tsx")))
-                ),
-                None,
-            )
-            if positional is not None:
-                focused = True
-                derived = _area_from(positional, "path-parent")
-                if derived is not None:
-                    area = derived
-        intent = {
-            "tool": "terminal",
-            "executable": source.get("executable"),
-            "operation": source.get("operation"),
-            "target": target.get("id"),
-            "area": area,
-            "focused": focused,
-            "release": any(_flag_present(invocation, flag) for flag in release_flags),
-            "command_hash": "sha256:" + hashlib.sha256(command.encode("utf-8")).hexdigest(),
-        }
-        if not all(isinstance(intent[key], str) and intent[key] for key in ("executable", "operation", "target")):
-            continue
-        return intent, target
+        intent = classifier(tool_name, args, target, source, root)
+        if intent is not None:
+            return intent, target
     return None
 
 
 def _registry_hash(registry: dict[str, Any]) -> str:
-    canonical = json.dumps(registry, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return _canonical_hash(registry)
 
 
-def _heuristic_candidate(intent: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
-    candidate = target.get("candidate", {})
-    if candidate.get("shape") == "quality-operation":
-        arguments = {"area": intent["area"], "operation": candidate.get("operation")}
-        explanation = (
-            f"Use the registered {candidate.get('operation')} quality owner when this command is intended "
-            "as completion evidence."
-        )
-    elif candidate.get("shape") == "run-qualification":
-        arguments = {"task": candidate.get("task"), "area": intent["area"]}
-        explanation = "Use RUN qualification when this build is intended to produce or promote a runtime artifact."
+def _argument_value(args: dict[str, Any], path: str) -> Any:
+    value: Any = args
+    for segment in path.split("."):
+        if not isinstance(value, dict) or segment not in value:
+            return _MISSING
+        value = value[segment]
+    return value
+
+
+def _repository_relative(value: Any, root: Path) -> str:
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise ValueError("invalid-repository-path")
+    path = Path(value).expanduser()
+    try:
+        if path.is_absolute():
+            relative = path.resolve(strict=False).relative_to(root.resolve(strict=True))
+        else:
+            if ".." in path.parts:
+                raise ValueError("repository-path-escape")
+            relative = path
+    except (OSError, RuntimeError, ValueError) as error:
+        raise ValueError("repository-path-escape") from error
+    normalized = relative.as_posix()
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized or "."
+
+
+def _transform_value(name: str, value: Any, root: Path) -> Any:
+    if name not in _TRANSFORMS:
+        raise ValueError("unknown-generated-transform")
+    if name == "identity":
+        return value
+    if name == "singleton-list":
+        return [value]
+    if name == "repo-relative":
+        return _repository_relative(value, root)
+    if name == "repo-relative-list":
+        return [_repository_relative(value, root)]
+    if name == "path-parent":
+        relative = _repository_relative(value, root)
+        return _area_from(relative, "path-parent") or "workspace"
+    if name == "focused-path":
+        return _repository_relative(value, root) != "."
+    if name == "search-mode":
+        modes = {"content": "content", "files": "names"}
+        if value not in modes:
+            raise ValueError("unregistered-search-mode")
+        return modes[value]
+    raise ValueError("unknown-generated-transform")
+
+
+def _resolve_binding(
+    binding: Any,
+    intent: dict[str, Any],
+    args: dict[str, Any],
+    root: Path,
+) -> Any:
+    if isinstance(binding, list):
+        resolved = [_resolve_binding(value, intent, args, root) for value in binding]
+        return [value for value in resolved if value is not _MISSING]
+    if not isinstance(binding, dict):
+        raise ValueError("unbound-generated-value")
+    keys = set(binding)
+    if keys == {"$const"}:
+        return binding["$const"]
+    if "$intent" in binding and keys <= {"$intent", "$transform"}:
+        name = binding["$intent"]
+        if not isinstance(name, str) or name not in intent:
+            raise KeyError(name)
+        value = intent[name]
+    elif "$arg" in binding and keys <= {"$arg", "$default", "$transform"}:
+        name = binding["$arg"]
+        if not isinstance(name, str):
+            raise ValueError("invalid-generated-argument")
+        value = _argument_value(args, name)
+        if value is _MISSING:
+            value = binding.get("$default", _MISSING)
+        if value is _MISSING:
+            return _MISSING
+    elif not any(key.startswith("$") for key in binding):
+        resolved = {
+            key: _resolve_binding(value, intent, args, root)
+            for key, value in binding.items()
+        }
+        return {key: value for key, value in resolved.items() if value is not _MISSING}
     else:
-        raise ValueError("unregistered-candidate-shape")
+        raise ValueError("unknown-generated-binding")
+    transform = binding.get("$transform", "identity")
+    if not isinstance(transform, str):
+        raise ValueError("invalid-generated-transform")
+    return _transform_value(transform, value, root)
+
+
+def _heuristic_candidate(
+    intent: dict[str, Any],
+    args: dict[str, Any],
+    target: dict[str, Any],
+    root: Path,
+) -> dict[str, Any]:
+    declaration = target.get("compiled")
+    if not isinstance(declaration, dict) or declaration.get("kind") != "call":
+        raise ValueError("unregistered-candidate-kind")
+    arguments = _resolve_binding(declaration.get("arguments"), intent, args, root)
+    if not isinstance(arguments, dict) or not arguments:
+        raise ValueError("empty-generated-arguments")
     return {
         "schema": CANDIDATE_SCHEMA,
-        "verb": candidate.get("verb"),
+        "tool": declaration.get("tool"),
+        "verb": declaration.get("verb"),
+        "target": declaration.get("target"),
         "arguments": arguments,
-        "explanation": explanation,
+        "explanation": declaration.get("explanation"),
+        "syntax": {"tool": declaration.get("tool"), "arguments": arguments},
     }
 
 
-def _candidate_valid(candidate: Any, intent: dict[str, Any]) -> bool:
-    if not isinstance(candidate, dict) or set(candidate) != {"schema", "verb", "arguments", "explanation"}:
+def _candidate_valid(candidate: Any, registry: dict[str, Any]) -> bool:
+    if not isinstance(candidate, dict) or set(candidate) != {
+        "schema",
+        "tool",
+        "verb",
+        "target",
+        "arguments",
+        "explanation",
+        "syntax",
+    }:
         return False
-    if candidate.get("schema") != CANDIDATE_SCHEMA or candidate.get("verb") != "dispatch":
-        return False
-    explanation = candidate.get("explanation")
+    verb = candidate.get("verb")
+    target = candidate.get("target")
     arguments = candidate.get("arguments")
-    if not isinstance(explanation, str) or not explanation or len(explanation) > 512:
+    explanation = candidate.get("explanation")
+    if (
+        candidate.get("schema") != CANDIDATE_SCHEMA
+        or candidate.get("tool") != f"mcp__LUCID__{verb}"
+        or not isinstance(target, dict)
+        or set(target) != {"registry", "id"}
+        or not isinstance(arguments, dict)
+        or not arguments
+        or len(arguments) > 32
+        or not isinstance(explanation, str)
+        or not explanation
+        or len(explanation) > 512
+        or candidate.get("syntax") != {"tool": candidate["tool"], "arguments": arguments}
+    ):
         return False
-    if not isinstance(arguments, dict) or arguments.get("area") != intent["area"]:
-        return False
-    if intent["operation"] in {"test", "lint", "line_coverage", "branch_coverage"}:
-        return (
-            set(arguments) == {"area", "operation"}
-            and arguments.get("operation") == intent["operation"]
-        )
-    return set(arguments) == {"task", "area"} and arguments.get("task") == "run.qualify"
-
-
-def _penguin_candidate(intent: dict[str, Any], heuristic: dict[str, Any]) -> dict[str, Any]:
-    endpoint = os.environ.get("AE_SLM_ENDPOINT", "").rstrip("/")
-    model = os.environ.get("AE_SLM_MODEL", "")
-    if not endpoint or not model:
-        raise RuntimeError("penguin-unavailable")
-    prompt = {
-        "schema": "penguin-tool-suggestion-request/1",
-        "authority": "none",
-        "instruction": (
-            "Return exactly one raw penguin-tool-suggestion-candidate/1 JSON object. "
-            "Preserve verb=dispatch and the exact area. Do not execute, replay, add capability, or emit prose."
-        ),
-        "intent": intent,
-        "heuristic_candidate": heuristic,
-    }
-    body = json.dumps(
-        {
-            "model": model,
-            "messages": [{"role": "user", "content": json.dumps(prompt, separators=(",", ":"))}],
-            "temperature": 0,
-            "max_tokens": 256,
-        },
-        separators=(",", ":"),
-    ).encode("utf-8")
-    request = urllib.request.Request(
-        endpoint + "/v1/chat/completions",
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=5) as response:
-        payload = response.read(_MAX_RESPONSE_BYTES + 1)
-    if len(payload) > _MAX_RESPONSE_BYTES:
-        raise RuntimeError("penguin-response-too-large")
-    decoded = json.loads(payload)
-    content = decoded["choices"][0]["message"]["content"]
-    candidate = json.loads(content)
-    if not _candidate_valid(candidate, intent):
-        raise RuntimeError("penguin-candidate-invalid")
-    return candidate
+    join = registry["target_registry"].get(target.get("registry"))
+    return isinstance(join, dict) and join.get("verb") == verb
 
 
 def _suggestion(
     intent: dict[str, Any],
-    mode: str,
+    source_args: dict[str, Any],
     target: dict[str, Any],
     registry: dict[str, Any],
+    root: Path,
     *,
     decision: str,
     original_executed: bool,
     attempt: int,
 ) -> dict[str, Any]:
-    heuristic = _heuristic_candidate(intent, target)
-    candidate = heuristic
-    source = "heuristic"
-    fallback = None
-    if mode == "intelligent":
-        try:
-            candidate = _penguin_candidate(intent, heuristic)
-            source = "PENGUIN"
-        except Exception as error:  # graceful, content-free fallback
-            fallback = type(error).__name__
-    valid = _candidate_valid(candidate, intent)
+    candidate = _heuristic_candidate(intent, source_args, target, root)
+    valid = _candidate_valid(candidate, registry)
     if not valid:
-        candidate = heuristic
-        source = "heuristic"
-        fallback = "candidate-invalid"
-        valid = True
+        raise ValueError("generated-candidate-invalid")
     return {
         "schema": SUGGESTION_SCHEMA,
         "state": "validated",
         "decision": decision,
-        "source": source,
+        "source": "generated",
         "authority": "none",
         "executed": False,
         "auto_replay": False,
         "original_executed": original_executed,
-        "mode": mode,
+        "mode": "generated",
         "registry_hash": _registry_hash(registry),
         "intent": intent,
         "candidate": candidate,
-        "preflight": {"valid": valid, "validator": "AE deterministic tool suggestion preflight"},
+        "preflight": {"valid": True, "validator": "AE deterministic tool suggestion preflight"},
         "trajectory": {"state": decision, "attempt": attempt},
-        "fallback": fallback,
+        "fallback": None,
     }
 
 
-def _refusal(intent: dict[str, Any], target: dict[str, Any], registry: dict[str, Any]) -> dict[str, Any]:
-    declaration = target.get("candidate")
-    if not isinstance(declaration, dict) or declaration.get("shape") != "refusal":
+def _refusal(
+    intent: dict[str, Any],
+    source_args: dict[str, Any],
+    target: dict[str, Any],
+    registry: dict[str, Any],
+    root: Path,
+) -> dict[str, Any]:
+    declaration = target.get("compiled")
+    if not isinstance(declaration, dict) or declaration.get("kind") != "refusal":
         raise ValueError("unregistered-refusal-shape")
+    alternative = declaration["alternative"]
+    arguments = _resolve_binding(alternative["arguments"], intent, source_args, root)
     return {
         "schema": "penguin-tool-refusal/1",
         "state": "refused",
@@ -371,17 +575,20 @@ def _refusal(intent: dict[str, Any], target: dict[str, Any], registry: dict[str,
         "registry_hash": _registry_hash(registry),
         "intent": intent,
         "alternative": {
-            "kind": declaration.get("alternative"),
-            "verb": "get",
-            "path": "search",
+            "kind": "lucid-search",
+            "tool": alternative["tool"],
+            "verb": alternative["verb"],
+            "target": alternative["target"],
+            "arguments": arguments,
             "constraint": "explicit search terms are required; Git repository/history access remains prohibited",
         },
     }
 
 
 def _policy_disposition(intent: dict[str, Any], target: dict[str, Any]) -> Optional[str]:
-    raw_policy = target.get("policy")
-    policy = raw_policy if isinstance(raw_policy, dict) else {}
+    policy = target.get("policy")
+    if not isinstance(policy, dict):
+        return None
     disposition = (
         policy.get("release")
         if intent["release"]
@@ -389,9 +596,7 @@ def _policy_disposition(intent: dict[str, Any], target: dict[str, Any]) -> Optio
         if intent["focused"]
         else policy.get("workspace")
     )
-    if intent["focused"] and _truthy(_HOLD_FOCUSED_ENV):
-        return "hold"
-    return disposition if disposition in {"whisper", "hold", "enforce"} else None
+    return disposition if disposition in {"allow", "whisper", "hold", "enforce"} else None
 
 
 def _bounded_put(mapping: OrderedDict, key: Any, value: Any) -> None:
@@ -402,7 +607,7 @@ def _bounded_put(mapping: OrderedDict, key: Any, value: Any) -> None:
 
 
 def _hold_once(intent: dict[str, Any], session_id: str) -> bool:
-    key = (session_id or "session-unknown", intent["command_hash"])
+    key = (session_id or "session-unknown", intent["call_hash"])
     with _STATE_LOCK:
         if key in _HELD_CALLS:
             attempt = _HELD_CALLS.pop(key) + 1
@@ -412,24 +617,22 @@ def _hold_once(intent: dict[str, Any], session_id: str) -> bool:
         return True
 
 
-def _consume_override(command_hash: str, session_id: str) -> Optional[int]:
-    key = (session_id or "session-unknown", command_hash)
+def _consume_override(call_hash: str, session_id: str) -> Optional[int]:
+    key = (session_id or "session-unknown", call_hash)
     with _STATE_LOCK:
         return _OVERRIDDEN_CALLS.pop(key, None)
 
 
 def _remember_candidate(session_id: str, suggestion: dict[str, Any]) -> None:
     candidate = suggestion["candidate"]
-    canonical = json.dumps(candidate, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-    fingerprint = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    key = (session_id or "session-unknown", fingerprint)
+    key = (session_id or "session-unknown", _canonical_hash(candidate))
     with _STATE_LOCK:
         _bounded_put(
             _PENDING_CANDIDATES,
             key,
             {
                 "candidate": candidate,
-                "source_call_hash": suggestion["intent"]["command_hash"],
+                "source_call_hash": suggestion["intent"]["call_hash"],
                 "registry_hash": suggestion["registry_hash"],
             },
         )
@@ -437,16 +640,108 @@ def _remember_candidate(session_id: str, suggestion: dict[str, Any]) -> None:
 
 def _consume_followed(session_id: str, tool_name: str, args: Any) -> Optional[dict[str, Any]]:
     normalized = tool_name.lower().replace(".", "_").replace("-", "_")
-    if "lucid" not in normalized or not normalized.endswith("dispatch") or not isinstance(args, dict):
+    if not isinstance(args, dict):
         return None
     session = session_id or "session-unknown"
     with _STATE_LOCK:
         for key, pending in list(_PENDING_CANDIDATES.items()):
-            candidate_args = pending["candidate"]["arguments"]
-            if key[0] == session and all(args.get(name) == value for name, value in candidate_args.items()):
+            candidate = pending["candidate"]
+            expected_tool = candidate["tool"].lower().replace(".", "_").replace("-", "_")
+            if key[0] == session and normalized == expected_tool and args == candidate["arguments"]:
                 _PENDING_CANDIDATES.pop(key)
                 return pending
     return None
+
+
+def _emit_teaching_event(pending: dict[str, Any], outcome: str, succeeded: bool) -> None:
+    candidate = pending.get("candidate")
+    if not isinstance(candidate, dict):
+        return
+    target = candidate.get("target")
+    verb = candidate.get("verb")
+    candidate_hash = _canonical_hash(candidate)
+    request_identity = pending.get("source_call_hash")
+    registry_hash = pending.get("registry_hash")
+    if (
+        not isinstance(target, dict)
+        or not isinstance(target.get("id"), str)
+        or not isinstance(verb, str)
+        or not isinstance(request_identity, str)
+        or not isinstance(registry_hash, str)
+    ):
+        return
+    event = {
+        "schema": "penguin-suggestion-outcome/1",
+        "reasoning_retained": False,
+        "source_class": "local-observation",
+        "observed_epoch_bucket": max(1, int(time.time()) // 60 * 60),
+        "teaching_episode": _canonical_hash(
+            {
+                "candidate_hash": candidate_hash,
+                "request_identity": request_identity,
+                "registry_hash": registry_hash,
+            }
+        ),
+        "candidate_hash": candidate_hash,
+        "request_identity": request_identity,
+        "verb": verb,
+        "target": target["id"],
+        "matched_candidate": outcome in {"followed", "rejected"},
+        "outcome": outcome,
+        "succeeded": succeeded,
+        "authority": "none",
+        "auto_replay": False,
+    }
+    sys.stderr.write(
+        "PENGUIN_TEACHING_EVENT "
+        + json.dumps(event, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        + "\n"
+    )
+    sys.stderr.flush()
+
+
+def _emit_intent_event(
+    tool_name: str,
+    args: dict[str, Any],
+    classified: Optional[tuple],
+) -> None:
+    intent = classified[0] if classified is not None else None
+    target = classified[1] if classified is not None else None
+    operation = intent.get("operation") if isinstance(intent, dict) else None
+    target_id = target.get("id") if isinstance(target, dict) else None
+    event = {
+        "schema": "penguin-tool-intent-observed/1",
+        "source_class": "local-observation",
+        "observed_epoch_bucket": max(1, int(time.time()) // 60 * 60),
+        "request_identity": (
+            intent["call_hash"]
+            if isinstance(intent, dict)
+            else _call_hash(tool_name, args, target_id, operation)
+        ),
+        "tool_family": tool_name.lower().replace(".", "_").replace("-", "_")[:64],
+        "classification": "registered" if classified is not None else "unregistered",
+        "target": target_id,
+        "operation": operation,
+        "result_body_stored": False,
+        "authority": "none",
+    }
+    sys.stderr.write(
+        "PENGUIN_TEACHING_EVENT "
+        + json.dumps(event, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        + "\n"
+    )
+    sys.stderr.flush()
+
+
+def _on_session_end(session_id: str = "", **_: Any) -> None:
+    session = session_id or "session-unknown"
+    pending = []
+    with _STATE_LOCK:
+        for key, value in list(_PENDING_CANDIDATES.items()):
+            if key[0] == session:
+                pending.append(_PENDING_CANDIDATES.pop(key))
+    for value in pending:
+        _emit_teaching_event(value, "ignored", False)
 
 
 def _reset_state_for_tests() -> None:
@@ -463,14 +758,14 @@ def _classify(tool_name: str, args: Any):
     registry = _registry(root)
     if registry is None:
         return None
-    classified = _command_intent(tool_name, args, registry, root)
+    classified = _source_intent(tool_name, args, registry, root)
     if classified is None:
         return None
     intent, target = classified
     disposition = _policy_disposition(intent, target)
     if disposition is None:
         return None
-    return intent, target, registry, disposition
+    return intent, target, registry, disposition, root
 
 
 def _on_pre_tool_call(
@@ -480,54 +775,56 @@ def _on_pre_tool_call(
     session_id: str = "",
     **_: Any,
 ):
-    mode = _mode()
     classified = _classify(tool_name, args)
-    if classified is None:
+    if isinstance(args, dict):
+        root = _ae_root(args)
+        registry = _registry(root) if root is not None else None
+        known_source = isinstance(registry, dict) and any(
+            isinstance(target, dict)
+            and isinstance(target.get("source"), dict)
+            and target["source"].get("tool") == tool_name
+            for target in registry.get("targets", [])
+        )
+        if known_source:
+            _emit_intent_event(tool_name, args, classified)
+    if classified is None or not isinstance(args, dict):
         return None
-    intent, target, registry, disposition = classified
-    if disposition == "whisper":
+    intent, target, registry, disposition, root = classified
+    if disposition in {"allow", "whisper"}:
         return None
-    declaration = target.get("candidate")
-    if (
-        disposition == "enforce"
-        and isinstance(declaration, dict)
-        and declaration.get("shape") == "refusal"
-    ):
-        receipt = _refusal(intent, target, registry)
+    declaration = target.get("compiled")
+    if disposition == "enforce" and isinstance(declaration, dict) and declaration.get("kind") == "refusal":
+        receipt = _refusal(intent, args, target, registry, root)
         encoded = json.dumps(receipt, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
         return {
             "action": "block",
-            "message": (
-                "HARNESS refused Git before execution. QUINE owns repository mutation and history; "
-                "Git inspection is also prohibited. Use only bounded LUCID repository search.\n"
-                + encoded
-            ),
+            "message": "HARNESS refused this prohibited source call before execution.\n" + encoded,
         }
-    if mode == "off":
-        return None
     if disposition == "hold" and not _hold_once(intent, session_id):
         return None
     decision = "enforce" if disposition == "enforce" else "hold"
-    suggestion = _suggestion(
-        intent,
-        mode,
-        target,
-        registry,
-        decision=decision,
-        original_executed=False,
-        attempt=1,
-    )
-    if decision == "hold":
-        _remember_candidate(session_id, suggestion)
+    try:
+        suggestion = _suggestion(
+            intent,
+            args,
+            target,
+            registry,
+            root,
+            decision=decision,
+            original_executed=False,
+            attempt=1,
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+    _remember_candidate(session_id, suggestion)
     encoded = json.dumps(suggestion, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     return {
         "action": "block",
         "message": (
             "HARNESS held this noncanonical tool call before execution. "
-            "PENGUIN suggestion is authority-none and was deterministically validated; "
-            "issue the suggested LUCID call if it matches your intent. Repeating the exact held call once "
-            "is treated as an explicit diagnostic override. Disable teaching with "
-            f"{_MODE_ENV}=off.\n{encoded}"
+            "The generated PENGUIN suggestion is authority-none and has not executed or replayed either call. "
+            "Issue the exact suggested LUCID tool and complete arguments only if they match the intent.\n"
+            + encoded
         ),
     }
 
@@ -537,30 +834,44 @@ def _on_transform_tool_result(
     args: Any = None,
     result: Any = None,
     session_id: str = "",
+    status: str = "",
     **_: Any,
 ) -> Optional[str]:
-    mode = _mode()
-    if mode == "off" or not isinstance(result, str):
+    if not isinstance(result, str):
         return None
     followed = _consume_followed(session_id, tool_name, args)
     if followed is not None:
+        outcome = (
+            "success"
+            if status in {"ok", "success"}
+            else "refusal"
+            if status in {"blocked", "refused"}
+            else "failure"
+        )
         receipt = {
             "schema": "penguin-tool-suggestion-trajectory/1",
             "state": "followed",
             "authority": "none",
             "auto_replay": False,
             "candidate_executed": True,
+            "outcome": outcome,
+            "succeeded": outcome == "success",
             "source_call_hash": followed["source_call_hash"],
             "registry_hash": followed["registry_hash"],
             "candidate": followed["candidate"],
         }
+        _emit_teaching_event(
+            followed,
+            "followed" if outcome == "success" else "rejected",
+            outcome == "success",
+        )
         encoded = json.dumps(receipt, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
         return result + "\n\nPENGUIN teaching trajectory:\n" + encoded
     classified = _classify(tool_name, args)
     if classified is None:
         return None
-    intent, target, registry, disposition = classified
-    attempt = _consume_override(intent["command_hash"], session_id)
+    intent, target, registry, disposition, root = classified
+    attempt = _consume_override(intent["call_hash"], session_id)
     if attempt is not None:
         decision = "override"
     elif disposition == "whisper":
@@ -568,15 +879,20 @@ def _on_transform_tool_result(
         attempt = 1
     else:
         return None
-    suggestion = _suggestion(
-        intent,
-        mode,
-        target,
-        registry,
-        decision=decision,
-        original_executed=True,
-        attempt=attempt,
-    )
+    try:
+        suggestion = _suggestion(
+            intent,
+            args,
+            target,
+            registry,
+            root,
+            decision=decision,
+            original_executed=True,
+            attempt=attempt,
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+    _remember_candidate(session_id, suggestion)
     encoded = json.dumps(suggestion, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     return result + "\n\nPENGUIN teaching receipt (authority-none; no replay):\n" + encoded
 
@@ -584,3 +900,4 @@ def _on_transform_tool_result(
 def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", _on_pre_tool_call)
     ctx.register_hook("transform_tool_result", _on_transform_tool_result)
+    ctx.register_hook("on_session_end", _on_session_end)

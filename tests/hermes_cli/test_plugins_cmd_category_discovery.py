@@ -256,6 +256,35 @@ class TestPluginStatus:
         from hermes_cli.plugins_cmd import _plugin_status
         assert _plugin_status("web-tavily", {"web/tavily"}, {"web/tavily"}, key="web/tavily") == "disabled"
 
+    def test_bundled_backend_reports_runtime_auto_load(self, tmp_path):
+        from hermes_cli.plugins_cmd import _plugin_status
+
+        directory = _make_plugin_dir(
+            tmp_path,
+            "ae-attestation",
+            {"name": "ae-attestation", "version": "1.0.0", "kind": "backend"},
+        )
+        assert (
+            _plugin_status(
+                "ae-attestation",
+                set(),
+                set(),
+                source="bundled",
+                directory=directory,
+            )
+            == "enabled"
+        )
+        assert (
+            _plugin_status(
+                "ae-attestation",
+                set(),
+                {"ae-attestation"},
+                source="bundled",
+                directory=directory,
+            )
+            == "disabled"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Integration: _filter_plugin_entries with category plugins

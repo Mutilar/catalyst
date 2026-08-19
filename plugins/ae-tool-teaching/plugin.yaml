@@ -1,6 +1,6 @@
 name: ae-tool-teaching
-version: "1.0.0"
-description: "AE-only PENGUIN teaching moment for noncanonical tool calls; deterministic HARNESS policy owns holds and validated suggestions never execute."
+version: "2.0.0"
+description: "AE-only generated KX intent translation; HARNESS owns allow/whisper/hold/enforce and authority-none suggestions never execute or replay."
 author: "Microsoft Applied Sciences"
 kind: backend
 hooks:
