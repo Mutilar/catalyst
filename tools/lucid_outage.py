@@ -26,7 +26,7 @@ def _read_json(path: Path, maximum: int) -> dict[str, Any] | None:
 
 
 def _facade_matches(facade: dict[str, Any], tool: str, arguments: dict[str, Any]) -> bool:
-    if facade.get("verb") != tool:
+    if facade.get("outage_tier") != "mcp-offline" or facade.get("verb") != tool:
         return False
     canonical = facade.get("canonical")
     if not isinstance(canonical, dict):

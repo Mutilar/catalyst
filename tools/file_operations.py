@@ -832,6 +832,29 @@ class ShellFileOperations(FileOperations):
 
         # Cache for command availability checks
         self._command_cache: Dict[str, bool] = {}
+
+    def _quine_owns_quality(self, path: str) -> bool:
+        """Return whether the edited backend path belongs to an AE tree.
+
+        QUINE is the sole post-write lint/format authority for AgentExperiments.
+        Resolve ownership inside the active terminal backend so a local checkout
+        cannot suppress diagnostics for an unrelated remote/container path.
+        """
+        escaped = self._escape_shell_arg(path)
+        command = (
+            f'p=$(dirname -- {escaped}) && '
+            'p=$(cd "$p" 2>/dev/null && pwd -P) || exit 1; '
+            'while [ "$p" != "/" ]; do '
+            'if [ -f "$p/quine/src/rust_format.rs" ] '
+            '&& [ ! -L "$p/quine/src/rust_format.rs" ] '
+            '&& [ -f "$p/quine/areas.json" ] '
+            '&& [ ! -L "$p/quine/areas.json" ]; then '
+            'printf quine-owned; exit 0; fi; '
+            'p=${p%/*}; [ -n "$p" ] || p=/; '
+            'done; exit 1'
+        )
+        result = self._exec(command)
+        return result.exit_code == 0 and result.stdout.strip() == 'quine-owned'
     
     def _exec(self, command: str, cwd: str = None, timeout: int = None,
               stdin_data: str = None) -> ExecuteResult:
@@ -1524,8 +1547,12 @@ class ShellFileOperations(FileOperations):
         except ValueError:
             bytes_written = len(content.encode('utf-8'))
 
-        # Post-write lint with delta refinement.
-        lint_result = self._check_lint_delta(path, pre_content=pre_content, post_content=content)
+        # AE has one quality owner: QUINE. Do not run or inject a secondary
+        # per-file lint/LSP verdict after mutation.
+        quine_owned = self._quine_owns_quality(path)
+        lint_result = None if quine_owned else self._check_lint_delta(
+            path, pre_content=pre_content, post_content=content
+        )
 
         # Semantic diagnostics from the LSP layer — separate channel.
         # Only fired when the syntax tier reported clean (no point asking

@@ -170,7 +170,24 @@ def compile_lucid_ugui_action(
             provenance_hash=provenance_hash,
         )
 
-    if handler == "lucid.dispatch.plan":
+    if handler == "lucid.set.host-role":
+        target = action.get("value")
+        expected = arguments.get("expected_hash")
+        value = arguments.get("value")
+        if not isinstance(target, str) or _HASH.fullmatch(target) is None or expected != target:
+            raise UguiActionError("action-target-invalid", "host-role action hash is not exact")
+        if set(arguments) != {"path", "scope", "op", "expected_hash", "value"}:
+            raise UguiActionError("action-intent-invalid", "host-role action fields are not closed")
+        if (
+            arguments.get("path") != "host-role"
+            or arguments.get("scope") != "this"
+            or arguments.get("op") != "set"
+            or not isinstance(value, dict)
+            or set(value) != {"role"}
+            or value.get("role") not in {"EM", "SIDEKICK"}
+        ):
+            raise UguiActionError("action-intent-invalid", "host-role action is not role-bound")
+    elif handler == "lucid.dispatch.plan":
         target = action.get("value")
         request = arguments.get("request")
         if not isinstance(target, str) or _HASH.fullmatch(target) is None:

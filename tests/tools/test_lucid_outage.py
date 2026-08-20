@@ -15,13 +15,22 @@ def registry():
                 "id": "search",
                 "verb": "get",
                 "adapter": "search",
+                "outage_tier": "mcp-offline",
                 "canonical": {"path": "search"},
             },
             {
                 "id": "json-get",
                 "verb": "get",
                 "adapter": "json get",
+                "outage_tier": "mcp-offline",
                 "canonical": {"path": "json", "operations": ["get", "keys"]},
+            },
+            {
+                "id": "morph",
+                "verb": "morph",
+                "adapter": "morph",
+                "outage_tier": "mcp-online",
+                "canonical": {"codebook": "lucid"},
             },
         ],
     }
@@ -68,3 +77,4 @@ def test_green_or_unregistered_noun_never_suggests_fallback(monkeypatch, tmp_pat
 
     write(state, revival(active=True))
     assert lucid_outage.project_lucid_transport_outage("steer", {"action": "pause"}) is None
+    assert lucid_outage.project_lucid_transport_outage("morph", {"codebook": "lucid"}) is None

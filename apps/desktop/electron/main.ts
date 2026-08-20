@@ -3493,9 +3493,9 @@ function createPythonBackend(root, label, backendArgs, options: any = {}) {
     return null
   }
 
-  const venvRoot = path.join(root, 'venv')
+  const venvRoot = options.venvRoot || path.join(root, 'venv')
   const venvPython = getVenvPython(venvRoot)
-  const command = IS_WINDOWS && fileExists(venvPython) ? venvPython : python
+  const command = fileExists(venvPython) ? venvPython : python
 
   return {
     kind: 'python',
@@ -3542,8 +3542,10 @@ function resolveHermesBackend(backendArgs) {
   //    checkout. Honour it as-is (no bootstrap; the user is driving).
   const overrideRoot = process.env.HERMES_DESKTOP_HERMES_ROOT && path.resolve(process.env.HERMES_DESKTOP_HERMES_ROOT)
 
-  if (overrideRoot && isHermesSourceRoot(overrideRoot)) {
-    const backend = createPythonBackend(overrideRoot, `Hermes source at ${overrideRoot}`, backendArgs)
+  if (overrideRoot && isHermesSourceRoot(overrideRoot) && fileExists(getVenvPython(VENV_ROOT))) {
+    const backend = createPythonBackend(overrideRoot, `Hermes source at ${overrideRoot}`, backendArgs, {
+      venvRoot: VENV_ROOT
+    })
 
     if (backend) {
       return backend

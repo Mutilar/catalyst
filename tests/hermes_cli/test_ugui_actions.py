@@ -76,6 +76,25 @@ def dispatch_plan_action():
     }
 
 
+def host_role_action():
+    return {
+        "id": "lucid.response.switch-to-sidekick",
+        "action": "lucid.set.host-role",
+        "value": PARENT_HASH,
+        "requiresConfirmation": "exact",
+        "intent": {
+            "verb": "set",
+            "arguments": {
+                "path": "host-role",
+                "scope": "this",
+                "op": "set",
+                "expected_hash": PARENT_HASH,
+                "value": {"role": "SIDEKICK"},
+            },
+        },
+    }
+
+
 def refresh_action(verb="get"):
     return {
         "id": "lucid.response.refresh",
@@ -124,6 +143,22 @@ def test_dispatch_plan_promotion_requires_confirmation_and_exact_candidate_hash(
     with pytest.raises(UguiActionError) as stale:
         compile_lucid_ugui_action(document(action), action["id"], confirmed=True)
     assert stale.value.code == "action-stale"
+
+
+def test_host_role_switch_requires_confirmation_and_exact_hash_binding():
+    action = host_role_action()
+    with pytest.raises(UguiActionError) as unconfirmed:
+        compile_lucid_ugui_action(document(action), action["id"])
+    assert unconfirmed.value.code == "confirmation-required"
+
+    compiled = compile_lucid_ugui_action(document(action), action["id"], confirmed=True)
+    assert compiled.tool_name == "set"
+    assert compiled.arguments["value"] == {"role": "SIDEKICK"}
+
+    action["intent"]["arguments"]["expected_hash"] = f"sha256:{'c' * 64}"
+    with pytest.raises(UguiActionError) as stale:
+        compile_lucid_ugui_action(document(action), action["id"], confirmed=True)
+    assert stale.value.code == "action-target-invalid"
 
 
 def test_refresh_compiles_the_exact_get_and_show_arguments():
