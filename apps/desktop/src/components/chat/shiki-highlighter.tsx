@@ -28,6 +28,7 @@ import { codiconForLanguage, isLikelyProseCodeBlock, sanitizeLanguageTag } from 
  */
 interface HermesSyntaxHighlighterProps extends SyntaxHighlighterProps {
   defer?: boolean
+  title?: string
 }
 
 // `github-dark-dimmed` is GitHub's lower-contrast dark palette — the vivid
@@ -119,7 +120,8 @@ export const SyntaxHighlighter: FC<HermesSyntaxHighlighterProps> = ({
   components: { Pre },
   language,
   code,
-  defer = false
+  defer = false,
+  title
 }) => {
   const { t } = useI18n()
   const trimmed = (code ?? '').replace(/^\n+/, '').trimEnd()
@@ -135,16 +137,16 @@ export const SyntaxHighlighter: FC<HermesSyntaxHighlighterProps> = ({
   }
 
   const cleanLanguage = sanitizeLanguageTag(language || '')
-  const label = cleanLanguage && cleanLanguage !== 'unknown' ? cleanLanguage : ''
+  const languageLabel = cleanLanguage && cleanLanguage !== 'unknown' ? cleanLanguage : ''
   const plain = defer || exceedsHighlightBudget(trimmed)
 
   return (
     <CodeCard data-streaming={defer ? 'true' : undefined}>
       <CodeCardHeader>
         <CodeCardTitle>
-          <CodeCardIcon name={codiconForLanguage(label)} />
-          {t.assistant.tool.code}
-          {label && <CodeCardSubtitle> · {label}</CodeCardSubtitle>}
+          <CodeCardIcon name={codiconForLanguage(languageLabel)} />
+          {title || t.assistant.tool.code}
+          {languageLabel && <CodeCardSubtitle> · {languageLabel}</CodeCardSubtitle>}
         </CodeCardTitle>
         <CopyButton
           appearance="inline"

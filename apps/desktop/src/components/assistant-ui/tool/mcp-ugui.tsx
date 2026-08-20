@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { type ComponentProps, useEffect, useRef, useState } from 'react'
 
 import { CompactMarkdown } from '@/components/chat/compact-markdown'
+import { SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
 import { invokeUguiAction } from '@/hermes'
 import {
   extractMcpUguiDocument,
@@ -166,6 +167,10 @@ function UgUiDataTable({ columns, rows }: { columns: unknown[]; rows: unknown[] 
   )
 }
 
+function UguiCodePre(props: ComponentProps<'pre'>) {
+  return <pre {...props} />
+}
+
 function UgUiSection({ value }: { value: unknown }) {
   const section = record(value)
 
@@ -210,16 +215,37 @@ function UgUiSection({ value }: { value: unknown }) {
 
   if (type === 'code') {
     const value = text(section.value)
+    const language = text(section.language) || 'text'
+    const label = heading || text(section.label) || 'Code'
 
     return (
-      <section className="rounded-[0.25rem] bg-(--ui-bg-quinary) px-2 py-1.5">
-        {(heading || text(section.label)) && (
-          <p className="mb-1 font-medium text-(--ui-text-primary)">{heading || text(section.label)}</p>
-        )}
-        <pre className="max-h-72 overflow-auto whitespace-pre-wrap wrap-anywhere font-mono text-[0.68rem] text-(--ui-text-secondary)">
-          {value}
-        </pre>
+      <section data-ugui-primitive="code">
+        <SyntaxHighlighter
+          code={value}
+          components={{ Pre: UguiCodePre }}
+          language={language}
+          title={label}
+        />
       </section>
+    )
+  }
+
+  if (type === 'nested' && Array.isArray(section.sections)) {
+    const title = heading || text(section.label) || 'Details'
+
+    return (
+      <details
+        className="rounded-[0.25rem] bg-(--ui-bg-quinary) px-2 py-1.5"
+        data-ugui-primitive="nested"
+        open={section.expanded !== false}
+      >
+        <summary className="cursor-pointer font-medium text-(--ui-text-primary)">{title}</summary>
+        <div className="mt-2 space-y-2">
+          {section.sections.slice(0, 64).map((child, index) => (
+            <UgUiSection key={text(record(child)?.id) || index} value={child} />
+          ))}
+        </div>
+      </details>
     )
   }
 

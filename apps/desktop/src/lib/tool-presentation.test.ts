@@ -89,7 +89,7 @@ describe('UGUI extraction', () => {
 
 describe('terminal UGUI selection', () => {
   it('recognizes direct LUCID UGUI commands and stable launcher paths', () => {
-    expect(terminalRequestsUgui({ command: "LUCID show --args '{\"view\":\"pulse\"}' --modality ugui" })).toBe(
+    expect(terminalRequestsUgui({ command: "LUCID show pulse --modality ugui" })).toBe(
       true
     )
     expect(

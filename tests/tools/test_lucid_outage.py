@@ -14,7 +14,7 @@ def registry():
             {
                 "id": "search",
                 "verb": "get",
-                "adapter": "search",
+                "adapter": "lucid get",
                 "outage_tier": "mcp-offline",
                 "canonical": {"path": "search"},
             },
@@ -61,7 +61,7 @@ def test_active_outage_projects_exact_search_fallback(monkeypatch, tmp_path):
     assert result is not None
     assert result["structuredContent"]["state"] == "mcp-unavailable"
     assert "⏳ ETA T-10s" in result["error"]
-    assert "OFFLINE search --args" in result["error"]
+    assert "OFFLINE lucid get --args" in result["error"]
     assert "RETIRE port:mcp fresh 🟢" in result["error"]
 
 
@@ -78,3 +78,52 @@ def test_green_or_unregistered_noun_never_suggests_fallback(monkeypatch, tmp_pat
     write(state, revival(active=True))
     assert lucid_outage.project_lucid_transport_outage("steer", {"action": "pause"}) is None
     assert lucid_outage.project_lucid_transport_outage("morph", {"codebook": "lucid"}) is None
+
+
+def test_empty_error_uses_run_attested_eta_and_offline_facade(monkeypatch, tmp_path):
+    offline = tmp_path / "offline.json"
+    state = tmp_path / "revival.json"
+    write(offline, registry())
+    write(state, revival())
+    monkeypatch.setattr(lucid_outage, "_OFFLINE", offline)
+    monkeypatch.setattr(lucid_outage, "_REVIVAL", state)
+
+    result = lucid_outage.project_lucid_failure(
+        "get",
+        {"path": "search", "query": {"terms": ["needle"]}},
+        "isError response omitted content and structuredContent",
+        code="outcome-envelope-invalid",
+    )
+
+    assert result["structuredContent"]["state"] == "mcp-unavailable"
+    assert "⏳ ETA T-10s" in result["error"]
+    assert "OFFLINE lucid get --args" in result["error"]
+
+
+def test_unattested_empty_error_uses_canonical_outcome_code(monkeypatch, tmp_path):
+    monkeypatch.setattr(lucid_outage, "_OFFLINE", tmp_path / "absent-offline.json")
+    monkeypatch.setattr(lucid_outage, "_REVIVAL", tmp_path / "absent-revival.json")
+
+    result = lucid_outage.project_lucid_failure(
+        "dispatch",
+        {"operation": "test", "area": "butler"},
+        "isError response omitted content and structuredContent",
+        code="outcome-envelope-invalid",
+    )
+
+    assert result["structuredContent"]["state"] == "outcome-envelope-invalid"
+    assert result["structuredContent"]["schema"] == "lucid-ugui-response/1"
+    assert "MCP tool returned an error" not in result["error"]
+    assert "NEXT lucid dispatch --help" in result["error"]
+
+
+def test_server_supplied_ugui_error_is_preserved():
+    structured = {"schema": "lucid-ugui-response/1", "state": "malformed-args"}
+    result = lucid_outage.project_lucid_failure(
+        "dispatch",
+        {},
+        "typed refusal",
+        structured=structured,
+        code="outcome-envelope-invalid",
+    )
+    assert result == {"error": "typed refusal", "structuredContent": structured}

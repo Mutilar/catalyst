@@ -4551,6 +4551,25 @@ def _mark_server_call_started(server: Any) -> None:
         mark_tool_call()
 
 
+def _project_tool_failure(
+    server_name: str,
+    tool_name: str,
+    args: dict,
+    detail: str,
+    structured: Optional[dict] = None,
+    code: str = "mcp-unavailable",
+) -> str:
+    bounded = _sanitize_error(detail)
+    if server_name == "LUCID":
+        from tools.lucid_outage import project_lucid_failure
+
+        return json.dumps(
+            project_lucid_failure(tool_name, args, bounded, structured, code),
+            ensure_ascii=False,
+        )
+    return json.dumps({"error": bounded}, ensure_ascii=False)
+
+
 def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
     """Return a sync handler that calls an MCP tool via the background loop.
 
@@ -4574,23 +4593,25 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
             age = time.monotonic() - opened_at
             if age < _CIRCUIT_BREAKER_COOLDOWN_SEC:
                 remaining = max(1, int(_CIRCUIT_BREAKER_COOLDOWN_SEC - age))
-                return json.dumps({
-                    "error": (
-                        f"MCP server '{server_name}' is unreachable after "
-                        f"{_server_error_counts[server_name]} consecutive "
-                        f"failures. Auto-retry available in ~{remaining}s. "
-                        f"Do NOT retry this tool yet — use alternative "
-                        f"approaches or ask the user to check the MCP server."
-                    )
-                }, ensure_ascii=False)
+                return _project_tool_failure(
+                    server_name,
+                    tool_name,
+                    args,
+                    f"MCP server '{server_name}' is unreachable after "
+                    f"{_server_error_counts[server_name]} consecutive failures. "
+                    f"Auto-retry available in ~{remaining}s.",
+                )
             # Cooldown elapsed → fall through as a half-open probe.
 
         server = _get_connected_server_for_call(server_name)
         if not server:
             _bump_server_error(server_name)
-            return json.dumps({
-                "error": f"MCP server '{server_name}' is not connected"
-            }, ensure_ascii=False)
+            return _project_tool_failure(
+                server_name,
+                tool_name,
+                args,
+                f"MCP server '{server_name}' is not connected",
+            )
 
         if not server.session:
             # No live session. A reconnect may already be completing (the
@@ -4615,16 +4636,18 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                 # _reset_server_error).
                 _bump_server_error(server_name)
                 if _signal_reconnect(server):
-                    return json.dumps({
-                        "error": (
-                            f"MCP server '{server_name}' transport is down; "
-                            f"reconnect requested. Do NOT retry this tool "
-                            f"immediately — give it a few seconds to come back."
-                        )
-                    }, ensure_ascii=False)
-                return json.dumps({
-                    "error": f"MCP server '{server_name}' is not connected"
-                }, ensure_ascii=False)
+                    return _project_tool_failure(
+                        server_name,
+                        tool_name,
+                        args,
+                        f"MCP server '{server_name}' transport is down; reconnect requested",
+                    )
+                return _project_tool_failure(
+                    server_name,
+                    tool_name,
+                    args,
+                    f"MCP server '{server_name}' is not connected",
+                )
 
         async def _call():
             _mark_server_call_started(server)
@@ -4664,11 +4687,19 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                     res_text = getattr(getattr(block, "resource", None), "text", None)
                     if res_text:
                         error_text += str(res_text)
-                return json.dumps({
-                    "error": _sanitize_error(
-                        error_text or "MCP tool returned an error"
-                    )
-                }, ensure_ascii=False)
+                return _project_tool_failure(
+                    server_name,
+                    tool_name,
+                    args,
+                    error_text
+                    or (
+                        "isError response omitted content and structuredContent"
+                        if server_name == "LUCID"
+                        else "MCP tool returned an error"
+                    ),
+                    getattr(result, "structuredContent", None),
+                    "outcome-envelope-invalid",
+                )
 
             # Collect text from content blocks. MCP tool results can also
             # include ImageContent blocks (screenshot / Blockbench / Playwright
@@ -4771,17 +4802,12 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                 "MCP tool %s/%s call failed: %s",
                 server_name, tool_name, exc,
             )
-            if server_name == "LUCID":
-                from tools.lucid_outage import project_lucid_transport_outage
-
-                projected = project_lucid_transport_outage(tool_name, args)
-                if projected is not None:
-                    return json.dumps(projected, ensure_ascii=False)
-            return json.dumps({
-                "error": _sanitize_error(
-                    f"MCP call failed: {type(exc).__name__}: {_exc_str(exc)}"
-                )
-            }, ensure_ascii=False)
+            return _project_tool_failure(
+                server_name,
+                tool_name,
+                args,
+                f"MCP call failed: {type(exc).__name__}: {_exc_str(exc)}",
+            )
 
     return _handler
 

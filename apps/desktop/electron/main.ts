@@ -3487,15 +3487,13 @@ function writeDefaultProjectDir(dir) {
 }
 
 function createPythonBackend(root, label, backendArgs, options: any = {}) {
-  const python = findPythonForRoot(root)
+  const venvRoot = options.venvRoot || path.join(root, '.venv')
+  const venvPython = getVenvPython(venvRoot)
+  const command = fileExists(venvPython) ? venvPython : options.requireVenv ? null : findPythonForRoot(root)
 
-  if (!python) {
+  if (!command) {
     return null
   }
-
-  const venvRoot = options.venvRoot || path.join(root, 'venv')
-  const venvPython = getVenvPython(venvRoot)
-  const command = fileExists(venvPython) ? venvPython : python
 
   return {
     kind: 'python',
@@ -3541,10 +3539,13 @@ function resolveHermesBackend(backendArgs) {
   // 1. Explicit override -- HERMES_DESKTOP_HERMES_ROOT points at a developer
   //    checkout. Honour it as-is (no bootstrap; the user is driving).
   const overrideRoot = process.env.HERMES_DESKTOP_HERMES_ROOT && path.resolve(process.env.HERMES_DESKTOP_HERMES_ROOT)
+  const overrideSourceVenv = overrideRoot && path.join(overrideRoot, '.venv')
+  const overrideVenvRoot =
+    overrideSourceVenv && fileExists(getVenvPython(overrideSourceVenv)) ? overrideSourceVenv : VENV_ROOT
 
-  if (overrideRoot && isHermesSourceRoot(overrideRoot) && fileExists(getVenvPython(VENV_ROOT))) {
+  if (overrideRoot && isHermesSourceRoot(overrideRoot) && fileExists(getVenvPython(overrideVenvRoot))) {
     const backend = createPythonBackend(overrideRoot, `Hermes source at ${overrideRoot}`, backendArgs, {
-      venvRoot: VENV_ROOT
+      venvRoot: overrideVenvRoot
     })
 
     if (backend) {
@@ -3557,7 +3558,9 @@ function resolveHermesBackend(backendArgs) {
   //    installed `hermes` on PATH so local Python edits are actually exercised.
   //    (In dev with no checkout, SOURCE_REPO_ROOT won't pass isHermesSourceRoot.)
   if (!IS_PACKAGED && isHermesSourceRoot(SOURCE_REPO_ROOT)) {
-    const backend = createPythonBackend(SOURCE_REPO_ROOT, `Hermes source at ${SOURCE_REPO_ROOT}`, backendArgs)
+    const backend = createPythonBackend(SOURCE_REPO_ROOT, `Hermes source at ${SOURCE_REPO_ROOT}`, backendArgs, {
+      requireVenv: true
+    })
 
     if (backend) {
       return backend
@@ -7948,7 +7951,7 @@ async function startHermes() {
     const readyFile = backend.readyFile ? makeDashboardReadyFile() : null
 
     await advanceBootProgress('backend.spawn', `Starting Hermes backend via ${backend.label}`, 84)
-    rememberLog(`Starting Hermes backend via ${backend.label}`)
+    rememberLog(`Starting Hermes backend via ${backend.label} (${backend.command})`)
 
     const hermesProcess = spawn(
       backend.command,

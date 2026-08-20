@@ -843,6 +843,9 @@ class ShellFileOperations(FileOperations):
         escaped = self._escape_shell_arg(path)
         command = (
             f'p=$(dirname -- {escaped}) && '
+            'while [ ! -d "$p" ]; do '
+            'p=${p%/*}; [ -n "$p" ] || p=/; '
+            'done; '
             'p=$(cd "$p" 2>/dev/null && pwd -P) || exit 1; '
             'while [ "$p" != "/" ]; do '
             'if [ -f "$p/quine/src/rust_format.rs" ] '
@@ -1501,12 +1504,15 @@ class ShellFileOperations(FileOperations):
         if self._file_has_bom(path, pre_content) and not _has_bom(content):
             content = _UTF8_BOM + content
 
+        quine_owned = self._quine_owns_quality(path)
+
         # Snapshot LSP diagnostics for this file (best-effort) so the
         # post-write LSP layer can return only diagnostics introduced
         # by this specific edit.  Mirrors claude-code's
         # ``beforeFileEdited`` pattern but wired to the local LSP
         # rather than an external IDE.
-        self._snapshot_lsp_baseline(path)
+        if not quine_owned:
+            self._snapshot_lsp_baseline(path)
 
         # Create parent directories
         parent = os.path.dirname(path)
@@ -1547,26 +1553,12 @@ class ShellFileOperations(FileOperations):
         except ValueError:
             bytes_written = len(content.encode('utf-8'))
 
-        # AE has one quality owner: QUINE. Do not run or inject a secondary
-        # per-file lint/LSP verdict after mutation.
-        quine_owned = self._quine_owns_quality(path)
-        lint_result = None if quine_owned else self._check_lint_delta(
-            path, pre_content=pre_content, post_content=content
+        lint_result, lsp_diagnostics = self._post_write_diagnostics(
+            path,
+            pre_content=pre_content,
+            post_content=content,
+            quine_owned=quine_owned,
         )
-
-        # Semantic diagnostics from the LSP layer — separate channel.
-        # Only fired when the syntax tier reported clean (no point asking
-        # an LSP for a file that won't even parse).  Pass pre/post
-        # content so the LSP layer can build a line-shift map and
-        # remap baseline diagnostics into post-edit coordinates.
-        # Best-effort: ``""`` is returned for any failure path.
-        lsp_diagnostics: Optional[str] = None
-        if lint_result.success or lint_result.skipped:
-            block = self._maybe_lsp_diagnostics(
-                path, pre_content=pre_content, post_content=content
-            )
-            if block:
-                lsp_diagnostics = block
 
         return WriteResult(
             bytes_written=bytes_written,
@@ -1684,16 +1676,11 @@ class ShellFileOperations(FileOperations):
         # Generate diff
         diff = self._unified_diff(content, new_content, path)
 
-        # Auto-lint with delta refinement: only surface errors introduced
-        # by this patch, filtering out pre-existing lint failures so the
-        # agent isn't distracted by problems that were already there.
-        lint_result = self._check_lint_delta(path, pre_content=content, post_content=new_content)
-
         return PatchResult(
             success=True,
             diff=diff,
             files_modified=[path],
-            lint=lint_result.to_dict() if lint_result else None,
+            lint=write_result.lint,
             # Propagate the LSP diagnostics already captured by the
             # internal ``write_file`` call.  Its baseline was the
             # pre-patch content (taken at the start of write_file via
@@ -1733,6 +1720,28 @@ class ShellFileOperations(FileOperations):
         result = apply_v4a_operations(operations, self)
         return result
     
+    def _post_write_diagnostics(
+        self,
+        path: str,
+        pre_content: Optional[str],
+        post_content: Optional[str],
+        quine_owned: Optional[bool] = None,
+    ) -> tuple[Optional[LintResult], Optional[str]]:
+        """Return secondary diagnostics only when QUINE does not own quality."""
+        if quine_owned is None:
+            quine_owned = self._quine_owns_quality(path)
+        if quine_owned:
+            return None, None
+        lint_result = self._check_lint_delta(
+            path, pre_content=pre_content, post_content=post_content
+        )
+        lsp_diagnostics = None
+        if lint_result.success or lint_result.skipped:
+            lsp_diagnostics = self._maybe_lsp_diagnostics(
+                path, pre_content=pre_content, post_content=post_content
+            ) or None
+        return lint_result, lsp_diagnostics
+
     def _check_lint(self, path: str, content: Optional[str] = None) -> LintResult:
         """
         Run syntax check on a file after editing.

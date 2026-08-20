@@ -283,3 +283,33 @@ class TestErrorPathResourceText:
         ))
         data = json.loads(handler({}))
         assert data["error"] == "MCP tool returned an error"
+
+    def test_lucid_empty_error_projects_canonical_ugui_never_generic(
+        self, _handler, monkeypatch, tmp_path
+    ):
+        from unittest.mock import AsyncMock
+
+        from tools import lucid_outage, mcp_tool
+
+        session, _ = _handler
+        monkeypatch.setattr(lucid_outage, "_OFFLINE", tmp_path / "absent-offline.json")
+        monkeypatch.setattr(lucid_outage, "_REVIVAL", tmp_path / "absent-revival.json")
+        mcp_tool._servers["LUCID"] = mcp_tool._servers["test-server"]
+        try:
+            session.call_tool = AsyncMock(
+                return_value=SimpleNamespace(
+                    content=[], isError=True, structuredContent=None
+                )
+            )
+            data = json.loads(
+                mcp_tool._make_tool_handler("LUCID", "dispatch", 30.0)(
+                    {"operation": "test", "area": "butler"}
+                )
+            )
+        finally:
+            mcp_tool._servers.pop("LUCID", None)
+            mcp_tool._reset_server_error("LUCID")
+
+        assert data["structuredContent"]["schema"] == "lucid-ugui-response/1"
+        assert data["structuredContent"]["state"] == "outcome-envelope-invalid"
+        assert "MCP tool returned an error" not in data["error"]

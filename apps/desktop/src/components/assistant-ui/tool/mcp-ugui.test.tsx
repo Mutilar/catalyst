@@ -45,8 +45,8 @@ describe('McpUguiDocument', () => {
     expect(container.querySelector('[data-mcp-ugui="lucid-ugui-response/1"]')).toBeTruthy()
   })
 
-  it('renders repository search match tables instead of hiding structured rows', () => {
-    render(
+  it('renders repository search semantics without raw canonical payloads', async () => {
+    const { container } = render(
       <McpUguiDocument
         document={{
           ...document,
@@ -54,41 +54,44 @@ describe('McpUguiDocument', () => {
           header: [{ id: 'title', type: 'text', body: 'LUCID get search' }],
           sections: [
             {
-              id: 'matches',
-              type: 'data_table',
-              heading: 'Matches',
-              columns: ['Path', 'Line / count', 'Match', 'Context'],
-              rows: [
-                [
-                  'run/src/tui.rs',
-                  '1071',
-                  'fn dashboard_log_sources()',
-                  '> 1071: fn dashboard_log_sources()'
-                ]
+              id: 'match-0',
+              type: 'nested',
+              title: 'run/src/tui.rs:1071',
+              expanded: true,
+              sections: [
+                {
+                  id: 'match-0-source',
+                  type: 'code',
+                  label: 'Match',
+                  language: 'rust',
+                  value: 'fn dashboard_log_sources()'
+                },
+                {
+                  id: 'match-0-context',
+                  type: 'code',
+                  label: 'Context',
+                  language: 'rust',
+                  value: 'fn dashboard_log_sources() {\n    // context\n}'
+                }
               ]
-            },
-            {
-              id: 'canonical-data',
-              type: 'code',
-              label: 'Canonical result data',
-              value:
-                '{"matches":[{"line":1071,"path":"run/src/tui.rs","text":"fn dashboard_log_sources()"}],"truncated":false}'
             }
           ]
         }}
       />
     )
 
-    expect(screen.getByText('Matches')).toBeTruthy()
-    expect(screen.getByText('run/src/tui.rs')).toBeTruthy()
-    expect(screen.getByText('fn dashboard_log_sources()')).toBeTruthy()
-    expect(screen.getByText('> 1071: fn dashboard_log_sources()')).toBeTruthy()
-    expect(screen.getByText('Canonical result data')).toBeTruthy()
-    expect(
-      screen.getByText(
-        '{"matches":[{"line":1071,"path":"run/src/tui.rs","text":"fn dashboard_log_sources()"}],"truncated":false}'
-      )
-    ).toBeTruthy()
+    expect(screen.getByText('run/src/tui.rs:1071')).toBeTruthy()
+    const code = container.querySelectorAll('[data-ugui-primitive="code"]')
+    expect(code).toHaveLength(2)
+    await waitFor(() => {
+      expect(code[0].textContent).toContain('Match')
+      expect(code[0].textContent).toContain('rust')
+      expect(code[0].textContent).toContain('fn dashboard_log_sources()')
+      expect(code[1].textContent).toContain('Context')
+      expect(code[1].textContent).toContain('fn dashboard_log_sources() {')
+    })
+    expect(screen.queryByText('Canonical result data')).toBeNull()
+    expect(screen.queryByText(/\{"matches":/)).toBeNull()
   })
 
   it('invokes an exact authored LUCID action and replaces the card with returned UGUI', async () => {

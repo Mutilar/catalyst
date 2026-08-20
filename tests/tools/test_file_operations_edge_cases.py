@@ -6,9 +6,10 @@ Covers:
 """
 
 import pytest
+import subprocess
 from unittest.mock import MagicMock, patch
 
-from tools.file_operations import ShellFileOperations, _parse_search_context_line
+from tools.file_operations import ShellFileOperations, WriteResult, _parse_search_context_line
 
 
 # =========================================================================
@@ -150,6 +151,90 @@ class TestCheckLintBracePaths:
 
         assert result.success is False
         assert "SyntaxError" in result.output
+
+
+class TestQuineQualityOwnership:
+    @pytest.fixture()
+    def ops(self):
+        obj = ShellFileOperations.__new__(ShellFileOperations)
+        obj._command_cache = {}
+        return obj
+
+    def test_backend_marker_selects_quine_owner(self, ops):
+        with patch.object(ops, "_exec") as execute:
+            execute.return_value = MagicMock(exit_code=0, stdout="quine-owned")
+            assert ops._quine_owns_quality("/repo/run/src/runtime.rs") is True
+        command = execute.call_args.args[0]
+        assert "quine/src/rust_format.rs" in command
+        assert "quine/areas.json" in command
+
+    def test_quine_owner_invokes_neither_lint_nor_lsp_and_emits_no_fields(self, ops):
+        with (
+            patch.object(ops, "_quine_owns_quality", return_value=True),
+            patch.object(ops, "_check_lint_delta") as lint,
+            patch.object(ops, "_maybe_lsp_diagnostics") as lsp,
+        ):
+            lint_result, lsp_result = ops._post_write_diagnostics(
+                "/repo/run/src/runtime.rs",
+                pre_content="before",
+                post_content="after",
+            )
+        assert lint_result is None
+        assert lsp_result is None
+        lint.assert_not_called()
+        lsp.assert_not_called()
+        projected = WriteResult(bytes_written=5, lint=lint_result, lsp_diagnostics=lsp_result).to_dict()
+        assert "lint" not in projected
+        assert "lsp_diagnostics" not in projected
+
+    def test_real_backend_write_in_ae_tree_emits_no_secondary_diagnostics(self, tmp_path):
+        class LocalShell:
+            def __init__(self, cwd):
+                self.cwd = str(cwd)
+
+            def execute(self, command, cwd=None, timeout=None, stdin_data=None):
+                completed = subprocess.run(
+                    command,
+                    cwd=cwd or self.cwd,
+                    shell=True,
+                    executable="/bin/sh",
+                    input=stdin_data,
+                    text=True,
+                    capture_output=True,
+                    timeout=timeout,
+                    check=False,
+                )
+                return {
+                    "output": completed.stdout + completed.stderr,
+                    "returncode": completed.returncode,
+                }
+
+        root = tmp_path / "AgentExperiments"
+        (root / "quine" / "src").mkdir(parents=True)
+        (root / "quine" / "rust-owner").mkdir(parents=True)
+        (root / "quine" / "src" / "rust_format.rs").write_text("// owner\n")
+        (root / "quine" / "areas.json").write_text("{}\n")
+        target = root / "run" / "src" / "runtime.rs"
+        target.parent.mkdir(parents=True)
+        ops = ShellFileOperations(LocalShell(root))
+        with (
+            patch.object(ops, "_check_lint_delta", side_effect=AssertionError("secondary lint ran")),
+            patch.object(
+                ops,
+                "_snapshot_lsp_baseline",
+                side_effect=AssertionError("pre-write LSP ran"),
+            ),
+            patch.object(
+                ops,
+                "_maybe_lsp_diagnostics",
+                side_effect=AssertionError("secondary LSP ran"),
+            ),
+        ):
+            result = ops.write_file(str(target), "fn main() {}\n")
+        projected = result.to_dict()
+        assert result.error is None
+        assert "lint" not in projected
+        assert "lsp_diagnostics" not in projected
 
 
 class TestCheckLintInproc:

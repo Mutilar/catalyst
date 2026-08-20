@@ -49,8 +49,6 @@ def _command(facade: dict[str, Any], arguments: dict[str, Any]) -> str | None:
     adapter = facade.get("adapter")
     if not isinstance(adapter, str) or not adapter:
         return None
-    if adapter == "pulse":
-        return "pulse"
     if adapter == "plan":
         return "plan < ae-dispatch.json"
     if adapter == "receipt":
@@ -121,6 +119,76 @@ def project_lucid_transport_outage(tool: str, arguments: dict[str, Any]) -> dict
                 "sourceFields": ["node", "eta", "offline_facades_active"],
                 "projectedFields": ["state", "sections"],
                 "omittedFields": [],
+                "generator": "catalyst.tools.lucid_outage@1",
+            },
+            "receipt": {"schema": "lucid-ugui-action-receipt/1", "action_provenance": []},
+        },
+    }
+
+
+def project_lucid_failure(
+    tool: str,
+    arguments: dict[str, Any],
+    detail: str,
+    structured: dict[str, Any] | None = None,
+    code: str = "mcp-unavailable",
+) -> dict[str, Any]:
+    """Project every LUCID failure without inventing RUN-owned outage evidence."""
+
+    if isinstance(structured, dict):
+        return {"error": detail, "structuredContent": structured}
+    outage = project_lucid_transport_outage(tool, arguments)
+    if outage is not None:
+        return outage
+    code = code if code in {"mcp-unavailable", "outcome-envelope-invalid"} else "outcome-envelope-invalid"
+    bounded = " ".join(detail.split())[:1024] or "isError response omitted content and structuredContent"
+    next_action = f"lucid {tool} --help"
+    return {
+        "error": f"🔴 LUCID · {tool} · {code}\nCAUSE {bounded}\nNEXT {next_action}",
+        "structuredContent": {
+            "schema": "lucid-ugui-response/1",
+            "id": f"lucid.{code}",
+            "type": "lucid",
+            "verb": tool,
+            "state": code,
+            "header": [
+                {
+                    "id": "lucid.error.title",
+                    "type": "text",
+                    "body": f"LUCID {tool} failed",
+                    "style": "heading",
+                    "width": 12,
+                }
+            ],
+            "sections": [
+                {
+                    "id": "lucid.error.status",
+                    "type": "status",
+                    "signal": "error",
+                    "body": bounded,
+                    "width": 12,
+                },
+                {
+                    "id": "lucid.error.next",
+                    "type": "text",
+                    "body": f"NEXT {next_action}",
+                    "width": 12,
+                },
+            ],
+            "actions": [],
+            "provenance": {
+                "schema": "ugui-provenance/1",
+                "sourceSchema": "mcp-call-tool-result",
+                "parentHash": None,
+                "observedEpoch": 0,
+                "sourceField": "isError",
+            },
+            "fidelity": {
+                "schema": "lucid-ugui-projection-fidelity/1",
+                "lossless": False,
+                "sourceFields": ["isError", "content", "structuredContent"],
+                "projectedFields": ["state", "sections"],
+                "omittedFields": ["transport"],
                 "generator": "catalyst.tools.lucid_outage@1",
             },
             "receipt": {"schema": "lucid-ugui-action-receipt/1", "action_provenance": []},
