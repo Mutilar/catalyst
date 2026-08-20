@@ -37,6 +37,7 @@ import { createBackendConnectionState } from './backend-connection-state'
 import { buildDesktopBackendEnv, normalizeHermesHomeRoot } from './backend-env'
 import { canImportHermesCli, shouldTrustHermesOverride, verifyHermesCli } from './backend-probes'
 import { waitForDashboardPortAnnouncement } from './backend-ready'
+import { createSemanticObservationForwarder } from './backend-semantic-observations'
 import { shouldLatchBackendStartFailure } from './backend-start-failure'
 import { detectRemoteDisplay, isWindowsBinaryPathInWsl, isWslEnvironment } from './bootstrap-platform'
 import { runBootstrap } from './bootstrap-runner'
@@ -7986,6 +7987,10 @@ async function startHermes() {
 
     hermesProcess.stdout.on('data', rememberLog)
     hermesProcess.stderr.on('data', rememberLog)
+    const forwardSemanticObservation = createSemanticObservationForwarder(line => {
+      process.stderr.write(line)
+    })
+    hermesProcess.stderr.on('data', forwardSemanticObservation)
     let backendReady = false
     let rejectBackendStart = null
 

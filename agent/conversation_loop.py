@@ -771,6 +771,10 @@ def run_conversation(
     Returns:
         Dict: Complete conversation result with final response and message history
     """
+    offline_message = getattr(agent, "_attestation_offline_message", None)
+    if isinstance(offline_message, str) and offline_message:
+        raise RuntimeError(offline_message)
+
     if moa_config is None:
         try:
             from hermes_cli.moa_config import decode_moa_turn
@@ -6088,15 +6092,15 @@ def run_conversation(
                 try:
                     from agent.coding_context import project_facts_for
                     from hermes_cli.plugins import (
-                        get_pre_final_continue_message,
+                        get_pre_final_decision,
                         has_hook,
                     )
 
                     _attestation_attempt = getattr(agent, "_pre_final_nudges", 0)
                     _facts = project_facts_for()
                     _workspace_root = str((_facts or {}).get("root") or "")
-                    if has_hook("pre_final") and _attestation_attempt < 1:
-                        _attestation_nudge = get_pre_final_continue_message(
+                    if has_hook("pre_final"):
+                        _attestation_decision = get_pre_final_decision(
                             session_id=getattr(agent, "session_id", None) or "",
                             platform=getattr(agent, "platform", "") or "",
                             model=getattr(agent, "model", "") or "",
@@ -6105,23 +6109,35 @@ def run_conversation(
                             workspace_root=_workspace_root,
                         )
                     else:
-                        _attestation_nudge = None
+                        _attestation_decision = None
                 except Exception:
                     logger.debug("pre_final attestation hook failed", exc_info=True)
-                    _attestation_nudge = None
+                    _attestation_decision = None
 
-                if _attestation_nudge:
+                if _attestation_decision and _attestation_decision["action"] == "block":
+                    final_response = _attestation_decision["message"]
+                    final_msg["content"] = final_response
+                    final_msg["finish_reason"] = "attestation_offline"
+                    agent._attestation_offline = True
+                    agent._attestation_offline_message = final_response
+                elif _attestation_decision:
                     agent._pre_final_nudges = _attestation_attempt + 1
                     final_msg["finish_reason"] = "attestation_required"
-                    final_msg["_pre_final_synthetic"] = True
+                    final_msg["_finalization_lineage"] = "candidate"
+                    agent._emit_interim_assistant_message(final_msg)
                     messages.append(final_msg)
                     messages.append({
                         "role": "user",
-                        "content": _attestation_nudge,
-                        "_pre_final_synthetic": True,
+                        "content": _attestation_decision["message"],
+                        "name": "HARNESS",
+                        "_finalization_lineage": "control",
                     })
                     agent._session_messages = messages
-                    logger.debug("pre_final attestation nudge issued")
+                    try:
+                        agent._flush_messages_to_session_db(messages, conversation_history)
+                    except Exception:
+                        logger.debug("pre_final lineage flush failed", exc_info=True)
+                    logger.debug("pre_final attestation control turn issued")
                     # A candidate that failed its terminal attestation is not a
                     # legal budget-exhaustion fallback.
                     _pending_verification_response = None

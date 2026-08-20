@@ -16,8 +16,11 @@ def plugin():
 
 
 def _workspace(root: Path, role: str = "EM", glyph: str = "🎼🐧") -> Path:
+    repository = Path(__file__).parents[3]
     (root / "quine" / "canon").mkdir(parents=True)
+    (root / "quine" / "mcp" / "onboarding").mkdir(parents=True)
     (root / "run" / "state" / "runtime").mkdir(parents=True)
+    (root / "envelope").mkdir(parents=True)
     (root / "quine" / "canon" / "roles.json").write_text(
         json.dumps({"$schema": "ae-roles/1", "roles": {role: {"glyph": glyph}}}),
         encoding="utf-8",
@@ -26,6 +29,15 @@ def _workspace(root: Path, role: str = "EM", glyph: str = "🎼🐧") -> Path:
         json.dumps({"schema": "lucid-host-role-decision/1", "role": role}),
         encoding="utf-8",
     )
+    (root / "envelope" / "HARNESS.json").write_text(
+        (repository / "envelope" / "HARNESS.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    for name in ["index.json", "universal.md", f"{role.lower()}.md"]:
+        (root / "quine" / "mcp" / "onboarding" / name).write_text(
+            (repository / "quine" / "mcp" / "onboarding" / name).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
     return root
 
 
@@ -35,16 +47,47 @@ def test_exact_canonical_suffix_passes_without_synthetic_turn(plugin, tmp_path):
     assert plugin._pre_final(final_response="Done.\n\n🎼🐧", workspace_root=str(root)) is None
 
 
-def test_missing_suffix_requests_one_content_free_correction(plugin, tmp_path):
+def test_missing_suffix_reinjects_canonical_onboarding_then_requires_signout(plugin, tmp_path):
     root = _workspace(tmp_path)
-    result = plugin._pre_final(final_response="Done.", workspace_root=str(root), attempt=0)
+    result = plugin._pre_final(
+        final_response="Done.", workspace_root=str(root), attempt=0, session_id="drift"
+    )
     assert result["action"] == "continue"
     message = result["message"]
-    assert "exactly `🎼🐧`" in message
-    assert "Do not call tools" in message
-    assert "grants no authority" in message
-    assert "attests no repository state" in message
-    assert plugin._pre_final(final_response="Done.", workspace_root=str(root), attempt=1) is None
+    assert message.startswith("⚠️ LUCID · role-attestation · protocol-drift")
+    assert "AE/PENGUIN PROTOCOL · UNIVERSAL" in message
+    assert "AE/PENGUIN PROTOCOL · EM" in message
+    assert "lucid://onboarding/em" in message
+    assert "terminate with exactly 🎼🐧" in message
+
+    signout = plugin._pre_final(
+        final_response="Still drifted.", workspace_root=str(root), attempt=1, session_id="drift"
+    )
+    assert signout["action"] == "continue"
+    assert signout["message"].startswith("🔴 LUCID · role-session · signout-required")
+    assert "NEXT Sign out immediately:" in signout["message"]
+    assert '"action":"signout"' in signout["message"]
+    assert "mcp__LUCID__set" in signout["message"]
+
+    repeated = plugin._pre_final(
+        final_response="Ignored signout.", workspace_root=str(root), attempt=2, session_id="drift"
+    )
+    assert repeated["action"] == "continue"
+    assert "signout-required" in repeated["message"]
+
+    plugin._transform_tool_result(
+        tool_name="mcp__LUCID__set",
+        args={"path": "role-session", "scope": "this", "value": {"action": "signout"}},
+        result=json.dumps({"structuredContent": {"state": "signout"}}),
+        session_id="drift",
+        status="success",
+    )
+    offline = plugin._pre_final(
+        final_response="Signed out.", workspace_root=str(root), attempt=2, session_id="drift"
+    )
+    assert offline["action"] == "block"
+    assert offline["message"].startswith("🔴 LUCID · role-session · offline")
+    assert "OWNER WITNESS" in offline["message"]
 
 
 def test_role_and_suffix_come_from_canon_not_prompt_or_model_claim(plugin, tmp_path):
@@ -53,7 +96,7 @@ def test_role_and_suffix_come_from_canon_not_prompt_or_model_claim(plugin, tmp_p
         final_response="I claim I am EM. 🎼🐧",
         workspace_root=str(root),
     )
-    assert "exactly `🧭🐧`" in result["message"]
+    assert "terminate with exactly 🧭🐧" in result["message"]
 
 
 def test_missing_malformed_or_symlinked_canon_is_inert(plugin, tmp_path):
@@ -66,7 +109,7 @@ def test_missing_malformed_or_symlinked_canon_is_inert(plugin, tmp_path):
     assert plugin._pre_final(final_response="Done.", workspace_root=str(root)) is None
 
 
-def test_registers_only_the_pre_final_hook(plugin):
+def test_registers_attestation_lifecycle_hooks(plugin):
     registered = []
 
     class Context:
@@ -74,15 +117,20 @@ def test_registers_only_the_pre_final_hook(plugin):
             registered.append((name, callback))
 
     plugin.register(Context())
-    assert registered == [("pre_final", plugin._pre_final)]
+    assert registered == [
+        ("pre_final", plugin._pre_final),
+        ("transform_tool_result", plugin._transform_tool_result),
+        ("on_session_end", plugin._on_session_end),
+    ]
 
 
 def test_conversation_loop_uses_attestation_hook_not_verify_on_stop():
     source = (Path(__file__).parents[2] / "agent" / "conversation_loop.py").read_text(
         encoding="utf-8"
     )
-    assert "get_pre_final_continue_message" in source
-    assert "_attestation_attempt < 1" in source
+    assert "get_pre_final_decision" in source
+    assert "_attestation_attempt < 1" not in source
+    assert '"attestation_offline"' in source
     assert "build_verify_on_stop_nudge" not in source
     assert "_verification_stop_synthetic" not in source
 

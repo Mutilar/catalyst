@@ -19,7 +19,9 @@ def plugin():
 @pytest.fixture
 def workspace(tmp_path):
     (tmp_path / "run").mkdir()
+    (tmp_path / "butler").mkdir()
     (tmp_path / "envelope").mkdir()
+    (tmp_path / "quine").mkdir()
     (tmp_path / "run" / "STACK.json").write_text("{}", encoding="utf-8")
     canonical = json.loads(
         (Path(__file__).parents[3] / "envelope" / "LUCID.json").read_text(encoding="utf-8")
@@ -31,6 +33,10 @@ def workspace(tmp_path):
     projection_path = Path(__file__).parents[3] / "envelope" / "LUCID-TOOL-TEACHING.json"
     (tmp_path / "envelope" / "LUCID-TOOL-TEACHING.json").write_text(
         projection_path.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    (tmp_path / "quine" / "areas.json").write_text(
+        (Path(__file__).parents[3] / "quine" / "areas.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
     )
     return tmp_path
 
@@ -45,6 +51,16 @@ def _schema():
         (Path(__file__).parents[3] / "envelope" / "PENGUIN-TOOL-SUGGESTION.schema.json").read_text(
             encoding="utf-8"
         )
+    )
+
+
+def _executable_refusal_schema():
+    return json.loads(
+        (
+            Path(__file__).parents[3]
+            / "envelope"
+            / "TERMINAL-EXECUTABLE-REFUSAL.schema.json"
+        ).read_text(encoding="utf-8")
     )
 
 
@@ -65,11 +81,30 @@ def test_generated_universe_joins_every_closed_verb(workspace):
     assert universe["policy_owner"] == "HARNESS"
 
 
+def test_registered_area_binding_normalizes_focused_package_path(plugin, workspace):
+    assert (
+        plugin._resolve_binding(
+            {"$intent": "area", "$transform": "registered-area"},
+            {"area": "catalyst/apps/desktop"},
+            {},
+            workspace,
+        )
+        == "catalyst"
+    )
+    with pytest.raises(ValueError, match="unregistered-quality-area"):
+        plugin._resolve_binding(
+            {"$intent": "area", "$transform": "registered-area"},
+            {"area": "unknown/package"},
+            {},
+            workspace,
+        )
+
+
 def test_bare_cargo_test_is_held_with_generated_candidate(plugin, workspace):
     suggestion = _receipt(
         plugin._on_pre_tool_call(
             tool_name="terminal",
-            args={"command": "cargo test", "workdir": str(workspace)},
+            args={"command": "cargo test", "workdir": str(workspace / "butler")},
             session_id="cargo",
         )
     )
@@ -80,13 +115,13 @@ def test_bare_cargo_test_is_held_with_generated_candidate(plugin, workspace):
     assert suggestion["executed"] is False
     assert suggestion["auto_replay"] is False
     assert suggestion["candidate"]["tool"] == "mcp__LUCID__dispatch"
-    assert suggestion["candidate"]["arguments"] == {"area": "workspace", "operation": "test"}
+    assert suggestion["candidate"]["arguments"] == {"area": "butler", "operation": "test"}
 
 
 def test_focused_diagnostic_executes_then_whispers(plugin, workspace):
     args = {
         "command": "pytest catalyst/tests/agent/test_ae_tool_teaching_plugin.py",
-        "workdir": str(workspace),
+        "workdir": str(workspace / "butler"),
     }
     assert plugin._on_pre_tool_call(tool_name="terminal", args=args, session_id="whisper") is None
     transformed = plugin._on_transform_tool_result(
@@ -197,7 +232,7 @@ def test_interpretation_environment_cannot_disable_harness(plugin, workspace, mo
     receipt = _receipt(
         plugin._on_pre_tool_call(
             tool_name="terminal",
-            args={"command": "cargo test", "workdir": str(workspace)},
+            args={"command": "cargo test", "workdir": str(workspace / "butler")},
             session_id="still-held",
         )
     )
@@ -206,7 +241,7 @@ def test_interpretation_environment_cannot_disable_harness(plugin, workspace, mo
 
 
 def test_repeating_a_held_call_once_is_explicit_override(plugin, workspace):
-    args = {"command": "cargo test", "workdir": str(workspace)}
+    args = {"command": "cargo test", "workdir": str(workspace / "butler")}
     first = plugin._on_pre_tool_call(tool_name="terminal", args=args, session_id="override")
     assert _receipt(first)["decision"] == "hold"
     assert plugin._on_pre_tool_call(tool_name="terminal", args=args, session_id="override") is None
@@ -232,7 +267,7 @@ def test_exact_follow_up_records_all_terminal_outcomes(
 ):
     held = plugin._on_pre_tool_call(
         tool_name="terminal",
-        args={"command": "cargo test", "workdir": str(workspace)},
+        args={"command": "cargo test", "workdir": str(workspace / "butler")},
         session_id=f"follow-{status}",
     )
     candidate = _receipt(held)["candidate"]
@@ -253,10 +288,15 @@ def test_exact_follow_up_records_all_terminal_outcomes(
     assert receipt["candidate"] == candidate
 
 
+def test_transport_success_with_typed_red_result_records_failure(plugin):
+    result = json.dumps({"structuredContent": {"state": "🔴"}})
+    assert plugin._tool_outcome("success", result) == "failure"
+
+
 def test_follow_up_requires_exact_tool_full_args_and_session(plugin, workspace):
     held = plugin._on_pre_tool_call(
         tool_name="terminal",
-        args={"command": "cargo test", "workdir": str(workspace)},
+        args={"command": "cargo test", "workdir": str(workspace / "butler")},
         session_id="exact",
     )
     candidate = _receipt(held)["candidate"]
@@ -305,7 +345,7 @@ def test_terminal_command_and_result_privacy(plugin, workspace):
         tool_name="terminal",
         args={
             "command": f"cargo test --config password={secret}",
-            "workdir": str(workspace),
+            "workdir": str(workspace / "butler"),
         },
         session_id="privacy",
     )
@@ -332,7 +372,7 @@ def test_followed_event_is_privacy_bounded_for_run_store_ingestion(
     secret = "NEVER_PERSIST_THIS_VALUE"
     held = plugin._on_pre_tool_call(
         tool_name="terminal",
-        args={"command": f"cargo test --config password={secret}", "workdir": str(workspace)},
+        args={"command": f"cargo test --config password={secret}", "workdir": str(workspace / "butler")},
         session_id="event-followed",
     )
     candidate = _receipt(held)["candidate"]
@@ -367,7 +407,7 @@ def test_session_end_emits_ignored_without_identity_or_candidate_arguments(
 ):
     plugin._on_pre_tool_call(
         tool_name="terminal",
-        args={"command": "cargo test", "workdir": str(workspace)},
+        args={"command": "cargo test", "workdir": str(workspace / "butler")},
         session_id="event-ignored",
     )
     plugin._on_session_end(session_id="event-ignored")
@@ -390,10 +430,16 @@ def test_unregistered_known_source_emits_coverage_gap_without_raw_values(
     secret = "UNMAPPED_PRIVATE_VALUE"
     result = plugin._on_pre_tool_call(
         tool_name="terminal",
-        args={"command": f"python unknown.py --token={secret}", "workdir": str(workspace)},
+        args={"command": f"python unknown.py --token={secret}", "workdir": str(workspace / "butler")},
         session_id="coverage-gap",
     )
-    assert result is None
+    assert result["action"] == "block"
+    refusal = json.loads(result["message"].splitlines()[-1])
+    assert refusal["schema"] == "ae-terminal-executable-refusal/1"
+    assert refusal["reason"] == "unregistered-executable"
+    assert refusal["executed"] is False
+    assert refusal["executable"] == "python"
+    assert secret not in json.dumps(refusal)
     events = [
         json.loads(line.removeprefix("PENGUIN_TEACHING_EVENT "))
         for line in capsys.readouterr().err.splitlines()
@@ -424,7 +470,7 @@ def test_git_family_is_categorically_refused(plugin, workspace, command):
     receipt = _receipt(
         plugin._on_pre_tool_call(
             tool_name="terminal",
-            args={"command": command, "workdir": str(workspace)},
+            args={"command": command, "workdir": str(workspace / "butler")},
             session_id="git",
         )
     )
@@ -438,34 +484,78 @@ def test_git_family_is_categorically_refused(plugin, workspace, command):
     assert receipt["alternative"]["tool"] == "mcp__LUCID__get"
 
 
-def test_unregistered_or_compound_calls_are_inert(plugin, workspace):
+def test_unregistered_or_compound_calls_are_refused(plugin, workspace):
     for command in ["cargo test && rm -rf nowhere", "make test"]:
-        assert (
-            plugin._on_pre_tool_call(
-                tool_name="terminal",
-                args={"command": command, "workdir": str(workspace)},
-                session_id="inert",
-            )
-            is None
+        refusal = plugin._on_pre_tool_call(
+            tool_name="terminal",
+            args={"command": command, "workdir": str(workspace / "butler")},
+            session_id="refused",
         )
+        assert refusal["action"] == "block"
+        receipt = json.loads(refusal["message"].splitlines()[-1])
+        assert receipt["reason"] == "unregistered-executable"
+        assert receipt["executed"] is False
+
+
+@pytest.mark.parametrize("command", ["run status --json", "lucid get --help"])
+def test_only_canonical_direct_executables_are_admitted(plugin, workspace, command):
+    assert (
+        plugin._on_pre_tool_call(
+            tool_name="terminal",
+            args={"command": command, "workdir": str(workspace / "butler")},
+            session_id="direct",
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "butler --help",
+        "ae status --json",
+        "/usr/local/bin/lucid get --help",
+        "run/target/debug/ae status --json",
+        "butler/target/debug/lucid get --help",
+        "build/run status",
+        "dist/lucid get --help",
+        "run status $(butler --help)",
+        "lucid get --help > result.json",
+        "cargo test; butler --help",
+        "cargo test\nbutler --help",
+    ],
+)
+def test_arbitrary_external_and_build_output_executables_are_refused(
+    plugin, workspace, command
+):
+    refusal = plugin._on_pre_tool_call(
+        tool_name="terminal",
+        args={"command": command, "workdir": str(workspace / "butler")},
+        session_id="binary",
+    )
+    assert refusal["action"] == "block"
+    receipt = json.loads(refusal["message"].splitlines()[-1])
+    assert receipt["schema"] == "ae-terminal-executable-refusal/1"
+    assert receipt["executed"] is False
+    assert receipt["original_executed"] is False
 
 
 def test_generated_projection_is_mandatory(plugin, workspace):
     (workspace / "envelope" / "LUCID-TOOL-TEACHING.json").unlink()
-    assert (
-        plugin._on_pre_tool_call(
-            tool_name="terminal",
-            args={"command": "cargo test", "workdir": str(workspace)},
-        )
-        is None
+    refusal = plugin._on_pre_tool_call(
+        tool_name="terminal",
+        args={"command": "cargo test", "workdir": str(workspace / "butler")},
     )
+    assert refusal["action"] == "block"
+    receipt = json.loads(refusal["message"].splitlines()[-1])
+    assert receipt["reason"] == "executable-policy-unavailable"
 
 
 def test_receipts_validate_against_canonical_schema(plugin, workspace):
     jsonschema = pytest.importorskip("jsonschema")
     held = plugin._on_pre_tool_call(
         tool_name="terminal",
-        args={"command": "cargo test", "workdir": str(workspace)},
+        args={"command": "cargo test", "workdir": str(workspace / "butler")},
         session_id="schema",
     )
     suggestion = _receipt(held)
@@ -482,15 +572,24 @@ def test_receipts_validate_against_canonical_schema(plugin, workspace):
     refusal = _receipt(
         plugin._on_pre_tool_call(
             tool_name="terminal",
-            args={"command": "git status", "workdir": str(workspace)},
+            args={"command": "git status", "workdir": str(workspace / "butler")},
             session_id="schema-refusal",
         )
     )
     jsonschema.validate(refusal, _schema())
+    executable_refusal = plugin._on_pre_tool_call(
+        tool_name="terminal",
+        args={"command": "butler --help", "workdir": str(workspace / "butler")},
+        session_id="schema-executable-refusal",
+    )
+    jsonschema.validate(
+        json.loads(executable_refusal["message"].splitlines()[-1]),
+        _executable_refusal_schema(),
+    )
 
 
 def test_trajectory_state_is_bounded(plugin, workspace):
-    args = {"command": "cargo test", "workdir": str(workspace)}
+    args = {"command": "cargo test", "workdir": str(workspace / "butler")}
     for index in range(plugin._MAX_TRAJECTORIES + 20):
         assert plugin._on_pre_tool_call(
             tool_name="terminal", args=args, session_id=f"session-{index}"

@@ -2330,7 +2330,7 @@ def get_pre_verify_continue_message(
     return None
 
 
-def get_pre_final_continue_message(
+def get_pre_final_decision(
     *,
     session_id: str = "",
     platform: str = "",
@@ -2338,8 +2338,8 @@ def get_pre_final_continue_message(
     attempt: int = 0,
     final_response: str = "",
     workspace_root: str = "",
-) -> Optional[str]:
-    """Return the first bounded ``pre_final`` correction requested by a plugin.
+) -> Optional[dict[str, str]]:
+    """Return the first bounded typed ``pre_final`` decision requested by a plugin.
 
     This hook observes only the proposed final response and workspace identity.
     It grants no capability and is not a repository verification mechanism.
@@ -2361,8 +2361,29 @@ def get_pre_final_continue_message(
             continue
         message = result.get("message") or result.get("reason")
         if isinstance(message, str) and message.strip():
-            return message.strip()
+            return {"action": action, "message": message.strip()}
     return None
+
+
+def get_pre_final_continue_message(
+    *,
+    session_id: str = "",
+    platform: str = "",
+    model: str = "",
+    attempt: int = 0,
+    final_response: str = "",
+    workspace_root: str = "",
+) -> Optional[str]:
+    """Compatibility projection of one typed pre-final decision to its message."""
+    decision = get_pre_final_decision(
+        session_id=session_id,
+        platform=platform,
+        model=model,
+        attempt=attempt,
+        final_response=final_response,
+        workspace_root=workspace_root,
+    )
+    return decision["message"] if decision is not None else None
 
 
 def _ensure_plugins_discovered(force: bool = False) -> PluginManager:

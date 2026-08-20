@@ -25,6 +25,7 @@ CANDIDATE_SCHEMA = "penguin-tool-suggestion-candidate/1"
 _MAX_COMMAND_BYTES = 16_384
 _MAX_TRAJECTORIES = 256
 _AREA_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
+_SHELL_CONTROL_RE = re.compile(r"[\r\n;&|<>`$()]")
 _STATE_LOCK = threading.Lock()
 _MISSING = object()
 _TRANSFORMS = {
@@ -34,6 +35,7 @@ _TRANSFORMS = {
     "repo-relative-list",
     "path-parent",
     "focused-path",
+    "registered-area",
     "search-mode",
 }
 _HELD_CALLS: OrderedDict[tuple[str, str], int] = OrderedDict()
@@ -141,6 +143,87 @@ def _registry(root: Path) -> Optional[dict[str, Any]]:
     return registry
 
 
+def _terminal_executable_policy(registry: dict[str, Any]) -> Optional[dict[str, Any]]:
+    policy = registry.get("terminal_executable_policy")
+    if not isinstance(policy, dict) or set(policy) != {
+        "schema",
+        "direct_allow",
+        "forbidden_path_segments",
+        "unregistered",
+    }:
+        return None
+    direct = policy.get("direct_allow")
+    forbidden = policy.get("forbidden_path_segments")
+    if (
+        policy.get("schema") != "lucid-terminal-executable-policy/1"
+        or policy.get("unregistered") != "enforce"
+        or direct != ["lucid", "run"]
+        or forbidden != [".build", "build", "dist", "out", "target"]
+    ):
+        return None
+    return policy
+
+
+def _terminal_invocation(args: dict[str, Any]) -> Optional[list[str]]:
+    command = args.get("command")
+    if (
+        not isinstance(command, str)
+        or not command
+        or len(command.encode("utf-8")) > _MAX_COMMAND_BYTES
+        or _SHELL_CONTROL_RE.search(command) is not None
+    ):
+        return None
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return None
+    invocation = _unwrap_invocation(tokens)
+    return invocation or None
+
+
+def _direct_terminal_executable_allowed(
+    args: dict[str, Any], policy: dict[str, Any]
+) -> bool:
+    invocation = _terminal_invocation(args)
+    if invocation is None or any(token in {"&&", "||", ";", "|"} for token in invocation):
+        return False
+    executable = invocation[0]
+    path = Path(executable)
+    if path.name != executable or path.is_absolute():
+        return False
+    if any(part in policy["forbidden_path_segments"] for part in path.parts):
+        return False
+    return executable in policy["direct_allow"]
+
+
+def _unregistered_executable_refusal(
+    args: dict[str, Any], policy: Optional[dict[str, Any]]
+) -> dict[str, Any]:
+    invocation = _terminal_invocation(args)
+    executable = Path(invocation[0]).name if invocation else "unavailable"
+    receipt = {
+        "schema": "ae-terminal-executable-refusal/1",
+        "state": "refused",
+        "reason": "unregistered-executable" if policy is not None else "executable-policy-unavailable",
+        "authority": "none",
+        "policy_owner": "HARNESS",
+        "executed": False,
+        "original_executed": False,
+        "executable": executable[:96],
+        "direct_allow": list(policy["direct_allow"]) if policy is not None else [],
+        "policy_hash": _canonical_hash(policy) if policy is not None else None,
+    }
+    encoded = json.dumps(receipt, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return {
+        "action": "block",
+        "message": (
+            "HARNESS refused an unregistered terminal executable before execution. "
+            "Use a registered source command or one canonical direct executable (run or lucid).\n"
+            + encoded
+        ),
+    }
+
+
 def _canonical_hash(value: Any) -> str:
     canonical = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -207,16 +290,7 @@ def _argv_intent(
 ) -> Optional[dict[str, Any]]:
     if tool_name != "terminal":
         return None
-    command = args.get("command")
-    if not isinstance(command, str) or not command or len(command.encode("utf-8")) > _MAX_COMMAND_BYTES:
-        return None
-    try:
-        tokens = shlex.split(command, posix=True)
-    except ValueError:
-        return None
-    if not tokens or any(token in {"&&", "||", ";", "|"} for token in tokens):
-        return None
-    invocation_tokens = _unwrap_invocation(tokens)
+    invocation_tokens = _terminal_invocation(args)
     if not invocation_tokens:
         return None
     prefixes = source.get("argv_prefixes")
@@ -416,6 +490,30 @@ def _transform_value(name: str, value: Any, root: Path) -> Any:
         if value not in modes:
             raise ValueError("unregistered-search-mode")
         return modes[value]
+    if name == "registered-area":
+        if not isinstance(value, str) or not value:
+            raise ValueError("unregistered-quality-area")
+        path = root / "quine" / "areas.json"
+        try:
+            if path.is_symlink() or path.stat().st_size > 128 * 1024:
+                raise ValueError("unregistered-quality-area")
+            areas = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, TypeError, ValueError):
+            raise ValueError("unregistered-quality-area") from None
+        rows = areas.get("areas") if isinstance(areas, dict) else None
+        registered = (
+            {
+                row["name"]
+                for row in rows
+                if isinstance(row, dict) and isinstance(row.get("name"), str)
+            }
+            if isinstance(rows, list)
+            else set()
+        )
+        candidate = value.replace("\\", "/").strip("/").split("/", 1)[0]
+        if candidate not in registered:
+            raise ValueError("unregistered-quality-area")
+        return candidate
     raise ValueError("unknown-generated-transform")
 
 
@@ -776,9 +874,9 @@ def _on_pre_tool_call(
     **_: Any,
 ):
     classified = _classify(tool_name, args)
+    root = _ae_root(args) if isinstance(args, dict) else None
+    registry = _registry(root) if root is not None else None
     if isinstance(args, dict):
-        root = _ae_root(args)
-        registry = _registry(root) if root is not None else None
         known_source = isinstance(registry, dict) and any(
             isinstance(target, dict)
             and isinstance(target.get("source"), dict)
@@ -787,6 +885,12 @@ def _on_pre_tool_call(
         )
         if known_source:
             _emit_intent_event(tool_name, args, classified)
+    if tool_name == "terminal" and isinstance(args, dict) and root is not None:
+        policy = _terminal_executable_policy(registry) if isinstance(registry, dict) else None
+        if classified is None:
+            if policy is not None and _direct_terminal_executable_allowed(args, policy):
+                return None
+            return _unregistered_executable_refusal(args, policy)
     if classified is None or not isinstance(args, dict):
         return None
     intent, target, registry, disposition, root = classified
@@ -829,6 +933,32 @@ def _on_pre_tool_call(
     }
 
 
+def _tool_outcome(status: str, result: str) -> str:
+    if status in {"blocked", "refused"}:
+        return "refusal"
+    if status not in {"ok", "success"}:
+        return "failure"
+    try:
+        value = json.loads(result)
+    except (TypeError, ValueError):
+        return "success"
+    if not isinstance(value, dict):
+        return "success"
+    if value.get("refusal") or value.get("error"):
+        return "refusal" if value.get("refusal") else "failure"
+    structured = value.get("structuredContent")
+    if not isinstance(structured, dict):
+        structured = value
+    if structured.get("refusal"):
+        return "refusal"
+    state = structured.get("state")
+    if state in {"refused", "blocked"}:
+        return "refusal"
+    if state in {"🔴", "⚠️", "failed", "failure", "error", "degraded", "stale", "unavailable"}:
+        return "failure"
+    return "success"
+
+
 def _on_transform_tool_result(
     tool_name: str = "",
     args: Any = None,
@@ -841,13 +971,7 @@ def _on_transform_tool_result(
         return None
     followed = _consume_followed(session_id, tool_name, args)
     if followed is not None:
-        outcome = (
-            "success"
-            if status in {"ok", "success"}
-            else "refusal"
-            if status in {"blocked", "refused"}
-            else "failure"
-        )
+        outcome = _tool_outcome(status, result)
         receipt = {
             "schema": "penguin-tool-suggestion-trajectory/1",
             "state": "followed",

@@ -46,7 +46,7 @@ def agent(tmp_path, monkeypatch):
     return instance
 
 
-def test_missing_attestation_gets_one_hidden_correction_turn(agent):
+def test_missing_attestation_retains_candidate_and_control_lineage(agent):
     answers = iter([_response("substantive answer"), _response("substantive answer 🎼🐧")])
     agent._interruptible_api_call = lambda _kwargs: next(answers)
     agent._handle_max_iterations = MagicMock(return_value="replacement summary")
@@ -55,8 +55,11 @@ def test_missing_attestation_gets_one_hidden_correction_turn(agent):
         patch("agent.coding_context.project_facts_for", return_value={"root": "/repo"}),
         patch("hermes_cli.plugins.has_hook", side_effect=lambda name: name == "pre_final"),
         patch(
-            "hermes_cli.plugins.get_pre_final_continue_message",
-            return_value="correct terminal attestation",
+            "hermes_cli.plugins.get_pre_final_decision",
+            side_effect=[
+                {"action": "continue", "message": "correct terminal attestation"},
+                None,
+            ],
         ) as correction,
         patch("hermes_cli.plugins.invoke_hook", return_value=[]),
     ):
@@ -64,9 +67,16 @@ def test_missing_attestation_gets_one_hidden_correction_turn(agent):
 
     assert result["final_response"] == "substantive answer 🎼🐧"
     assert result["completed"] is True
-    correction.assert_called_once()
-    assert [message["role"] for message in result["messages"]] == ["user", "assistant"]
-    assert all(not message.get("_pre_final_synthetic") for message in result["messages"])
+    assert correction.call_count == 2
+    assert [message["role"] for message in result["messages"]] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    assert result["messages"][1]["_finalization_lineage"] == "candidate"
+    assert result["messages"][2]["_finalization_lineage"] == "control"
+    assert result["messages"][2]["name"] == "HARNESS"
 
 
 def test_attested_final_does_not_add_a_turn(agent):
@@ -75,7 +85,7 @@ def test_attested_final_does_not_add_a_turn(agent):
         patch("agent.coding_context.project_facts_for", return_value={"root": "/repo"}),
         patch("hermes_cli.plugins.has_hook", side_effect=lambda name: name == "pre_final"),
         patch(
-            "hermes_cli.plugins.get_pre_final_continue_message",
+            "hermes_cli.plugins.get_pre_final_decision",
             return_value=None,
         ) as correction,
         patch("hermes_cli.plugins.invoke_hook", return_value=[]),
@@ -94,11 +104,30 @@ def test_unattested_candidate_is_not_budget_fallback(agent):
         patch("agent.coding_context.project_facts_for", return_value={"root": "/repo"}),
         patch("hermes_cli.plugins.has_hook", side_effect=lambda name: name == "pre_final"),
         patch(
-            "hermes_cli.plugins.get_pre_final_continue_message",
-            return_value="correct terminal attestation",
+            "hermes_cli.plugins.get_pre_final_decision",
+            return_value={"action": "continue", "message": "correct terminal attestation"},
         ),
         patch("hermes_cli.plugins.invoke_hook", return_value=[]),
     ):
         result = agent.run_conversation("finish")
     assert result["final_response"] != "missing suffix"
     assert result["completed"] is False
+
+
+def test_terminal_attestation_block_replaces_candidate_without_another_model_turn(agent):
+    agent._interruptible_api_call = MagicMock(return_value=_response("drifted candidate"))
+    with (
+        patch("agent.coding_context.project_facts_for", return_value={"root": "/repo"}),
+        patch("hermes_cli.plugins.has_hook", side_effect=lambda name: name == "pre_final"),
+        patch(
+            "hermes_cli.plugins.get_pre_final_decision",
+            return_value={"action": "block", "message": "🔴 LUCID · role-session · offline"},
+        ),
+        patch("hermes_cli.plugins.invoke_hook", return_value=[]),
+    ):
+        result = agent.run_conversation("finish")
+    assert result["final_response"] == "🔴 LUCID · role-session · offline"
+    assert agent._interruptible_api_call.call_count == 1
+    with pytest.raises(RuntimeError, match="role-session · offline"):
+        agent.run_conversation("try to continue")
+    assert agent._interruptible_api_call.call_count == 1

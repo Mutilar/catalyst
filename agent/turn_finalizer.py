@@ -42,7 +42,7 @@ def _is_pure_tool_call_tail(msg: dict) -> bool:
     return not flatten_message_text(msg.get("content")).strip()
 
 
-# Bounded plugin continuation scaffolding must not enter returned/live history.
+# Legacy bounded plugin continuation scaffolding must not enter returned/live history.
 _VERIFICATION_CONTINUATION_FLAGS = (
     "_pre_final_synthetic",
     "_pre_verify_synthetic",
@@ -52,8 +52,9 @@ _VERIFICATION_CONTINUATION_FLAGS = (
 def _drop_verification_continuation_scaffolding(messages) -> None:
     """Remove verification-continuation nudge messages from *messages* in place.
 
-    Both sides of a pre-final attestation retry are synthetic; pre-verify
-    plugins retain their existing nudge-only behavior.
+    Legacy pre-final retries marked both sides synthetic. Current HARNESS finalization
+    uses ``_finalization_lineage`` and deliberately survives this compatibility cleanup;
+    pre-verify plugins retain their existing nudge-only behavior.
     """
     messages[:] = [
         m for m in messages

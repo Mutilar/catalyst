@@ -5,3 +5,5 @@ author: "Microsoft Applied Sciences"
 kind: backend
 hooks:
   - pre_final
+  - transform_tool_result
+  - on_session_end
