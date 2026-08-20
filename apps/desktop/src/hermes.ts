@@ -930,6 +930,28 @@ export interface McpOAuthFlow {
   tools?: { name: string; description: string }[]
 }
 
+export interface UguiActionInvokeResponse {
+  ok: boolean
+  action_id: string
+  provenance_hash: string
+  result: Record<string, unknown>
+}
+
+export function invokeUguiAction(
+  document: Record<string, unknown>,
+  actionId: string,
+  confirmed = false,
+  inputs: Record<string, unknown> = {}
+): Promise<UguiActionInvokeResponse> {
+  return window.hermesDesktop.api<UguiActionInvokeResponse>({
+    ...profileScoped(),
+    path: '/api/ugui/actions/invoke',
+    method: 'POST',
+    body: { document, action_id: actionId, confirmed, inputs },
+    timeoutMs: 60_000
+  })
+}
+
 /** Connect to the server, list its tools, disconnect. Slow (spawns/handshakes
  *  for real) — well past the 15s default fetch timeout. */
 export function testMcpServer(name: string): Promise<McpTestResult> {

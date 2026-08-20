@@ -48,6 +48,19 @@ describe('UGUI extraction', () => {
     expect(extractMcpUguiDocument(result)).toEqual(document)
   })
 
+  it('renders structured UGUI for MCP domain refusals marked isError', () => {
+    const refusal = { ...document, state: 'bootstrap-decision-required' }
+    const result = {
+      [MODEL_VISIBLE_TOOL_RESULT_KEY]: {
+        content: [{ type: 'text', text: 'fallback GESTALT' }],
+        isError: true,
+        structuredContent: refusal
+      }
+    }
+
+    expect(extractToolUguiDocument('mcp__LUCID__set', {}, result)).toEqual(refusal)
+  })
+
   it('refuses arbitrary structured content and oversized documents', () => {
     expect(
       extractMcpUguiDocument({

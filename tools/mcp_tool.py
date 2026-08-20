@@ -4771,6 +4771,12 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                 "MCP tool %s/%s call failed: %s",
                 server_name, tool_name, exc,
             )
+            if server_name == "LUCID":
+                from tools.lucid_outage import project_lucid_transport_outage
+
+                projected = project_lucid_transport_outage(tool_name, args)
+                if projected is not None:
+                    return json.dumps(projected, ensure_ascii=False)
             return json.dumps({
                 "error": _sanitize_error(
                     f"MCP call failed: {type(exc).__name__}: {_exc_str(exc)}"
@@ -4778,6 +4784,44 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
             }, ensure_ascii=False)
 
     return _handler
+
+
+def invoke_registered_mcp_tool(
+    server_name: str,
+    tool_name: str,
+    arguments: dict,
+    *,
+    timeout: float = 30.0,
+) -> dict:
+    """Invoke one already-connected MCP tool through the normal guarded call path.
+
+    This is the narrow host seam used by provenance-bound UGUI actions. It does
+    not discover, spawn, or select arbitrary executables; the caller must map a
+    closed authored action to an exact server and tool identity first.
+    """
+
+    identity = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+    if (
+        not isinstance(server_name, str)
+        or not isinstance(tool_name, str)
+        or identity.fullmatch(server_name) is None
+        or identity.fullmatch(tool_name) is None
+        or not isinstance(arguments, dict)
+    ):
+        return {"error": "MCP action invocation is malformed"}
+    try:
+        encoded = json.dumps(arguments, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError):
+        return {"error": "MCP action arguments are not JSON-serializable"}
+    if len(encoded) > 65_536:
+        return {"error": "MCP action arguments exceed their bound"}
+
+    rendered = _make_tool_handler(server_name, tool_name, timeout)(dict(arguments))
+    try:
+        parsed = json.loads(rendered)
+    except (TypeError, json.JSONDecodeError):
+        return {"error": "MCP action result is malformed"}
+    return parsed if isinstance(parsed, dict) else {"error": "MCP action result is not an object"}
 
 
 def _make_list_resources_handler(server_name: str, tool_timeout: float):

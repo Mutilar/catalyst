@@ -1,11 +1,18 @@
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { McpUguiDocument as Document } from '@/lib/tool-presentation'
 
-import { McpUguiDocument } from './mcp-ugui'
+import { McpUguiDocument, projectUguiAction } from './mcp-ugui'
 
-afterEach(cleanup)
+const mocks = vi.hoisted(() => ({ invokeUguiAction: vi.fn() }))
+
+vi.mock('@/hermes', () => ({ invokeUguiAction: mocks.invokeUguiAction }))
+
+afterEach(() => {
+  cleanup()
+  mocks.invokeUguiAction.mockReset()
+})
 
 const document: Document = {
   schema: 'lucid-ugui-response/1',
@@ -82,5 +89,178 @@ describe('McpUguiDocument', () => {
         '{"matches":[{"line":1071,"path":"run/src/tui.rs","text":"fn dashboard_log_sources()"}],"truncated":false}'
       )
     ).toBeTruthy()
+  })
+
+  it('invokes an exact authored LUCID action and replaces the card with returned UGUI', async () => {
+    const actionable = {
+      ...document,
+      provenance: {
+        parentHash: `sha256:${'a'.repeat(64)}`
+      },
+      receipt: {
+        action_provenance: [
+          {
+            id: 'lucid.response.execution',
+            state: 'AVAILABLE',
+            provenance_hash: `sha256:${'a'.repeat(64)}`
+          }
+        ]
+      },
+      actions: [
+        {
+          id: 'lucid.response.execution',
+          label: 'Inspect execution',
+          action: 'lucid.show.execution',
+          value: `dispatch:${'b'.repeat(64)}`,
+          intent: {
+            verb: 'show',
+            arguments: { view: 'execution', id: `dispatch:${'b'.repeat(64)}` }
+          }
+        }
+      ]
+    } satisfies Document
+    mocks.invokeUguiAction.mockResolvedValue({
+      ok: true,
+      result: {
+        structuredContent: {
+          ...document,
+          header: [{ id: 'title', type: 'text', body: 'Current execution' }],
+          actions: []
+        }
+      }
+    })
+
+    render(<McpUguiDocument document={actionable} />)
+    const button = screen.getByRole('button', { name: 'Inspect execution' })
+    fireEvent.click(button)
+    fireEvent.click(button)
+
+    await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(actionable, 'lucid.response.execution', false))
+    expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(1)
+    expect(await screen.findByRole('heading', { name: 'Current execution' })).toBeTruthy()
+  })
+
+  it('requires an explicit second click before exact cancellation', async () => {
+    const cancellable = {
+      ...document,
+      provenance: {
+        parentHash: `sha256:${'a'.repeat(64)}`
+      },
+      receipt: {
+        action_provenance: [
+          {
+            id: 'lucid.response.cancel',
+            state: 'AVAILABLE',
+            provenance_hash: `sha256:${'a'.repeat(64)}`
+          }
+        ]
+      },
+      actions: [
+        {
+          id: 'lucid.response.cancel',
+          label: 'Cancel',
+          action: 'lucid.cancel.dispatch',
+          value: `dispatch:${'b'.repeat(64)}`,
+          intent: {
+            verb: 'cancel',
+            arguments: { task: 'fleet.dispatch', dispatch_id: `dispatch:${'b'.repeat(64)}` }
+          },
+          requiresConfirmation: 'exact'
+        }
+      ]
+    } satisfies Document
+    mocks.invokeUguiAction.mockResolvedValue({ ok: true, result: {} })
+
+    render(<McpUguiDocument document={cancellable} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(mocks.invokeUguiAction).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Cancel' }))
+
+    await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(cancellable, 'lucid.response.cancel', true))
+  })
+
+  it('renders incomplete compose actions as disabled rather than inert affordances', () => {
+    render(
+      <McpUguiDocument
+        document={{
+          ...document,
+          actions: [{ id: 'lucid.response.steer', label: 'Steer', action: 'lucid.steer.compose' }]
+        }}
+      />
+    )
+
+    expect((screen.getByRole('button', { name: 'Steer' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('admits future complete read actions without a renderer handler allowlist', () => {
+    const action = {
+      id: 'lucid.response.inspect',
+      label: 'Inspect fleet',
+      action: 'lucid.get.inspect',
+      value: 'fleet',
+      intent: { verb: 'get', arguments: { path: 'fleet' } }
+    }
+    const value = {
+      ...document,
+      provenance: { parentHash: `sha256:${'a'.repeat(64)}` },
+      receipt: {
+        action_provenance: [
+          {
+            id: action.id,
+            state: 'AVAILABLE',
+            provenance_hash: `sha256:${'a'.repeat(64)}`
+          }
+        ]
+      },
+      actions: [action]
+    } satisfies Document
+
+    expect(projectUguiAction(value, action, 0).executable).toBe(true)
+  })
+
+  it('disables stale and unconfirmed mutating actions with actionable reasons', () => {
+    const action = {
+      id: 'lucid.response.restore',
+      label: 'Restore',
+      action: 'lucid.set.restore',
+      intent: { verb: 'set', arguments: { path: 'setting', value: 'prior' } }
+    }
+    const value = {
+      ...document,
+      provenance: { parentHash: `sha256:${'a'.repeat(64)}` },
+      receipt: {
+        action_provenance: [
+          {
+            id: action.id,
+            state: 'AVAILABLE',
+            provenance_hash: `sha256:${'a'.repeat(64)}`
+          }
+        ]
+      },
+      actions: [action]
+    } satisfies Document
+
+    const missingConfirmation = projectUguiAction(value, action, 0)
+    expect(missingConfirmation.executable).toBe(false)
+    expect(missingConfirmation.reason).toContain('exact confirmation')
+
+    const stale = projectUguiAction(
+      {
+        ...value,
+        receipt: {
+          action_provenance: [
+            {
+              id: action.id,
+              state: 'AVAILABLE',
+              provenance_hash: `sha256:${'c'.repeat(64)}`
+            }
+          ]
+        }
+      },
+      { ...action, requiresConfirmation: 'exact' },
+      0
+    )
+    expect(stale.executable).toBe(false)
+    expect(stale.reason).toContain('unavailable')
   })
 })

@@ -9,6 +9,8 @@ export interface McpUguiDocument {
   actions?: unknown[]
   header: unknown[]
   id: string
+  provenance?: Record<string, unknown>
+  receipt?: Record<string, unknown>
   schema: string
   sections: unknown[]
   state?: string

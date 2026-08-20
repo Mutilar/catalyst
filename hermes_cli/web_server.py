@@ -12510,6 +12510,14 @@ class MCPServersReplace(BaseModel):
     profile: Optional[str] = None
 
 
+class UguiActionInvoke(BaseModel):
+    document: Dict[str, Any]
+    action_id: str
+    confirmed: bool = False
+    inputs: Dict[str, Any] = {}
+    profile: Optional[str] = None
+
+
 def _normalize_mcp_server_create(
     body: MCPServerCreate,
 ) -> tuple[str, Dict[str, Any], Optional[str]]:
@@ -12612,6 +12620,35 @@ def _mcp_server_summary(name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
         # Tool selection: list of enabled tool names, or None = all.
         "tools": cfg.get("tools"),
     }
+
+
+@app.post("/api/ugui/actions/invoke")
+async def invoke_ugui_action(body: UguiActionInvoke, profile: Optional[str] = None):
+    """Execute one provenance-bound canonical UGUI action through native MCP."""
+
+    from hermes_cli.ugui_actions import UguiActionError, execute_lucid_ugui_action
+
+    def _invoke():
+        with _config_profile_scope(body.profile or profile):
+            return execute_lucid_ugui_action(
+                body.document,
+                body.action_id,
+                confirmed=body.confirmed,
+                inputs=body.inputs,
+            )
+
+    try:
+        result = await run_in_threadpool(_invoke)
+    except UguiActionError as exc:
+        status = 409 if exc.code in {"confirmation-required", "action-not-executable"} else 400
+        raise HTTPException(status_code=status, detail={"code": exc.code, "message": exc.detail}) from exc
+    except Exception as exc:
+        _log.exception("POST /api/ugui/actions/invoke failed")
+        raise HTTPException(status_code=503, detail="UGUI action invocation failed") from exc
+    if not result.get("ok"):
+        error = result.get("result", {}).get("error", "MCP action failed")
+        raise HTTPException(status_code=502, detail=error)
+    return result
 
 
 @app.get("/api/mcp/servers")
