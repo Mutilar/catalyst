@@ -19,7 +19,9 @@ _HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}$")
 _DISPATCH_ID = re.compile(r"^dispatch:[0-9a-f]{64}$")
 _LUCID_VERBS = {"show", "get", "set", "morph", "dispatch", "steer", "cancel"}
-_MUTATING_VERBS = {"set", "morph", "dispatch", "steer", "cancel"}
+_MUTATING_VERBS = {"set", "dispatch", "steer", "cancel"}
+_MUTATING_MORPH_OPERATIONS = {"start", "customize", "write", "advance"}
+_READ_MORPH_OPERATIONS = {"inspect", "shard", "vocabulary", "project"}
 _FORBIDDEN_AUTHORITY_KEYS = {
     "capability",
     "signature",
@@ -149,8 +151,16 @@ def compile_lucid_ugui_action(
         raise UguiActionError("action-verb-mismatch", "action handler and LUCID verb differ")
     if _contains_authority(arguments):
         raise UguiActionError("action-authority-forbidden", "action carries authority material")
+    morph_operation = arguments.get("operation")
+    if tool_name == "morph" and morph_operation not in (
+        _READ_MORPH_OPERATIONS | _MUTATING_MORPH_OPERATIONS
+    ):
+        raise UguiActionError("action-intent-invalid", "MORPH action does not name a closed operation")
     requires_confirmation = action.get("requiresConfirmation") == "exact"
-    if tool_name in _MUTATING_VERBS and not requires_confirmation:
+    mutating = tool_name in _MUTATING_VERBS or (
+        tool_name == "morph" and morph_operation in _MUTATING_MORPH_OPERATIONS
+    )
+    if mutating and not requires_confirmation:
         raise UguiActionError(
             "confirmation-policy-missing",
             "mutating LUCID actions require authored exact confirmation",
@@ -170,7 +180,11 @@ def compile_lucid_ugui_action(
             provenance_hash=provenance_hash,
         )
 
-    if handler == "lucid.set.host-role":
+    if handler == "lucid.morph.choice":
+        target = action.get("value")
+        if not isinstance(target, str) or not target or arguments.get("codebook") != target:
+            raise UguiActionError("action-target-invalid", "MORPH choice target differs from its exact request")
+    elif handler == "lucid.set.host-role":
         target = action.get("value")
         expected = arguments.get("expected_hash")
         value = arguments.get("value")

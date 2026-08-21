@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import shlex
+import time
 from typing import Any
 
 _REPO = Path(__file__).resolve().parents[2]
@@ -60,6 +62,21 @@ def _command(facade: dict[str, Any], arguments: dict[str, Any]) -> str | None:
     if len(encoded.encode("utf-8")) > _MAX_ARGUMENTS:
         return None
     return f"{adapter} --args {shlex.quote(encoded)}"
+
+
+def _failure_provenance(tool: str, code: str, detail: str) -> tuple[str, int]:
+    source = json.dumps(
+        {
+            "schema": "mcp-call-tool-result/1",
+            "tool": tool,
+            "code": code,
+            "detail": detail,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(source).hexdigest()}", int(time.time())
 
 
 def project_lucid_transport_outage(tool: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
@@ -143,6 +160,8 @@ def project_lucid_failure(
     code = code if code in {"mcp-unavailable", "outcome-envelope-invalid"} else "outcome-envelope-invalid"
     bounded = " ".join(detail.split())[:1024] or "isError response omitted content and structuredContent"
     next_action = f"lucid {tool} --help"
+    provenance_hash, observed_epoch = _failure_provenance(tool, code, bounded)
+    action_id = f"lucid.error.help.{tool}"
     return {
         "error": f"🔴 LUCID · {tool} · {code}\nCAUSE {bounded}\nNEXT {next_action}",
         "structuredContent": {
@@ -168,29 +187,46 @@ def project_lucid_failure(
                     "body": bounded,
                     "width": 12,
                 },
-                {
-                    "id": "lucid.error.next",
-                    "type": "text",
-                    "body": f"NEXT {next_action}",
-                    "width": 12,
-                },
             ],
-            "actions": [],
+            "actions": [
+                {
+                    "id": action_id,
+                    "type": "button",
+                    "label": f"{tool} --help",
+                    "action": "lucid.help.verb",
+                    "value": tool,
+                    "intent": {"verb": tool, "arguments": {}},
+                    "handlers": [{"gesture": "tap", "handler": "lucid.help.verb"}],
+                    "width": 12,
+                }
+            ],
             "provenance": {
                 "schema": "ugui-provenance/1",
                 "sourceSchema": "mcp-call-tool-result",
-                "parentHash": None,
-                "observedEpoch": 0,
+                "parentHash": provenance_hash,
+                "observedEpoch": observed_epoch,
                 "sourceField": "isError",
             },
             "fidelity": {
                 "schema": "lucid-ugui-projection-fidelity/1",
                 "lossless": False,
                 "sourceFields": ["isError", "content", "structuredContent"],
-                "projectedFields": ["state", "sections"],
+                "projectedFields": ["state", "sections", "actions", "receipt"],
                 "omittedFields": ["transport"],
                 "generator": "catalyst.tools.lucid_outage@1",
             },
-            "receipt": {"schema": "lucid-ugui-action-receipt/1", "action_provenance": []},
+            "receipt": {
+                "schema": "lucid-ugui-action-receipt/1",
+                "action_provenance": [
+                    {
+                        "id": action_id,
+                        "state": "AVAILABLE",
+                        "provenance_hash": provenance_hash,
+                        "reason": "derived from the current MCP failure result",
+                        "kind": "domain-intent",
+                        "content_id": provenance_hash,
+                    }
+                ],
+            },
         },
     }

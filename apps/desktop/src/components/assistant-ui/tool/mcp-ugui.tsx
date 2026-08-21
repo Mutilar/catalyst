@@ -16,7 +16,9 @@ const SIGNAL_CLASS: Record<string, string> = {
   '🔴': 'text-rose-600 dark:text-rose-400'
 }
 const LUCID_VERBS = new Set(['show', 'get', 'set', 'morph', 'dispatch', 'steer', 'cancel'])
-const MUTATING_LUCID_VERBS = new Set(['set', 'morph', 'dispatch', 'steer', 'cancel'])
+const MUTATING_LUCID_VERBS = new Set(['set', 'dispatch', 'steer', 'cancel'])
+const MUTATING_MORPH_OPERATIONS = new Set(['start', 'customize', 'write', 'advance'])
+const READ_MORPH_OPERATIONS = new Set(['inspect', 'shard', 'vocabulary', 'project'])
 const HASH_RE = /^sha256:[0-9a-f]{64}$/
 
 interface ProjectedAction {
@@ -71,13 +73,27 @@ export function projectUguiAction(
     ? receipts.map(record).find(item => item?.id === id && item?.provenance_hash === provenanceHash)
     : null
   const helpHandler = handler === 'lucid.help.verb'
+  const morphOperation = text(argumentsValue?.operation)
+  const morphOperationValid =
+    verb !== 'morph' ||
+    helpHandler ||
+    READ_MORPH_OPERATIONS.has(morphOperation) ||
+    MUTATING_MORPH_OPERATIONS.has(morphOperation)
   const handlerMatches = helpHandler
     ? LUCID_VERBS.has(verb) && Object.keys(argumentsValue ?? {}).length === 0 && action.value === verb
     : LUCID_VERBS.has(verb) && handler.startsWith(`lucid.${verb}.`)
+  const choiceTargetValid =
+    handler !== 'lucid.morph.choice' ||
+    (typeof action.value === 'string' && action.value === argumentsValue?.codebook)
   const producerDisabled = action.disabled === true
   const unavailable = receipt?.state !== 'AVAILABLE'
-  const complete = Boolean(id && label && intent && argumentsValue && handlerMatches)
-  const confirmationPolicyValid = !MUTATING_LUCID_VERBS.has(verb) || action.requiresConfirmation === 'exact'
+  const complete = Boolean(
+    id && label && intent && argumentsValue && handlerMatches && morphOperationValid && choiceTargetValid
+  )
+  const requiresExactConfirmation =
+    MUTATING_LUCID_VERBS.has(verb) ||
+    (verb === 'morph' && MUTATING_MORPH_OPERATIONS.has(morphOperation))
+  const confirmationPolicyValid = !requiresExactConfirmation || action.requiresConfirmation === 'exact'
   const executable =
     complete &&
     confirmationPolicyValid &&
@@ -93,6 +109,10 @@ export function projectUguiAction(
         ? 'Typed action inputs are not yet supported by this client.'
         : !confirmationPolicyValid
           ? 'Mutating LUCID actions require authored exact confirmation.'
+        : !morphOperationValid
+          ? 'MORPH actions require one closed operation.'
+        : !choiceTargetValid
+          ? 'MORPH choice target differs from its exact request.'
         : !complete
           ? 'The producer has not supplied a complete typed LUCID intent for this action.'
           : !HASH_RE.test(provenanceHash)

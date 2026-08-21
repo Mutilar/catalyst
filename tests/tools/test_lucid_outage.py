@@ -115,6 +115,43 @@ def test_unattested_empty_error_uses_canonical_outcome_code(monkeypatch, tmp_pat
     assert result["structuredContent"]["schema"] == "lucid-ugui-response/1"
     assert "MCP tool returned an error" not in result["error"]
     assert "NEXT lucid dispatch --help" in result["error"]
+    document = result["structuredContent"]
+    assert [section["id"] for section in document["sections"]] == ["lucid.error.status"]
+    assert document["provenance"]["parentHash"].startswith("sha256:")
+    assert document["provenance"]["observedEpoch"] > 0
+    assert document["actions"] == [
+        {
+            "id": "lucid.error.help.dispatch",
+            "type": "button",
+            "label": "dispatch --help",
+            "action": "lucid.help.verb",
+            "value": "dispatch",
+            "intent": {"verb": "dispatch", "arguments": {}},
+            "handlers": [{"gesture": "tap", "handler": "lucid.help.verb"}],
+            "width": 12,
+        }
+    ]
+    receipt = document["receipt"]["action_provenance"]
+    assert len(receipt) == 1
+    assert receipt[0]["id"] == "lucid.error.help.dispatch"
+    assert receipt[0]["state"] == "AVAILABLE"
+    assert receipt[0]["provenance_hash"] == document["provenance"]["parentHash"]
+    assert receipt[0]["content_id"] == document["provenance"]["parentHash"]
+
+
+def test_failure_help_action_provenance_is_stable_for_the_same_evidence(monkeypatch, tmp_path):
+    monkeypatch.setattr(lucid_outage, "_OFFLINE", tmp_path / "absent-offline.json")
+    monkeypatch.setattr(lucid_outage, "_REVIVAL", tmp_path / "absent-revival.json")
+    monkeypatch.setattr(lucid_outage.time, "time", lambda: 1234)
+
+    first = lucid_outage.project_lucid_failure("get", {"path": "search"}, "deadline expired")
+    second = lucid_outage.project_lucid_failure("get", {"path": "search"}, "deadline expired")
+
+    first_document = first["structuredContent"]
+    second_document = second["structuredContent"]
+    assert first_document["provenance"] == second_document["provenance"]
+    assert first_document["provenance"]["observedEpoch"] == 1234
+    assert first_document["receipt"]["action_provenance"][0]["provenance_hash"] == first_document["provenance"]["parentHash"]
 
 
 def test_server_supplied_ugui_error_is_preserved():

@@ -96,13 +96,18 @@ def host_role_action():
 
 
 def refresh_action(verb="get"):
+    arguments = (
+        {"path": "logs", "query": {"source": "quine"}}
+        if verb == "get"
+        else {"view": "pulse"}
+    )
     return {
         "id": "lucid.response.refresh",
         "action": f"lucid.{verb}.refresh",
-        "value": "logs/quine" if verb == "get" else "attention/pulse",
+        "value": PARENT_HASH,
         "intent": {
             "verb": verb,
-            "arguments": {"path": "logs/quine"} if verb == "get" else {"view": "pulse"},
+            "arguments": arguments,
         },
     }
 
@@ -176,6 +181,55 @@ def test_refresh_rejects_embedded_authority_material():
     with pytest.raises(UguiActionError) as refusal:
         compile_lucid_ugui_action(document(action), action["id"])
     assert refusal.value.code == "action-authority-forbidden"
+
+
+def test_read_like_morph_choice_compiles_without_confirmation():
+    action = {
+        "id": "lucid.response.morph.choice.0",
+        "action": "lucid.morph.choice",
+        "value": "one-pager",
+        "intent": {
+            "verb": "morph",
+            "arguments": {"codebook": "one-pager", "operation": "shard"},
+        },
+    }
+    compiled = compile_lucid_ugui_action(document(action), action["id"])
+    assert compiled.tool_name == "morph"
+    assert compiled.arguments == action["intent"]["arguments"]
+
+
+def test_mutating_morph_choice_requires_exact_confirmation():
+    action = {
+        "id": "lucid.response.morph.choice.0",
+        "action": "lucid.morph.choice",
+        "value": "one-pager",
+        "intent": {
+            "verb": "morph",
+            "arguments": {"codebook": "one-pager", "operation": "start"},
+        },
+        "requiresConfirmation": "exact",
+    }
+    with pytest.raises(UguiActionError) as unconfirmed:
+        compile_lucid_ugui_action(document(action), action["id"])
+    assert unconfirmed.value.code == "confirmation-required"
+    assert compile_lucid_ugui_action(
+        document(action), action["id"], confirmed=True
+    ).arguments == action["intent"]["arguments"]
+
+
+def test_morph_choice_target_must_match_its_exact_request():
+    action = {
+        "id": "lucid.response.morph.choice.0",
+        "action": "lucid.morph.choice",
+        "value": "one-pager",
+        "intent": {
+            "verb": "morph",
+            "arguments": {"codebook": "documentation", "operation": "shard"},
+        },
+    }
+    with pytest.raises(UguiActionError) as refusal:
+        compile_lucid_ugui_action(document(action), action["id"])
+    assert refusal.value.code == "action-target-invalid"
 
 
 def test_help_action_invokes_the_selected_bare_lucid_verb():
@@ -265,6 +319,31 @@ def test_execution_uses_the_registered_mcp_transport(monkeypatch):
         "tool": "show",
         "arguments": {"view": "execution", "id": DISPATCH_ID},
     }
+
+
+def test_morph_choice_execution_is_one_registered_mcp_call(monkeypatch):
+    observed = []
+    action = {
+        "id": "lucid.response.morph.choice.0",
+        "action": "lucid.morph.choice",
+        "value": "one-pager",
+        "intent": {
+            "verb": "morph",
+            "arguments": {"codebook": "one-pager", "operation": "shard"},
+        },
+    }
+
+    def invoke(server_name, tool_name, arguments):
+        observed.append((server_name, tool_name, arguments))
+        return {"structuredContent": {"schema": "lucid-ugui-response/1"}}
+
+    monkeypatch.setattr("tools.mcp_tool.invoke_registered_mcp_tool", invoke)
+    result = execute_lucid_ugui_action(document(action), action["id"])
+
+    assert result["ok"] is True
+    assert observed == [
+        ("LUCID", "morph", {"codebook": "one-pager", "operation": "shard"})
+    ]
 
 
 def test_web_route_executes_the_compiled_action(monkeypatch, tmp_path):

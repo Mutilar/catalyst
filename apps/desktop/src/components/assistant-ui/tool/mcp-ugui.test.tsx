@@ -182,6 +182,48 @@ describe('McpUguiDocument', () => {
     await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(cancellable, 'lucid.response.cancel', true))
   })
 
+  it('executes one read-like MORPH choice in one call and adopts its returned UGUI', async () => {
+    const provenance = `sha256:${'a'.repeat(64)}`
+    const choice = {
+      id: 'lucid.response.morph.choice.0',
+      label: 'One-pager',
+      action: 'lucid.morph.choice',
+      value: 'one-pager',
+      intent: {
+        verb: 'morph',
+        arguments: { codebook: 'one-pager', operation: 'shard' }
+      }
+    }
+    const choose = {
+      ...document,
+      provenance: { parentHash: provenance },
+      receipt: {
+        action_provenance: [
+          { id: choice.id, state: 'AVAILABLE', provenance_hash: provenance }
+        ]
+      },
+      actions: [choice]
+    } satisfies Document
+    mocks.invokeUguiAction.mockResolvedValue({
+      ok: true,
+      result: {
+        structuredContent: {
+          ...document,
+          header: [{ id: 'title', type: 'text', body: 'One-pager choices' }],
+          actions: []
+        }
+      }
+    })
+
+    render(<McpUguiDocument document={choose} />)
+    fireEvent.click(screen.getByRole('button', { name: 'One-pager' }))
+
+    await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(choose, choice.id, false))
+    expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/Confirmation required/)).toBeNull()
+    expect(await screen.findByRole('heading', { name: 'One-pager choices' })).toBeTruthy()
+  })
+
   it('renders incomplete compose actions as disabled rather than inert affordances', () => {
     render(
       <McpUguiDocument
