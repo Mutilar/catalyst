@@ -93,6 +93,35 @@ function record(value: unknown): Record<string, unknown> | null {
   return null
 }
 
+export function extractMcpGestalt(result: unknown): string | null {
+  const visibleValue = modelVisibleToolResult(result)
+  const visible = record(visibleValue)
+  const candidates: unknown[] = [visibleValue, visible?.result, visible?.output]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.length <= 2_048 && /^(?:🟢|⏳|⚠️|🔴)\s+LUCID(?:\/1)?\s+·/u.test(candidate)) {
+      return candidate
+    }
+
+    const content = record(candidate)?.content
+
+    if (!Array.isArray(content)) {
+      continue
+    }
+
+    for (const item of content) {
+      const row = record(item)
+      const value = typeof row?.text === 'string' ? row.text : null
+
+      if (value && value.length <= 2_048 && /^(?:🟢|⏳|⚠️|🔴)\s+LUCID(?:\/1)?\s+·/u.test(value)) {
+        return value
+      }
+    }
+  }
+
+  return null
+}
+
 export function extractMcpUguiDocument(result: unknown): McpUguiDocument | null {
   const visible = record(modelVisibleToolResult(result))
 

@@ -19,7 +19,7 @@ _HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}$")
 _DISPATCH_ID = re.compile(r"^dispatch:[0-9a-f]{64}$")
 _LUCID_VERBS = {"show", "get", "set", "morph", "dispatch", "steer", "cancel"}
-_MUTATING_VERBS = {"set", "dispatch", "steer", "cancel"}
+_MUTATING_VERBS = {"set", "dispatch", "steer"}
 _MUTATING_MORPH_OPERATIONS = {"start", "customize", "write", "advance"}
 _READ_MORPH_OPERATIONS = {"inspect", "shard", "vocabulary", "project"}
 _FORBIDDEN_AUTHORITY_KEYS = {
@@ -93,8 +93,6 @@ def compile_lucid_ugui_action(
     root = _bounded_document(document)
     if not isinstance(action_id, str) or _ID.fullmatch(action_id) is None:
         raise UguiActionError("action-id-invalid", "action id is not a bounded UGUI identity")
-    if inputs:
-        raise UguiActionError("action-input-unsupported", "this action has no admitted typed input")
 
     provenance = _object(root.get("provenance"), "provenance-missing")
     provenance_hash = provenance.get("parentHash")
@@ -149,6 +147,31 @@ def compile_lucid_ugui_action(
         )
     if not handler.startswith(f"lucid.{tool_name}."):
         raise UguiActionError("action-verb-mismatch", "action handler and LUCID verb differ")
+    action_inputs = action.get("inputs")
+    if handler == "lucid.steer.compose":
+        if (
+            not isinstance(action_inputs, list)
+            or len(action_inputs) != 1
+            or not isinstance(action_inputs[0], dict)
+            or action_inputs[0].get("id") != "intent_delta"
+            or action_inputs[0].get("type") != "text"
+            or action_inputs[0].get("required") is not True
+            or action_inputs[0].get("maxLength") != 4_000
+            or not isinstance(inputs, Mapping)
+            or set(inputs) != {"intent_delta"}
+        ):
+            raise UguiActionError("action-input-invalid", "STEER requires one bounded intent_delta input")
+        intent_delta = inputs.get("intent_delta")
+        if (
+            not isinstance(intent_delta, str)
+            or not intent_delta.strip()
+            or len(intent_delta.encode("utf-8")) > 4_000
+            or any(ord(character) < 32 and character != "\n" for character in intent_delta)
+        ):
+            raise UguiActionError("action-input-invalid", "STEER intent_delta is invalid")
+        arguments["intent_delta"] = intent_delta
+    elif inputs or isinstance(action_inputs, list):
+        raise UguiActionError("action-input-unsupported", "this action has no admitted typed input")
     if _contains_authority(arguments):
         raise UguiActionError("action-authority-forbidden", "action carries authority material")
     morph_operation = arguments.get("operation")
@@ -180,7 +203,19 @@ def compile_lucid_ugui_action(
             provenance_hash=provenance_hash,
         )
 
-    if handler == "lucid.morph.choice":
+    if handler == "lucid.get.readback":
+        target = action.get("value")
+        if (
+            not isinstance(target, str)
+            or not target
+            or arguments.get("path") != target
+            or set(arguments) not in ({"path"}, {"path", "scope"})
+        ):
+            raise UguiActionError("action-target-invalid", "SET read-back target is not exact")
+    elif handler.endswith(".continue"):
+        if action.get("value") != provenance_hash:
+            raise UguiActionError("action-stale", "continuation is not bound to this response")
+    elif handler == "lucid.morph.choice":
         target = action.get("value")
         if not isinstance(target, str) or not target or arguments.get("codebook") != target:
             raise UguiActionError("action-target-invalid", "MORPH choice target differs from its exact request")
@@ -220,13 +255,19 @@ def compile_lucid_ugui_action(
             raise UguiActionError("action-target-invalid", "action target is not an exact dispatch id")
         if set(arguments) != {"view", "id"} or arguments != {"view": "execution", "id": target}:
             raise UguiActionError("action-intent-invalid", "SHOW execution intent is not exactly bound")
+    elif handler == "lucid.steer.compose":
+        target = action.get("value")
+        if not isinstance(target, str) or _DISPATCH_ID.fullmatch(target) is None:
+            raise UguiActionError("action-target-invalid", "action target is not an exact dispatch id")
+        if set(arguments) != {"dispatch_id", "intent_delta"} or arguments.get("dispatch_id") != target:
+            raise UguiActionError("action-intent-invalid", "STEER intent is not exactly bound")
     elif handler == "lucid.cancel.dispatch":
         target = action.get("value")
         if not isinstance(target, str) or _DISPATCH_ID.fullmatch(target) is None:
             raise UguiActionError("action-target-invalid", "action target is not an exact dispatch id")
         if (
-            set(arguments) != {"task", "dispatch_id"}
-            or arguments != {"task": "fleet.dispatch", "dispatch_id": target}
+            set(arguments) != {"id", "mode"}
+            or arguments != {"id": target, "mode": "graceful"}
         ):
             raise UguiActionError("action-intent-invalid", "CANCEL intent is not exactly bound")
 

@@ -40,6 +40,7 @@ import {
   mcpToolIdentity,
   modelVisibleToolResult
 } from '@/lib/tool-presentation'
+import { projectMcpGestaltResult } from '@/lib/ugui-engine'
 import { useEnterAnimation } from '@/lib/use-enter-animation'
 import { cn } from '@/lib/utils'
 import { recordPreviewArtifact } from '@/store/preview-status'
@@ -320,10 +321,34 @@ function ToolEntry({ part }: ToolEntryProps) {
   const sideDiff = useStore($toolInlineDiff(toolCallId ?? ''))
   const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(result)
 
-  const mcpUgui = useMemo(
+  const rawMcpUgui = useMemo(
     () => extractToolUguiDocument(toolName, args, result),
     [args, result, toolName]
   )
+  const [gestaltUgui, setGestaltUgui] = useState<ReturnType<typeof extractToolUguiDocument>>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (rawMcpUgui || result === undefined || !mcpToolIdentity(toolName)) {
+      setGestaltUgui(null)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void projectMcpGestaltResult(result).then(document => {
+      if (!cancelled) {
+        setGestaltUgui(document)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [rawMcpUgui, result, toolName])
+
+  const mcpUgui = rawMcpUgui ?? gestaltUgui
 
   const isFileEdit = isFileEditTool(toolName)
   const defaultOpen = Boolean(inlineDiff || mcpUgui)

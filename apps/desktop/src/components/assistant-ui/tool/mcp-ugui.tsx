@@ -1,8 +1,19 @@
 import { type ComponentProps, useEffect, useRef, useState } from 'react'
 
 import { CompactMarkdown } from '@/components/chat/compact-markdown'
+import {
+  CodeCard,
+  CodeCardBody,
+  CodeCardHeader,
+  CodeCardIcon,
+  CodeCardSubtitle,
+  CodeCardTitle
+} from '@/components/chat/code-card'
+import { ExpandableBlock } from '@/components/chat/expandable-block'
 import { SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
+import { CopyButton } from '@/components/ui/copy-button'
 import { invokeUguiAction } from '@/hermes'
+import { codiconForLanguage } from '@/lib/markdown-code'
 import {
   extractMcpUguiDocument,
   type McpUguiDocument as McpUguiDocumentValue
@@ -16,7 +27,7 @@ const SIGNAL_CLASS: Record<string, string> = {
   '🔴': 'text-rose-600 dark:text-rose-400'
 }
 const LUCID_VERBS = new Set(['show', 'get', 'set', 'morph', 'dispatch', 'steer', 'cancel'])
-const MUTATING_LUCID_VERBS = new Set(['set', 'dispatch', 'steer', 'cancel'])
+const MUTATING_LUCID_VERBS = new Set(['set', 'dispatch', 'steer'])
 const MUTATING_MORPH_OPERATIONS = new Set(['start', 'customize', 'write', 'advance'])
 const READ_MORPH_OPERATIONS = new Set(['inspect', 'shard', 'vocabulary', 'project'])
 const HASH_RE = /^sha256:[0-9a-f]{64}$/
@@ -24,6 +35,7 @@ const HASH_RE = /^sha256:[0-9a-f]{64}$/
 interface ProjectedAction {
   executable: boolean
   id: string
+  input: { id: string; label: string; maxLength: number } | null
   label: string
   reason: string
   requiresConfirmation: boolean
@@ -85,10 +97,42 @@ export function projectUguiAction(
   const choiceTargetValid =
     handler !== 'lucid.morph.choice' ||
     (typeof action.value === 'string' && action.value === argumentsValue?.codebook)
+  const cancelTargetValid =
+    handler !== 'lucid.cancel.dispatch' ||
+    (action.value === argumentsValue?.id &&
+      argumentsValue?.mode === 'graceful' &&
+      Object.keys(argumentsValue).length === 2)
+  const steerTargetValid =
+    handler !== 'lucid.steer.compose' ||
+    (action.value === argumentsValue?.dispatch_id &&
+      argumentsValue?.intent_delta === '' &&
+      Object.keys(argumentsValue).length === 2)
+  const semanticTargetValid =
+    choiceTargetValid &&
+    cancelTargetValid &&
+    steerTargetValid &&
+    (handler !== 'lucid.get.readback' || action.value === argumentsValue?.path) &&
+    (!handler.endsWith('.continue') || action.value === provenanceHash)
   const producerDisabled = action.disabled === true
+  const actionInputs = Array.isArray(action.inputs) ? action.inputs.map(record) : []
+  const steerInput = actionInputs.length === 1 ? actionInputs[0] : null
+  const typedInputValid =
+    !Array.isArray(action.inputs) ||
+    (handler === 'lucid.steer.compose' &&
+      steerInput?.id === 'intent_delta' &&
+      steerInput.type === 'text' &&
+      steerInput.required === true &&
+      steerInput.maxLength === 4000)
   const unavailable = receipt?.state !== 'AVAILABLE'
   const complete = Boolean(
-    id && label && intent && argumentsValue && handlerMatches && morphOperationValid && choiceTargetValid
+    id &&
+      label &&
+      intent &&
+      argumentsValue &&
+      handlerMatches &&
+      morphOperationValid &&
+      semanticTargetValid &&
+      typedInputValid
   )
   const requiresExactConfirmation =
     MUTATING_LUCID_VERBS.has(verb) ||
@@ -99,20 +143,19 @@ export function projectUguiAction(
     confirmationPolicyValid &&
     HASH_RE.test(provenanceHash) &&
     !producerDisabled &&
-    !unavailable &&
-    !Array.isArray(action.inputs)
+    !unavailable
   const reason = producerDisabled
     ? text(action.disabledReason) || 'The producer disabled this action.'
     : unavailable
       ? text(receipt?.reason) || 'This action is unavailable for the current document.'
-      : Array.isArray(action.inputs)
-        ? 'Typed action inputs are not yet supported by this client.'
+      : !typedInputValid
+        ? 'The action typed-input contract is invalid.'
         : !confirmationPolicyValid
           ? 'Mutating LUCID actions require authored exact confirmation.'
         : !morphOperationValid
           ? 'MORPH actions require one closed operation.'
-        : !choiceTargetValid
-          ? 'MORPH choice target differs from its exact request.'
+        : !semanticTargetValid
+          ? 'Action target differs from its exact request.'
         : !complete
           ? 'The producer has not supplied a complete typed LUCID intent for this action.'
           : !HASH_RE.test(provenanceHash)
@@ -122,6 +165,9 @@ export function projectUguiAction(
   return {
     executable,
     id,
+    input: steerInput
+      ? { id: 'intent_delta', label: text(steerInput.label) || 'Correction', maxLength: 4000 }
+      : null,
     label,
     reason,
     requiresConfirmation: action.requiresConfirmation === 'exact'
@@ -191,6 +237,39 @@ function UguiCodePre(props: ComponentProps<'pre'>) {
   return <pre {...props} />
 }
 
+function UguiMarkdownCode({ code, language, title }: { code: string; language: string; title: string }) {
+  const source = code.replace(/^\n+/, '').trimEnd()
+
+  if (!source.trim()) {
+    return null
+  }
+
+  return (
+    <CodeCard data-ugui-renderer="streamdown">
+      <CodeCardHeader>
+        <CodeCardTitle>
+          <CodeCardIcon name={codiconForLanguage(language)} />
+          {title}
+          <CodeCardSubtitle> · {language}</CodeCardSubtitle>
+        </CodeCardTitle>
+        <CopyButton
+          appearance="inline"
+          className="-my-1 -mr-1 h-5 px-1 opacity-55 hover:opacity-100"
+          iconClassName="size-2.5"
+          label="Copy Markdown source"
+          showLabel={false}
+          text={source}
+        />
+      </CodeCardHeader>
+      <CodeCardBody className="font-sans text-xs">
+        <ExpandableBlock>
+          <CompactMarkdown className="px-2 py-1.5" text={source} />
+        </ExpandableBlock>
+      </CodeCardBody>
+    </CodeCard>
+  )
+}
+
 function UgUiSection({ value }: { value: unknown }) {
   const section = record(value)
 
@@ -237,15 +316,22 @@ function UgUiSection({ value }: { value: unknown }) {
     const value = text(section.value)
     const language = text(section.language) || 'text'
     const label = heading || text(section.label) || 'Code'
+    const rendersMarkdown = ['markdown', 'md'].includes(language.toLowerCase())
 
     return (
       <section data-ugui-primitive="code">
-        <SyntaxHighlighter
-          code={value}
-          components={{ Pre: UguiCodePre }}
-          language={language}
-          title={label}
-        />
+        {rendersMarkdown ? (
+          <UguiMarkdownCode code={value} language={language} title={label} />
+        ) : (
+          <div data-ugui-renderer="shiki">
+            <SyntaxHighlighter
+              code={value}
+              components={{ Pre: UguiCodePre }}
+              language={language}
+              title={label}
+            />
+          </div>
+        )}
       </section>
     )
   }
@@ -323,6 +409,7 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
   const [confirmationAction, setConfirmationAction] = useState('')
   const [actionError, setActionError] = useState('')
   const [actionStatus, setActionStatus] = useState('')
+  const [actionInputs, setActionInputs] = useState<Record<string, string>>({})
   const actionInFlight = useRef('')
 
   useEffect(() => {
@@ -331,12 +418,18 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
     setConfirmationAction('')
     setActionError('')
     setActionStatus('')
+    setActionInputs({})
     actionInFlight.current = ''
   }, [document])
 
   const activateAction = async (projected: ProjectedAction) => {
     const { executable, id: actionId, label } = projected
     if (!executable) {
+      return
+    }
+    const inputValue = projected.input ? (actionInputs[actionId] ?? '').trim() : ''
+    if (projected.input && !inputValue) {
+      setActionError(`${projected.input.label} is required.`)
       return
     }
     if (projected.requiresConfirmation && confirmationAction !== actionId) {
@@ -357,7 +450,8 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
       const response = await invokeUguiAction(
         rendered as unknown as Record<string, unknown>,
         actionId,
-        confirmationAction === actionId
+        confirmationAction === actionId,
+        projected.input ? { [projected.input.id]: inputValue } : {}
       )
       const next = extractMcpUguiDocument(response.result)
       if (next) {
@@ -380,6 +474,8 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
   const projectedActions = (rendered.actions ?? [])
     .slice(0, 32)
     .map((action, index) => projectUguiAction(rendered, action, index))
+  const helpAction = projectedActions.find(action => action.id === 'lucid.response.help')
+  const primaryActions = projectedActions.filter(action => action.id !== 'lucid.response.help')
 
   return (
     <article
@@ -388,11 +484,25 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
     >
       <header className="flex min-w-0 items-center justify-between gap-2">
         <h4 className="min-w-0 truncate font-semibold text-(--ui-text-primary)">{heading || rendered.id}</h4>
-        {rendered.state && (
-          <span className="shrink-0 rounded bg-(--ui-bg-quinary) px-1.5 py-0.5 text-[0.62rem] uppercase tracking-[0.06em] text-(--ui-text-tertiary)">
-            {rendered.state}
-          </span>
-        )}
+        <span className="flex shrink-0 items-center gap-1">
+          {rendered.state && (
+            <span className="rounded bg-(--ui-bg-quinary) px-1.5 py-0.5 text-[0.62rem] uppercase tracking-[0.06em] text-(--ui-text-tertiary)">
+              {rendered.state}
+            </span>
+          )}
+          {helpAction && (
+            <button
+              aria-label={helpAction.label}
+              className="rounded border border-(--ui-stroke-tertiary) px-1.5 py-0.5 text-[0.65rem] text-(--ui-text-tertiary) enabled:hover:bg-(--ui-bg-tertiary) disabled:opacity-50"
+              disabled={!helpAction.executable || Boolean(pendingAction)}
+              onClick={() => void activateAction(helpAction)}
+              title={helpAction.executable ? undefined : helpAction.reason}
+              type="button"
+            >
+              ?
+            </button>
+          )}
+        </span>
       </header>
       {rendered.sections.map((section, index) => (
         <UgUiSection key={text(record(section)?.id) || index} value={section} />
@@ -407,24 +517,38 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
           {actionError}
         </p>
       )}
-      {projectedActions.length > 0 && (
+      {primaryActions.length > 0 && (
         <footer className="flex flex-wrap items-center gap-1 pt-0.5">
-          {projectedActions.map(projected => {
+          {primaryActions.map(projected => {
             const pending = pendingAction === projected.id
 
             return (
-              <button
-                aria-busy={pending}
-                aria-label={projected.label}
-                className="rounded border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) px-1.5 py-0.5 text-[0.65rem] text-(--ui-text-secondary) enabled:hover:bg-(--ui-bg-tertiary) disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!projected.executable || Boolean(pendingAction)}
-                key={projected.id}
-                onClick={() => void activateAction(projected)}
-                title={projected.executable ? undefined : projected.reason}
-                type="button"
-              >
-                {pending ? 'Working…' : projected.label}
-              </button>
+              <span className="flex items-center gap-1" key={projected.id}>
+                {projected.input && (
+                  <input
+                    aria-label={projected.input.label}
+                    className="min-w-32 rounded border border-(--ui-stroke-tertiary) bg-(--ui-bg-primary) px-1.5 py-0.5 text-[0.65rem] text-(--ui-text-primary)"
+                    maxLength={projected.input.maxLength}
+                    onChange={event =>
+                      setActionInputs(current => ({ ...current, [projected.id]: event.target.value }))
+                    }
+                    placeholder={projected.input.label}
+                    type="text"
+                    value={actionInputs[projected.id] ?? ''}
+                  />
+                )}
+                <button
+                  aria-busy={pending}
+                  aria-label={projected.label}
+                  className="rounded border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) px-1.5 py-0.5 text-[0.65rem] text-(--ui-text-secondary) enabled:hover:bg-(--ui-bg-tertiary) disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={!projected.executable || Boolean(pendingAction)}
+                  onClick={() => void activateAction(projected)}
+                  title={projected.executable ? undefined : projected.reason}
+                  type="button"
+                >
+                  {pending ? 'Working…' : projected.label}
+                </button>
+              </span>
             )
           })}
           {confirmationAction && (

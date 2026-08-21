@@ -52,10 +52,31 @@ def cancel_action():
         "id": "lucid.response.cancel",
         "action": "lucid.cancel.dispatch",
         "value": DISPATCH_ID,
-        "requiresConfirmation": "exact",
         "intent": {
             "verb": "cancel",
-            "arguments": {"task": "fleet.dispatch", "dispatch_id": DISPATCH_ID},
+            "arguments": {"id": DISPATCH_ID, "mode": "graceful"},
+        },
+    }
+
+
+def steer_action():
+    return {
+        "id": "lucid.response.steer",
+        "action": "lucid.steer.compose",
+        "value": DISPATCH_ID,
+        "requiresConfirmation": "exact",
+        "inputs": [
+            {
+                "id": "intent_delta",
+                "type": "text",
+                "label": "Correction",
+                "required": True,
+                "maxLength": 4_000,
+            }
+        ],
+        "intent": {
+            "verb": "steer",
+            "arguments": {"dispatch_id": DISPATCH_ID, "intent_delta": ""},
         },
     }
 
@@ -120,18 +141,37 @@ def test_show_execution_compiles_to_one_exact_lucid_call():
     assert compiled.arguments == {"view": "execution", "id": DISPATCH_ID}
 
 
-def test_cancel_requires_exact_confirmation_before_compiling():
-    with pytest.raises(UguiActionError, match="confirmation") as refusal:
-        compile_lucid_ugui_action(document(cancel_action()), "lucid.response.cancel")
-    assert refusal.value.code == "confirmation-required"
+def test_cancel_compiles_immediately_without_confirmation():
+    compiled = compile_lucid_ugui_action(document(cancel_action()), "lucid.response.cancel")
+    assert compiled.tool_name == "cancel"
+    assert compiled.arguments == {"id": DISPATCH_ID, "mode": "graceful"}
+
+
+def test_steer_requires_one_bounded_input_and_exact_confirmation():
+    action = steer_action()
+    with pytest.raises(UguiActionError) as missing:
+        compile_lucid_ugui_action(document(action), action["id"])
+    assert missing.value.code == "action-input-invalid"
+
+    with pytest.raises(UguiActionError) as unconfirmed:
+        compile_lucid_ugui_action(
+            document(action),
+            action["id"],
+            inputs={"intent_delta": "Inspect the exact response validator."},
+        )
+    assert unconfirmed.value.code == "confirmation-required"
 
     compiled = compile_lucid_ugui_action(
-        document(cancel_action()),
-        "lucid.response.cancel",
+        document(action),
+        action["id"],
         confirmed=True,
+        inputs={"intent_delta": "Inspect the exact response validator."},
     )
-    assert compiled.tool_name == "cancel"
-    assert compiled.arguments == {"task": "fleet.dispatch", "dispatch_id": DISPATCH_ID}
+    assert compiled.tool_name == "steer"
+    assert compiled.arguments == {
+        "dispatch_id": DISPATCH_ID,
+        "intent_delta": "Inspect the exact response validator.",
+    }
 
 
 def test_dispatch_plan_promotion_requires_confirmation_and_exact_candidate_hash():
@@ -181,6 +221,42 @@ def test_refresh_rejects_embedded_authority_material():
     with pytest.raises(UguiActionError) as refusal:
         compile_lucid_ugui_action(document(action), action["id"])
     assert refusal.value.code == "action-authority-forbidden"
+
+
+def test_set_readback_compiles_only_the_exact_path_and_scope():
+    action = {
+        "id": "lucid.response.readback",
+        "action": "lucid.get.readback",
+        "value": "theme",
+        "intent": {"verb": "get", "arguments": {"path": "theme", "scope": "this"}},
+    }
+    compiled = compile_lucid_ugui_action(document(action), action["id"])
+    assert compiled.arguments == {"path": "theme", "scope": "this"}
+
+    action["value"] = "other"
+    with pytest.raises(UguiActionError) as refusal:
+        compile_lucid_ugui_action(document(action), action["id"])
+    assert refusal.value.code == "action-target-invalid"
+
+
+def test_continuation_is_bound_to_response_provenance():
+    action = {
+        "id": "lucid.response.continue",
+        "action": "lucid.morph.continue",
+        "value": PARENT_HASH,
+        "intent": {
+            "verb": "morph",
+            "arguments": {"codebook": "one-pager", "operation": "write"},
+        },
+        "requiresConfirmation": "exact",
+    }
+    compiled = compile_lucid_ugui_action(document(action), action["id"], confirmed=True)
+    assert compiled.arguments == action["intent"]["arguments"]
+
+    action["value"] = f"sha256:{'c' * 64}"
+    with pytest.raises(UguiActionError) as stale:
+        compile_lucid_ugui_action(document(action), action["id"], confirmed=True)
+    assert stale.value.code == "action-stale"
 
 
 def test_read_like_morph_choice_compiles_without_confirmation():

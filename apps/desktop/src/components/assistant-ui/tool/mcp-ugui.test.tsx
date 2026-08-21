@@ -45,6 +45,81 @@ describe('McpUguiDocument', () => {
     expect(container.querySelector('[data-mcp-ugui="lucid-ugui-response/1"]')).toBeTruthy()
   })
 
+  it('renders Markdown code primitives through Streamdown with source-copy chrome', () => {
+    const markdownDocument = {
+      ...document,
+      sections: [
+        {
+          id: 'markdown-context',
+          type: 'code',
+          label: 'Context',
+          language: 'markdown',
+          value: [
+            '| Rule | Meaning |',
+            '|---|---|',
+            '| **D.R.Y.** | Keep `one source` authoritative. |'
+          ].join('\n')
+        }
+      ]
+    } satisfies Document
+
+    const { container } = render(<McpUguiDocument document={markdownDocument} />)
+
+    expect(container.querySelector('[data-ugui-renderer="streamdown"]')).toBeTruthy()
+    expect(screen.getByText('D.R.Y.').tagName).toBe('STRONG')
+    expect(screen.getByText('one source').tagName).toBe('CODE')
+    expect(screen.getByRole('table')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Copy Markdown source' })).toBeTruthy()
+  })
+
+  it('retains Shiki for non-Markdown code primitives', () => {
+    const sourceDocument = {
+      ...document,
+      sections: [
+        {
+          id: 'typescript-context',
+          type: 'code',
+          label: 'Context',
+          language: 'typescript',
+          value: 'const value = 1'
+        }
+      ]
+    } satisfies Document
+
+    const { container } = render(<McpUguiDocument document={sourceDocument} />)
+
+    expect(container.querySelector('[data-ugui-renderer="shiki"]')).toBeTruthy()
+    expect(container.querySelector('[data-ugui-renderer="streamdown"]')).toBeNull()
+  })
+
+  it('renders universal current-verb Help in the header and invokes it once', async () => {
+    const provenance = `sha256:${'a'.repeat(64)}`
+    const help = {
+      id: 'lucid.response.help',
+      label: 'Help',
+      action: 'lucid.help.verb',
+      value: 'get',
+      intent: { verb: 'get', arguments: {} }
+    }
+    const value = {
+      ...document,
+      verb: 'get',
+      provenance: { parentHash: provenance },
+      receipt: {
+        action_provenance: [{ id: help.id, state: 'AVAILABLE', provenance_hash: provenance }]
+      },
+      actions: [help]
+    } satisfies Document
+    mocks.invokeUguiAction.mockResolvedValue({ ok: true, result: {} })
+
+    render(<McpUguiDocument document={value} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Help' }))
+
+    await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(value, help.id, false))
+    expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('Help')).toBeNull()
+  })
+
   it('renders repository search semantics without raw canonical payloads', async () => {
     const { container } = render(
       <McpUguiDocument
@@ -143,7 +218,7 @@ describe('McpUguiDocument', () => {
     expect(await screen.findByRole('heading', { name: 'Current execution' })).toBeTruthy()
   })
 
-  it('requires an explicit second click before exact cancellation', async () => {
+  it('cancels in one click without confirmation', async () => {
     const cancellable = {
       ...document,
       provenance: {
@@ -166,9 +241,8 @@ describe('McpUguiDocument', () => {
           value: `dispatch:${'b'.repeat(64)}`,
           intent: {
             verb: 'cancel',
-            arguments: { task: 'fleet.dispatch', dispatch_id: `dispatch:${'b'.repeat(64)}` }
-          },
-          requiresConfirmation: 'exact'
+            arguments: { id: `dispatch:${'b'.repeat(64)}`, mode: 'graceful' }
+          }
         }
       ]
     } satisfies Document
@@ -176,10 +250,65 @@ describe('McpUguiDocument', () => {
 
     render(<McpUguiDocument document={cancellable} />)
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(mocks.invokeUguiAction).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm Cancel' }))
+    await waitFor(() =>
+      expect(mocks.invokeUguiAction).toHaveBeenCalledWith(cancellable, 'lucid.response.cancel', false)
+    )
+    expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(1)
+  })
 
-    await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(cancellable, 'lucid.response.cancel', true))
+  it('submits one bounded STEER input after exact confirmation', async () => {
+    const dispatchId = `dispatch:${'b'.repeat(64)}`
+    const steerable = {
+      ...document,
+      provenance: { parentHash: `sha256:${'a'.repeat(64)}` },
+      receipt: {
+        action_provenance: [
+          {
+            id: 'lucid.response.steer',
+            state: 'AVAILABLE',
+            provenance_hash: `sha256:${'a'.repeat(64)}`
+          }
+        ]
+      },
+      actions: [
+        {
+          id: 'lucid.response.steer',
+          label: 'Steer',
+          action: 'lucid.steer.compose',
+          value: dispatchId,
+          requiresConfirmation: 'exact',
+          inputs: [
+            {
+              id: 'intent_delta',
+              type: 'text',
+              label: 'Correction',
+              required: true,
+              maxLength: 4000
+            }
+          ],
+          intent: {
+            verb: 'steer',
+            arguments: { dispatch_id: dispatchId, intent_delta: '' }
+          }
+        }
+      ]
+    } satisfies Document
+    mocks.invokeUguiAction.mockResolvedValue({ ok: true, result: {} })
+
+    render(<McpUguiDocument document={steerable} />)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Correction' }), {
+      target: { value: 'Inspect the exact response validator.' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Steer' }))
+    expect(mocks.invokeUguiAction).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Steer' }))
+
+    await waitFor(() =>
+      expect(mocks.invokeUguiAction).toHaveBeenCalledWith(steerable, 'lucid.response.steer', true, {
+        intent_delta: 'Inspect the exact response validator.'
+      })
+    )
+    expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(1)
   })
 
   it('executes one read-like MORPH choice in one call and adopts its returned UGUI', async () => {
