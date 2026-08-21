@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  extractMcpGestalt,
   extractMcpUguiDocument,
   extractToolUguiDocument,
   mcpToolIdentity,
@@ -84,6 +85,31 @@ describe('UGUI extraction', () => {
 
   it('admits an exact UGUI document emitted as terminal stdout', () => {
     expect(extractMcpUguiDocument({ output: JSON.stringify(document), exit_code: 0 })).toEqual(document)
+  })
+})
+
+describe('Gestalt extraction', () => {
+  it('extracts one bounded canonical Gestalt without interpreting its fields', () => {
+    const gestalt = [
+      '⚠️ LUCID · get · logs · stale',
+      'Runtime logs Source=catalyst',
+      'Runtime logs Freshness=stale'
+    ].join('\n')
+    const result = {
+      [MODEL_VISIBLE_TOOL_RESULT_KEY]: {
+        content: [{ type: 'text', text: gestalt }],
+        isError: false
+      }
+    }
+
+    expect(extractMcpGestalt(result)).toBe(gestalt)
+  })
+
+  it('refuses arbitrary prose and oversized pseudo-Gestalt', () => {
+    expect(extractMcpGestalt({ content: [{ type: 'text', text: 'ordinary prose' }] })).toBeNull()
+    expect(
+      extractMcpGestalt(`🟢 LUCID · get · logs · fresh\n${'x'.repeat(2_048)}`)
+    ).toBeNull()
   })
 })
 

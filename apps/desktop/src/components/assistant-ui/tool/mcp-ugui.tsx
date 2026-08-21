@@ -18,6 +18,7 @@ import {
   extractMcpUguiDocument,
   type McpUguiDocument as McpUguiDocumentValue
 } from '@/lib/tool-presentation'
+import { projectMcpGestaltResult } from '@/lib/ugui-engine'
 import { cn } from '@/lib/utils'
 
 const SIGNAL_CLASS: Record<string, string> = {
@@ -453,7 +454,8 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
         confirmationAction === actionId,
         projected.input ? { [projected.input.id]: inputValue } : {}
       )
-      const next = extractMcpUguiDocument(response.result)
+      const next =
+        extractMcpUguiDocument(response.result) ?? (await projectMcpGestaltResult(response.result))
       if (next) {
         setRendered(next)
       }
