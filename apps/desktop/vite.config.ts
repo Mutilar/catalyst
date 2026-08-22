@@ -42,6 +42,10 @@ export default defineConfig({
     postcss: { plugins: [] }
   },
   build: {
+    // RUN rebuilds Catalyst while the admitted Electron generation remains live. Vite must not
+    // empty dist/ and transiently remove electron-preload.js before the Electron bundler replaces
+    // it; the postbuild completeness gate still refuses an incomplete final generation.
+    emptyOutDir: false,
     // Keep desktop packaging stable: Shiki ships many dynamic chunks by
     // default, and electron-builder can OOM scanning thousands of files.
     // Collapsing to a single chunk is intentional, so the renderer bundle is

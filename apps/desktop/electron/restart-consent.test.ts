@@ -41,6 +41,16 @@ afterEach(() => {
 })
 
 describe('Catalyst restart consent bridge', () => {
+  it('keeps preload channels paired with main-process handlers', () => {
+    const preload = fs.readFileSync(path.join(__dirname, 'preload.ts'), 'utf8')
+    const main = fs.readFileSync(path.join(__dirname, 'main.ts'), 'utf8')
+
+    for (const channel of ['hermes:restart-consent:get', 'hermes:restart-consent:decide']) {
+      expect(preload).toContain(`ipcRenderer.invoke('${channel}'`)
+      expect(main).toContain(`ipcMain.handle('${channel}'`)
+    }
+  })
+
   it('reads only a closed RUN-owned intent and writes one hash-addressed decision', () => {
     const repoRoot = root()
     const intent = publishIntent(repoRoot)

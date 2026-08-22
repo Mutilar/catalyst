@@ -101,6 +101,7 @@ import {
   reviewUnstage
 } from './git-review-ops'
 import { gitRootForIpc } from './git-root'
+import { decideCatalystRestart, readCatalystRestartIntent } from './restart-consent'
 import {
   addWorktree,
   cleanupManagedWorktree,
@@ -134,7 +135,6 @@ import { serializeJsonBody, setJsonRequestHeaders } from './oauth-net-request'
 import { createKeepAwake } from './power-save'
 import { decideProfileDeleteAction, profileNameFromDeleteRequest, resolveRouteProfile } from './profile-delete-routing'
 import { resolveRebuiltMacBundle } from './rebuilt-bundle'
-import { decideCatalystRestart, readCatalystRestartIntent } from './restart-consent'
 import * as remoteLifecycle from './remote-lifecycle'
 import { RemoteLivenessTracker, RemoteRevalidationCoordinator, revalidateRemoteConnection } from './remote-liveness'
 import {
@@ -239,11 +239,6 @@ const IS_WSL = isWslEnvironment()
 // build SDK, so gate Tahoe workarounds on Darwin instead.
 const DARWIN_MAJOR = IS_MAC ? Number.parseInt(os.release(), 10) || 0 : 0
 const APP_ROOT = app.getAppPath()
-const HERMES_SOURCE_ROOT = process.env.HERMES_DESKTOP_HERMES_ROOT
-  ? path.resolve(process.env.HERMES_DESKTOP_HERMES_ROOT)
-  : path.resolve(APP_ROOT, '../..')
-const RUN_REPOSITORY_ROOT =
-  path.basename(HERMES_SOURCE_ROOT) === 'catalyst' ? path.dirname(HERMES_SOURCE_ROOT) : HERMES_SOURCE_ROOT
 
 // Preload must be plain JS — Electron's sandbox can't run .ts, and tsx's
 // ESM loader is broken on Electron 40's Node (ERR_INVALID_RETURN_PROPERTY_VALUE).
@@ -8974,11 +8969,9 @@ ipcMain.handle('hermes:bootstrap:cancel', async () => {
   return { ok: false, cancelled: false }
 })
 ipcMain.handle('hermes:boot-progress:get', async () => bootProgressState)
-ipcMain.handle('hermes:restart-consent:get', async () =>
-  readCatalystRestartIntent(RUN_REPOSITORY_ROOT)
-)
-ipcMain.handle('hermes:restart-consent:decide', async (_event, request) =>
-  decideCatalystRestart(RUN_REPOSITORY_ROOT, request)
+ipcMain.handle('hermes:restart-consent:get', () => readCatalystRestartIntent(SOURCE_REPO_ROOT))
+ipcMain.handle('hermes:restart-consent:decide', (_event, request) =>
+  decideCatalystRestart(SOURCE_REPO_ROOT, request)
 )
 ipcMain.handle('hermes:bootstrap:get', async () => getBootstrapState())
 ipcMain.handle('hermes:connection-config:get', async (_event, profile) =>
