@@ -4,6 +4,7 @@ import {
   extractMcpGestalt,
   extractMcpUguiDocument,
   extractToolUguiDocument,
+  isTerminalTool,
   mcpToolIdentity,
   mcpToolTitle,
   MODEL_VISIBLE_TOOL_RESULT_KEY,
@@ -144,6 +145,9 @@ describe('Gestalt extraction', () => {
 
 describe('terminal UGUI selection', () => {
   it('routes every direct lucid CLI invocation to the shared projector', () => {
+    expect(isTerminalTool('terminal')).toBe(true)
+    expect(isTerminalTool('functions.terminal')).toBe(true)
+    expect(isTerminalTool('namespace__terminal')).toBe(true)
     expect(terminalRunsLucid({ command: 'lucid show pulse' })).toBe(true)
     expect(terminalRunsLucid({ command: '/repo/bin/lucid get --args \'{"path":"gates"}\'' })).toBe(true)
     expect(terminalRunsLucid({ command: 'echo lucid show pulse' })).toBe(false)

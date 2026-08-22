@@ -257,8 +257,7 @@ def _post_final(
         _SPOKEN_FINALS.add(identity)
     arguments = {
         "kind": "text",
-        "data": {"text": final_response},
-        "from": "response-final",
+        "data": {"schema": "response-final/1", "text": final_response},
         "presentation": "audio-only",
         "scope": "this",
     }
@@ -322,9 +321,10 @@ def _on_session_end(*, session_id: str = "", **_: Any) -> None:
     if session_id:
         with _STATE_LOCK:
             _SIGNED_OUT_SESSIONS.discard(session_id)
-            _SPOKEN_FINALS.difference_update(
+            stale = {
                 identity for identity in _SPOKEN_FINALS if identity[0] == session_id
-            )
+            }
+            _SPOKEN_FINALS.difference_update(stale)
 
 
 def register(ctx) -> None:

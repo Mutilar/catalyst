@@ -70,8 +70,7 @@ def test_attested_final_submits_once_to_current_role_effigy(plugin, tmp_path, mo
     assert observed == [
         {
             "kind": "text",
-            "data": {"text": response},
-            "from": "response-final",
+            "data": {"schema": "response-final/1", "text": response},
             "presentation": "audio-only",
             "scope": "this",
         }
@@ -198,3 +197,5 @@ def test_bundled_plugin_discovers_the_pre_final_hook(tmp_path, monkeypatch):
     manager.discover_and_load()
     callbacks = manager._hooks.get("pre_final", [])
     assert any(getattr(callback, "__name__", "") == "_pre_final" for callback in callbacks)
+    callbacks = manager._hooks.get("post_final", [])
+    assert any(getattr(callback, "__name__", "") == "_post_final" for callback in callbacks)

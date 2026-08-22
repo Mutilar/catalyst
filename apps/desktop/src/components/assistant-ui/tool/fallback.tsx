@@ -37,6 +37,7 @@ import { AlertCircle, CheckCircle2 } from '@/lib/icons'
 import { normalize } from '@/lib/text'
 import {
   extractToolUguiDocument,
+  isTerminalTool,
   mcpToolIdentity,
   modelVisibleToolResult,
   terminalRunsLucid
@@ -334,7 +335,7 @@ function ToolEntry({ part }: ToolEntryProps) {
     if (
       rawMcpUgui ||
       result === undefined ||
-      (!mcpToolIdentity(toolName) && !(toolName === 'terminal' && terminalRunsLucid(args)))
+      (!mcpToolIdentity(toolName) && !(isTerminalTool(toolName) && terminalRunsLucid(args)))
     ) {
       setGestaltUgui(null)
       return () => {

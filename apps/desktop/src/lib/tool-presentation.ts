@@ -71,6 +71,10 @@ export function terminalRunsLucid(args: unknown): boolean {
   return terminalLucidInvocations(args).length > 0
 }
 
+export function isTerminalTool(name: string): boolean {
+  return name === 'terminal' || name.endsWith('.terminal') || name.endsWith('__terminal')
+}
+
 export function terminalRequestsUgui(args: unknown): boolean {
   return terminalLucidInvocations(args).some(invocation =>
     (
@@ -168,7 +172,7 @@ export function extractMcpUguiDocument(result: unknown): McpUguiDocument | null 
 }
 
 export function extractToolUguiDocument(toolName: string, args: unknown, result: unknown): McpUguiDocument | null {
-  if (!mcpToolIdentity(toolName) && !(toolName === 'terminal' && terminalRequestsUgui(args))) {
+  if (!mcpToolIdentity(toolName) && !(isTerminalTool(toolName) && terminalRequestsUgui(args))) {
     return null
   }
 

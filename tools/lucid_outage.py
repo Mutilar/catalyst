@@ -57,7 +57,7 @@ def _command(facade: dict[str, Any], arguments: dict[str, Any]) -> str | None:
         return "receipt < envelope.json"
     if adapter.startswith("lucid "):
         verb = adapter.removeprefix("lucid ")
-        selector_key = {
+        noun_key = {
             "show": "view",
             "get": "path",
             "set": "path",
@@ -66,14 +66,20 @@ def _command(facade: dict[str, Any], arguments: dict[str, Any]) -> str | None:
             "steer": "action",
             "cancel": "action",
         }.get(verb)
-        selector = arguments.get(selector_key) if selector_key else None
-        if not isinstance(selector, str) or not selector:
+        noun = arguments.get(noun_key) if noun_key else None
+        if not isinstance(noun, str) or not noun:
             return None
-        tokens = ["lucid", verb, selector]
+        tokens = ["lucid", verb, noun]
         for key, value in arguments.items():
-            if key == selector_key:
+            if key == noun_key:
                 continue
-            encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+            if key == "scope" and value == "this":
+                continue
+            encoded = (
+                value
+                if isinstance(value, str)
+                else json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+            )
             tokens.extend([f"--{key.replace('_', '-')}", shlex.quote(encoded)])
         return " ".join(tokens)
     try:
@@ -115,8 +121,9 @@ def project_lucid_transport_outage(tool: str, arguments: dict[str, Any]) -> dict
     if command is None:
         return None
     text = (
-        f"⚠️ LUCID · {tool} · transport · mcp-unavailable\n"
-        f"🔎 State={eta} · OfflineCommand={command} · Retires=port:mcp fresh 🟢"
+        f"⚠️ LUCID · {tool} · transport · offline-fallback\n"
+        f"🔎 mcp-unavailable · {eta}\n"
+        f"➡️ {command}"
     )
     return {"error": text}
 

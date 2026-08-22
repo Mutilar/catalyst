@@ -20,19 +20,34 @@ const STATUS: Record<LucidStatusSignal, Pick<LucidMcpStatus, 'glyph' | 'signal'>
   warning: { glyph: '⚠️', signal: 'warning' }
 }
 
-export function lucidMcpTooltip(status: LucidMcpStatus): string {
-  return [
-    `${status.glyph} LUCID MCP · ${status.connection}`,
-    `Health: ${status.health}`,
-    `Transport: ${status.transport.toUpperCase()}`,
-    `Discovered tools: ${status.tools}`,
-    `Consecutive failures: ${status.failures}`,
-    'Startup policy: auto-connect with Catalyst',
-    status.error ? `Cause: ${status.error}` : null,
-    'Click to open Capabilities → MCP.'
+export function lucidMcpGestalt(status: LucidMcpStatus): string {
+  const state = {
+    green: 'healthy',
+    hourglass: 'pending',
+    red: 'failed',
+    warning: 'degraded'
+  }[status.signal]
+  const lines = [
+    `${status.glyph} LUCID · show · mcp-health · ${state}`,
+    `MCP Connection=${status.connection}`,
+    `MCP Health=${status.health}`,
+    `MCP Transport=${status.transport.toUpperCase()}`,
+    `MCP Tools=${status.tools}`,
+    `MCP Failures=${status.failures}`
   ]
-    .filter((field): field is string => field !== null)
-    .join(' · ')
+  const error = status.error?.replace(/[\r\n\0]+/g, ' ').trim().slice(0, 512)
+
+  lines.push(
+    error
+      ? `🔎 Code=mcp-health-error · Detail=${error}`
+      : '🔎 StartupPolicy=auto-connect-with-catalyst'
+  )
+
+  return lines.join('\n')
+}
+
+export function lucidMcpTooltip(status: LucidMcpStatus): string {
+  return lucidMcpGestalt(status)
 }
 
 export function deriveLucidMcpStatus(

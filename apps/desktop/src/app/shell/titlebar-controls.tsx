@@ -1,17 +1,29 @@
 import { useStore } from '@nanostores/react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ComponentProps, type MouseEvent, type ReactNode, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
+import { McpUguiDocument } from '@/components/assistant-ui/tool/mcp-ugui'
 import { toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
 import { resetLayoutTree } from '@/components/pane-shell/tree/store'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  preventCloseButtonAutoFocus
+} from '@/components/ui/dialog'
 import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { listMcpServers } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
-import { deriveLucidMcpStatus, lucidMcpTooltip } from '@/lib/lucid-mcp-status'
+import { deriveLucidMcpStatus, lucidMcpGestalt } from '@/lib/lucid-mcp-status'
+import type { McpUguiDocument as McpUguiDocumentValue } from '@/lib/tool-presentation'
+import { projectLucidGestalt } from '@/lib/ugui-engine'
 import { cn } from '@/lib/utils'
 import { $hapticsMuted, toggleHapticsMuted } from '@/store/haptics'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
@@ -39,7 +51,7 @@ export interface TitlebarTool {
   onSelect?: (event?: MouseEvent) => void
   /** Keybind action id — when set, the tooltip shows the label + keybind hint. */
   actionId?: string
-  title?: string
+  title?: ReactNode
   to?: string
 }
 
@@ -50,6 +62,26 @@ interface TitlebarControlsProps extends ComponentProps<'div'> {
   leftTools?: readonly TitlebarTool[]
   tools?: readonly TitlebarTool[]
   onOpenSettings: () => void
+}
+
+interface CatalystRestartIntent {
+  schema: 'run-catalyst-restart-intent/1'
+  child_id: 'catalyst'
+  generation_hash: string
+  intent_id: string
+  observed_epoch_ms: number
+  owner: 'RUN'
+  reason: 'source-build-prepared'
+  state: 'deferred' | 'pending'
+}
+
+interface RestartConsentBridge {
+  get: () => Promise<CatalystRestartIntent | null>
+  decide: (request: {
+    action: 'accept' | 'defer'
+    generation_hash: string
+    intent_id: string
+  }) => Promise<{ accepted: true; action: 'accept' | 'defer'; intent_id: string }>
 }
 
 /**
@@ -100,6 +132,7 @@ function useModifierHeld(): boolean {
 
 export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }: TitlebarControlsProps) {
   const { t } = useI18n()
+  const queryClient = useQueryClient()
   const navigate = useNavigate()
   const location = useLocation()
   const modHeld = useModifierHeld()
@@ -117,6 +150,75 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
     error: lucidRuntime.error,
     loading: lucidRuntime.isLoading
   })
+  const lucidGestalt = lucidMcpGestalt(lucidStatus)
+  const [lucidModalOpen, setLucidModalOpen] = useState(false)
+  const [lucidDocument, setLucidDocument] = useState<McpUguiDocumentValue | null>(null)
+  const [restartModalOpen, setRestartModalOpen] = useState(false)
+  const [restartDecisionPending, setRestartDecisionPending] = useState(false)
+  const [restartDecisionError, setRestartDecisionError] = useState<string | null>(null)
+  const restartConsent = (
+    window.hermesDesktop as typeof window.hermesDesktop & {
+      restartConsent?: RestartConsentBridge
+    }
+  ).restartConsent
+  const restartIntentQuery = useQuery({
+    enabled: Boolean(restartConsent),
+    queryKey: ['catalyst-restart-intent'],
+    queryFn: () => restartConsent?.get() ?? Promise.resolve(null),
+    refetchInterval: 3_000,
+    staleTime: 1_000
+  })
+  const restartIntent = restartIntentQuery.data ?? null
+
+  const decideRestart = async (action: 'accept' | 'defer') => {
+    if (!restartConsent || !restartIntent || restartDecisionPending) {
+      return
+    }
+
+    setRestartDecisionPending(true)
+    setRestartDecisionError(null)
+
+    try {
+      await restartConsent.decide({
+        action,
+        generation_hash: restartIntent.generation_hash,
+        intent_id: restartIntent.intent_id
+      })
+
+      if (action === 'defer') {
+        queryClient.setQueryData<CatalystRestartIntent>(
+          ['catalyst-restart-intent'],
+          { ...restartIntent, state: 'deferred' }
+        )
+        setRestartModalOpen(false)
+      }
+    } catch (error) {
+      setRestartDecisionError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setRestartDecisionPending(false)
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!lucidModalOpen) {
+      setLucidDocument(null)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void projectLucidGestalt(lucidGestalt).then(document => {
+      if (!cancelled) {
+        setLucidDocument(document)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [lucidGestalt, lucidModalOpen])
 
   const toggleHaptics = () => {
     if (!hapticsMuted) {
@@ -182,9 +284,34 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
       label: `LUCID MCP: ${lucidStatus.connection}`,
       onSelect: () => {
         triggerHaptic(lucidStatus.signal === 'green' ? 'tap' : 'warning')
+        setLucidModalOpen(true)
       },
-      title: lucidMcpTooltip(lucidStatus),
-      to: `${SKILLS_ROUTE}?tab=mcp`
+      title: (
+        <span className="whitespace-pre-line font-mono font-normal">
+          {lucidGestalt}
+        </span>
+      )
+    },
+    {
+      active: restartIntent?.state === 'deferred',
+      className: restartIntent?.state === 'deferred' ? 'text-amber-500' : 'text-sky-400',
+      hidden: !restartIntent,
+      icon: <Codicon name="refresh" />,
+      id: 'catalyst-restart-consent',
+      label:
+        restartIntent?.state === 'deferred'
+          ? 'Catalyst restart deferred — open when ready'
+          : 'Catalyst update ready — restart consent required',
+      onSelect: () => {
+        triggerHaptic('warning')
+        setRestartDecisionError(null)
+        setRestartModalOpen(true)
+      },
+      title: restartIntent ? (
+        <span className="whitespace-pre-line font-mono font-normal">
+          {`${restartIntent.state === 'deferred' ? '⚠️' : '⏳'} RUN · restart · catalyst · ${restartIntent.state}\n🔎 ${restartIntent.reason} · ${restartIntent.generation_hash}`}
+        </span>
+      ) : undefined
     },
     {
       className: 'group/tool',
@@ -248,6 +375,78 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
 
   return (
     <>
+      <Dialog onOpenChange={setRestartModalOpen} open={restartModalOpen && Boolean(restartIntent)}>
+        <DialogContent fitContent onOpenAutoFocus={preventCloseButtonAutoFocus}>
+          <DialogHeader>
+            <DialogTitle>Catalyst update ready</DialogTitle>
+            <DialogDescription>
+              RUN prepared a new Catalyst generation and is waiting for your restart decision.
+            </DialogDescription>
+          </DialogHeader>
+          {restartIntent && (
+            <div className="space-y-3">
+              <pre className="max-w-[min(42rem,82vw)] overflow-auto whitespace-pre-wrap rounded-md bg-(--ui-bg-quinary) p-3 font-mono text-xs text-(--ui-text-secondary)">
+                {`${restartIntent.state === 'deferred' ? '⚠️' : '⏳'} RUN · restart · catalyst · ${restartIntent.state}\n🔎 ${restartIntent.reason}\n🔎 ${restartIntent.generation_hash}`}
+              </pre>
+              <p className="text-sm text-(--ui-text-secondary)">
+                “Later” keeps this intent in the titlebar. You can reopen it and restart when your active work is safe.
+              </p>
+              {restartDecisionError && (
+                <p className="text-sm text-(--ui-danger)">{restartDecisionError}</p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              disabled={restartDecisionPending}
+              onClick={() => void decideRestart('defer')}
+              type="button"
+              variant="outline"
+            >
+              Later
+            </Button>
+            <Button
+              disabled={restartDecisionPending}
+              onClick={() => void decideRestart('accept')}
+              type="button"
+            >
+              {restartDecisionPending ? 'Recording decision…' : 'Restart now'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog onOpenChange={setLucidModalOpen} open={lucidModalOpen}>
+        <DialogContent
+          className="min-w-[min(42rem,92vw)]"
+          fitContent
+          onOpenAutoFocus={preventCloseButtonAutoFocus}
+        >
+          <DialogHeader>
+            <DialogTitle>LUCID MCP</DialogTitle>
+            <DialogDescription>
+              Canonical GESTALT projected through the resident UGUI engine.
+            </DialogDescription>
+          </DialogHeader>
+          {lucidDocument ? (
+            <McpUguiDocument document={lucidDocument} />
+          ) : (
+            <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-md bg-(--ui-bg-quinary) p-3 font-mono text-xs text-(--ui-text-secondary)">
+              {lucidGestalt}
+            </pre>
+          )}
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                setLucidModalOpen(false)
+                navigate(`${SKILLS_ROUTE}?tab=mcp`)
+              }}
+              type="button"
+            >
+              Open MCP capabilities
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div
         aria-label={t.shell.windowControls}
         className="fixed left-(--titlebar-controls-left) top-(--titlebar-controls-top) z-70 flex translate-y-0.5 flex-row items-center gap-x-1 pointer-events-auto select-none [-webkit-app-region:no-drag]"
@@ -302,7 +501,10 @@ function TitlebarToolButton({ navigate, tool }: { navigate: ReturnType<typeof us
   )
 
   const tooltipLabel = tool.actionId ? (
-    <TipKeybindLabel actionId={tool.actionId} text={tool.title ?? tool.label} />
+    <TipKeybindLabel
+      actionId={tool.actionId}
+      text={typeof tool.title === 'string' ? tool.title : tool.label}
+    />
   ) : (
     (tool.title ?? tool.label)
   )

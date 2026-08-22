@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { McpServerSummary } from '@/types/hermes'
 
-import { deriveLucidMcpStatus, lucidMcpTooltip } from './lucid-mcp-status'
+import { deriveLucidMcpStatus, lucidMcpGestalt, lucidMcpTooltip } from './lucid-mcp-status'
 
 const lucid = (overrides: Partial<McpServerSummary> = {}): McpServerSummary => ({
   args: ['mcp'],
@@ -52,20 +52,33 @@ describe('LUCID MCP titlebar status', () => {
     expect(deriveLucidMcpStatus([lucid({ health_status: 'pending' })]).glyph).toBe('⏳')
   })
 
-  it('builds the titlebar tooltip as the same plain-text label used by other controls', () => {
-    const tooltip = lucidMcpTooltip(
+  it('builds one canonical GESTALT for the tooltip and UGUI modal', () => {
+    const status = deriveLucidMcpStatus([
+      lucid({ consecutive_failures: 3, health_error: 'projection failed', health_status: 'unhealthy' })
+    ])
+    const gestalt = lucidMcpGestalt(status)
+    const tooltip = lucidMcpTooltip(status)
+
+    expect(tooltip).toBe(gestalt)
+    expect(gestalt.split('\n')).toEqual([
+      '🔴 LUCID · show · mcp-health · failed',
+      'MCP Connection=Connected, unhealthy',
+      'MCP Health=Unhealthy',
+      'MCP Transport=STDIO',
+      'MCP Tools=7',
+      'MCP Failures=3',
+      '🔎 Code=mcp-health-error · Detail=projection failed'
+    ])
+  })
+
+  it('sanitizes error text before admitting it to GESTALT', () => {
+    const gestalt = lucidMcpGestalt(
       deriveLucidMcpStatus([
-        lucid({ consecutive_failures: 3, health_error: 'projection failed', health_status: 'unhealthy' })
+        lucid({ health_error: 'line one\nline two\0', health_status: 'unhealthy' })
       ])
     )
 
-    expect(typeof tooltip).toBe('string')
-    expect(tooltip).toContain('🔴 LUCID MCP')
-    expect(tooltip).toContain('Health: Unhealthy')
-    expect(tooltip).toContain('Transport: STDIO')
-    expect(tooltip).toContain('Discovered tools: 7')
-    expect(tooltip).toContain('Consecutive failures: 3')
-    expect(tooltip).toContain('Cause: projection failed')
-    expect(tooltip).toContain('Capabilities → MCP')
+    expect(gestalt).toContain('🔎 Code=mcp-health-error · Detail=line one line two')
+    expect(gestalt).not.toContain('\0')
   })
 })

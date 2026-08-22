@@ -55,17 +55,23 @@ def test_active_outage_projects_exact_search_fallback(monkeypatch, tmp_path):
     monkeypatch.setattr(lucid_outage, "_OFFLINE", offline)
     monkeypatch.setattr(lucid_outage, "_REVIVAL", state)
 
-    arguments = {"path": "search", "query": {"terms": ["needle"]}}
+    arguments = {
+        "path": "search",
+        "query": {"terms": ["needle"]},
+        "scope": "this",
+    }
     result = lucid_outage.project_lucid_transport_outage("get", arguments)
 
     assert result is not None
     assert set(result) == {"error"}
-    assert result["error"].startswith("⚠️ LUCID · get · transport · mcp-unavailable")
-    assert "⏳ ETA T-10s" in result["error"]
-    assert "OfflineCommand=lucid get search --query" in result["error"]
-    assert "\n🔎 " in result["error"]
+    assert result["error"].splitlines() == [
+        "⚠️ LUCID · get · transport · offline-fallback",
+        "🔎 mcp-unavailable · ⏳ ETA T-10s",
+        "➡️ lucid get search --query '{\"terms\":[\"needle\"]}'",
+    ]
     assert "--args" not in result["error"]
-    assert "Retires=port:mcp fresh 🟢" in result["error"]
+    assert "--scope" not in result["error"]
+    assert "RETIRE" not in result["error"]
 
 
 def test_green_or_unregistered_noun_never_suggests_fallback(monkeypatch, tmp_path):
@@ -93,15 +99,16 @@ def test_empty_error_uses_run_attested_eta_and_offline_facade(monkeypatch, tmp_p
 
     result = lucid_outage.project_lucid_failure(
         "get",
-        {"path": "search", "query": {"terms": ["needle"]}},
+        {"path": "search", "query": {"terms": ["needle"]}, "scope": "this"},
         "isError response omitted content and structuredContent",
         code="outcome-envelope-invalid",
     )
 
     assert set(result) == {"error"}
     assert "⏳ ETA T-10s" in result["error"]
-    assert "OfflineCommand=lucid get search --query" in result["error"]
+    assert "➡️ lucid get search --query" in result["error"]
     assert "--args" not in result["error"]
+    assert "--scope" not in result["error"]
 
 
 def test_unattested_empty_error_uses_canonical_outcome_code(monkeypatch, tmp_path):

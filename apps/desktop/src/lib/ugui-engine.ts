@@ -21,10 +21,16 @@ export type ResidentUguiAppDocument = Record<string, unknown> & {
 
 let modulePromise: Promise<UgUiWasmModule | null> | null = null
 
+export function resolveUguiModuleUrls(baseUrl: string): string[] {
+  return ['wasm/ugui_gestalt_wasm.js', 'wasm/catalyst_wasm.js'].map(
+    asset => new URL(asset, baseUrl).href
+  )
+}
+
 async function loadUgUi(): Promise<UgUiWasmModule | null> {
   if (!modulePromise) {
     modulePromise = (async () => {
-      for (const url of ['/wasm/ugui_gestalt_wasm.js', '/wasm/catalyst_wasm.js']) {
+      for (const url of resolveUguiModuleUrls(document.baseURI)) {
         try {
           const module = (await import(/* @vite-ignore */ url)) as UgUiWasmModule
 
@@ -48,7 +54,15 @@ async function loadUgUi(): Promise<UgUiWasmModule | null> {
     })()
   }
 
-  return modulePromise
+  const module = await modulePromise
+
+  if (!module) {
+    // A transient build/rollover may briefly remove the staged WASM assets.
+    // Do not pin that degradation for the renderer's entire lifetime.
+    modulePromise = null
+  }
+
+  return module
 }
 
 function parseResidentDocument(source: string): ResidentUguiAppDocument {
@@ -127,6 +141,14 @@ export async function projectMcpGestaltResult(result: unknown): Promise<McpUguiD
   const gestalt = extractMcpGestalt(result)
 
   if (!gestalt) {
+    return null
+  }
+
+  return projectLucidGestalt(gestalt)
+}
+
+export async function projectLucidGestalt(gestalt: string): Promise<McpUguiDocument | null> {
+  if (!gestalt.trim()) {
     return null
   }
 
