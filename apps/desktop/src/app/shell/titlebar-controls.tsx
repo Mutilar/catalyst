@@ -1,4 +1,5 @@
 import { useStore } from '@nanostores/react'
+import { useQuery } from '@tanstack/react-query'
 import { type ComponentProps, type MouseEvent, type ReactNode, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
@@ -7,10 +8,13 @@ import { resetLayoutTree } from '@/components/pane-shell/tree/store'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
+import { listMcpServers } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
+import { deriveLucidMcpStatus, lucidMcpTooltip } from '@/lib/lucid-mcp-status'
 import { cn } from '@/lib/utils'
 import { $hapticsMuted, toggleHapticsMuted } from '@/store/haptics'
+import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import {
   $fileBrowserOpen,
   $sidebarOpen,
@@ -19,7 +23,7 @@ import {
   toggleSidebarOpen
 } from '@/store/layout'
 
-import { appViewForPath, isOverlayView, SETTINGS_ROUTE } from '../routes'
+import { appViewForPath, isOverlayView, SETTINGS_ROUTE, SKILLS_ROUTE } from '../routes'
 
 import { titlebarButtonClass } from './titlebar'
 
@@ -100,8 +104,19 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
   const location = useLocation()
   const modHeld = useModifierHeld()
   const hapticsMuted = useStore($hapticsMuted)
+  const activeProfile = useStore($activeGatewayProfile)
   const fileBrowserOpen = useStore($fileBrowserOpen)
   const sidebarOpen = useStore($sidebarOpen)
+  const lucidRuntime = useQuery({
+    queryKey: ['mcp-runtime', normalizeProfileKey(activeProfile)],
+    queryFn: listMcpServers,
+    refetchInterval: 3_000,
+    staleTime: 1_000
+  })
+  const lucidStatus = deriveLucidMcpStatus(lucidRuntime.data?.servers, {
+    error: lucidRuntime.error,
+    loading: lucidRuntime.isLoading
+  })
 
   const toggleHaptics = () => {
     if (!hapticsMuted) {
@@ -161,6 +176,16 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
 
   // Static system tools — always pinned to the screen's right edge.
   const systemTools: TitlebarTool[] = [
+    {
+      icon: <span className="text-[0.8125rem] leading-none">{lucidStatus.glyph}</span>,
+      id: 'lucid-mcp-status',
+      label: `LUCID MCP: ${lucidStatus.connection}`,
+      onSelect: () => {
+        triggerHaptic(lucidStatus.signal === 'green' ? 'tap' : 'warning')
+      },
+      title: lucidMcpTooltip(lucidStatus),
+      to: `${SKILLS_ROUTE}?tab=mcp`
+    },
     {
       className: 'group/tool',
       // Hover + held ⌘/Ctrl morphs the glyph into its reset form (see
@@ -270,7 +295,11 @@ function TitlebarToolButton({ navigate, tool }: { navigate: ReturnType<typeof us
   // Titlebar actions never show an active background — state reads from the
   // icon itself (e.g. the mute/unmute glyph). aria-pressed still carries it
   // for a11y.
-  const className = cn(titlebarButtonClass, 'bg-transparent select-none', tool.className)
+  const className = cn(
+    titlebarButtonClass,
+    'bg-transparent select-none [-webkit-app-region:no-drag]',
+    tool.className
+  )
 
   const tooltipLabel = tool.actionId ? (
     <TipKeybindLabel actionId={tool.actionId} text={tool.title ?? tool.label} />

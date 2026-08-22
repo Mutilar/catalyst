@@ -4,10 +4,15 @@ import {
   TITLEBAR_CONTROL_OFFSET_X,
   TITLEBAR_EDGE_INSET,
   TITLEBAR_FALLBACK_WINDOW_BUTTON_X,
+  TITLEBAR_SYSTEM_TOOL_COUNT,
   titlebarControlsPosition
 } from './titlebar'
 
 describe('titlebarControlsPosition', () => {
+  it('reserves drag-region width for every static app control', () => {
+    expect(TITLEBAR_SYSTEM_TOOL_COUNT).toBe(6)
+  })
+
   it('offsets controls from visible traffic lights', () => {
     expect(titlebarControlsPosition({ x: 24, y: 10 }).left).toBe(24 + TITLEBAR_CONTROL_OFFSET_X)
   })

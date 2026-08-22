@@ -7,7 +7,9 @@ canonical role registry; prompt prose and model claims are never authority.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import os
 import threading
 from pathlib import Path
@@ -25,6 +27,9 @@ _MAX_INDEX_BYTES = 64 * 1024
 _MAX_ONBOARDING_BYTES = 512 * 1024
 _STATE_LOCK = threading.Lock()
 _SIGNED_OUT_SESSIONS: set[str] = set()
+_SPOKEN_FINALS: set[tuple[str, str]] = set()
+_MAX_FINAL_SPEECH_BYTES = 65_536
+logger = logging.getLogger(__name__)
 
 
 def _read_regular_json(path: Path, maximum_bytes: int) -> Optional[dict[str, Any]]:
@@ -218,6 +223,56 @@ def _pre_final(
     }
 
 
+def _submit_effigy_speech(arguments: dict[str, Any]) -> dict[str, Any]:
+    from tools.mcp_tool import invoke_registered_mcp_tool
+
+    return invoke_registered_mcp_tool("LUCID", "show", arguments, timeout=10.0)
+
+
+def _post_final(
+    *,
+    final_response: str = "",
+    workspace_root: str = "",
+    session_id: str = "",
+    **_: Any,
+) -> Optional[dict[str, str]]:
+    """Submit one attested final through the current role's EFFIGY speech profile."""
+
+    if not isinstance(final_response, str) or not final_response.strip() or not session_id:
+        return None
+    attestation = _role_attestation(workspace_root)
+    if attestation is None:
+        return None
+    root, role, suffix = attestation
+    if _finalization_contract(root) is None or not final_response.rstrip().endswith(suffix):
+        return None
+    encoded = final_response.encode("utf-8")
+    if len(encoded) > _MAX_FINAL_SPEECH_BYTES:
+        return {"state": "omitted", "code": "response-final-oversized"}
+    digest = hashlib.sha256(encoded).hexdigest()
+    identity = (session_id, digest)
+    with _STATE_LOCK:
+        if session_id in _SIGNED_OUT_SESSIONS or identity in _SPOKEN_FINALS:
+            return None
+        _SPOKEN_FINALS.add(identity)
+    arguments = {
+        "kind": "text",
+        "data": {"text": final_response},
+        "from": "response-final",
+        "presentation": "audio-only",
+        "scope": "this",
+    }
+    result = _submit_effigy_speech(arguments)
+    if (
+        not isinstance(result, dict)
+        or result.get("error")
+        or result.get("isError") is True
+    ):
+        logger.warning("Attested %s final EFFIGY submission failed", role)
+        return {"state": "degraded", "code": "effigy-submission-failed"}
+    return {"state": "submitted", "code": "effigy-response-final-submitted"}
+
+
 def _contains_signout(value: Any, depth: int = 0) -> bool:
     if depth > 10:
         return False
@@ -267,9 +322,13 @@ def _on_session_end(*, session_id: str = "", **_: Any) -> None:
     if session_id:
         with _STATE_LOCK:
             _SIGNED_OUT_SESSIONS.discard(session_id)
+            _SPOKEN_FINALS.difference_update(
+                identity for identity in _SPOKEN_FINALS if identity[0] == session_id
+            )
 
 
 def register(ctx) -> None:
     ctx.register_hook("pre_final", _pre_final)
+    ctx.register_hook("post_final", _post_final)
     ctx.register_hook("transform_tool_result", _transform_tool_result)
     ctx.register_hook("on_session_end", _on_session_end)

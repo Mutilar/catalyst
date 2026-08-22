@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 import shlex
-import time
+
 from typing import Any
 
 _REPO = Path(__file__).resolve().parents[2]
 _OFFLINE = _REPO / "envelope/LUCID-OFFLINE.json"
+_GESTALT = _REPO / "envelope/GESTALT.json"
 _REVIVAL = _REPO / "run/state/runtime/mcp-revival.json"
 _MAX_REGISTRY = 64 * 1024
 _MAX_REVIVAL = 4 * 1024
@@ -55,6 +55,27 @@ def _command(facade: dict[str, Any], arguments: dict[str, Any]) -> str | None:
         return "plan < ae-dispatch.json"
     if adapter == "receipt":
         return "receipt < envelope.json"
+    if adapter.startswith("lucid "):
+        verb = adapter.removeprefix("lucid ")
+        selector_key = {
+            "show": "view",
+            "get": "path",
+            "set": "path",
+            "morph": "codebook",
+            "dispatch": "task",
+            "steer": "action",
+            "cancel": "action",
+        }.get(verb)
+        selector = arguments.get(selector_key) if selector_key else None
+        if not isinstance(selector, str) or not selector:
+            return None
+        tokens = ["lucid", verb, selector]
+        for key, value in arguments.items():
+            if key == selector_key:
+                continue
+            encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+            tokens.extend([f"--{key.replace('_', '-')}", shlex.quote(encoded)])
+        return " ".join(tokens)
     try:
         encoded = json.dumps(arguments, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     except (TypeError, ValueError):
@@ -64,23 +85,8 @@ def _command(facade: dict[str, Any], arguments: dict[str, Any]) -> str | None:
     return f"{adapter} --args {shlex.quote(encoded)}"
 
 
-def _failure_provenance(tool: str, code: str, detail: str) -> tuple[str, int]:
-    source = json.dumps(
-        {
-            "schema": "mcp-call-tool-result/1",
-            "tool": tool,
-            "code": code,
-            "detail": detail,
-        },
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(source).hexdigest()}", int(time.time())
-
-
 def project_lucid_transport_outage(tool: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
-    """Return a bounded UGUI-shaped fallback only for RUN-attested active outage."""
+    """Return bounded Gestalt only for a RUN-attested active outage."""
 
     revival = _read_json(_REVIVAL, _MAX_REVIVAL)
     registry = _read_json(_OFFLINE, _MAX_REGISTRY)
@@ -108,39 +114,11 @@ def project_lucid_transport_outage(tool: str, arguments: dict[str, Any]) -> dict
     command = _command(facade, arguments)
     if command is None:
         return None
-    text = f"⚠️ LUCID · {tool} · mcp-unavailable\n{eta}\nOFFLINE {command}\nRETIRE port:mcp fresh 🟢"
-    return {
-        "error": text,
-        "structuredContent": {
-            "schema": "lucid-ugui-response/1",
-            "id": "lucid.mcp-unavailable",
-            "type": "lucid",
-            "verb": tool,
-            "state": "mcp-unavailable",
-            "header": [{"id": "lucid.outage.title", "type": "text", "body": "LUCID unavailable", "style": "heading", "width": 12}],
-            "sections": [
-                {"id": "lucid.outage.status", "type": "status", "signal": "warning", "body": eta, "width": 12},
-                {"id": "lucid.outage.fallback", "type": "text", "body": f"OFFLINE {command}", "width": 12},
-            ],
-            "actions": [],
-            "provenance": {
-                "schema": "ugui-provenance/1",
-                "sourceSchema": "run-mcp-revival/1",
-                "parentHash": registry.get("source_hash"),
-                "observedEpoch": revival.get("observed_epoch_ms", 0) // 1000,
-                "sourceField": "offline_facades",
-            },
-            "fidelity": {
-                "schema": "lucid-ugui-projection-fidelity/1",
-                "lossless": True,
-                "sourceFields": ["node", "eta", "offline_facades_active"],
-                "projectedFields": ["state", "sections"],
-                "omittedFields": [],
-                "generator": "catalyst.tools.lucid_outage@1",
-            },
-            "receipt": {"schema": "lucid-ugui-action-receipt/1", "action_provenance": []},
-        },
-    }
+    text = (
+        f"⚠️ LUCID · {tool} · transport · mcp-unavailable\n"
+        f"🔎 State={eta} · OfflineCommand={command} · Retires=port:mcp fresh 🟢"
+    )
+    return {"error": text}
 
 
 def project_lucid_failure(
@@ -152,81 +130,24 @@ def project_lucid_failure(
 ) -> dict[str, Any]:
     """Project every LUCID failure without inventing RUN-owned outage evidence."""
 
-    if isinstance(structured, dict):
-        return {"error": detail, "structuredContent": structured}
     outage = project_lucid_transport_outage(tool, arguments)
     if outage is not None:
         return outage
     code = code if code in {"mcp-unavailable", "outcome-envelope-invalid"} else "outcome-envelope-invalid"
-    bounded = " ".join(detail.split())[:1024] or "isError response omitted content and structuredContent"
-    next_action = f"lucid {tool} --help"
-    provenance_hash, observed_epoch = _failure_provenance(tool, code, bounded)
-    action_id = f"lucid.error.help.{tool}"
+    gestalt = _read_json(_GESTALT, _MAX_REGISTRY) or {}
+    line_bytes = gestalt.get("bounds", {}).get("lineBytes", 1024)
+    if not isinstance(line_bytes, int) or not 1 <= line_bytes <= 4096:
+        line_bytes = 1024
+    bounded = " ".join(detail.split())[:line_bytes] or "isError response omitted content and structuredContent"
+    action = json.dumps(
+        {"label": "?", "verb": tool, "arguments": {}},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
     return {
-        "error": f"🔴 LUCID · {tool} · {code}\nCAUSE {bounded}\nNEXT {next_action}",
-        "structuredContent": {
-            "schema": "lucid-ugui-response/1",
-            "id": f"lucid.{code}",
-            "type": "lucid",
-            "verb": tool,
-            "state": code,
-            "header": [
-                {
-                    "id": "lucid.error.title",
-                    "type": "text",
-                    "body": f"LUCID {tool} failed",
-                    "style": "heading",
-                    "width": 12,
-                }
-            ],
-            "sections": [
-                {
-                    "id": "lucid.error.status",
-                    "type": "status",
-                    "signal": "error",
-                    "body": bounded,
-                    "width": 12,
-                },
-            ],
-            "actions": [
-                {
-                    "id": action_id,
-                    "type": "button",
-                    "label": f"{tool} --help",
-                    "action": "lucid.help.verb",
-                    "value": tool,
-                    "intent": {"verb": tool, "arguments": {}},
-                    "handlers": [{"gesture": "tap", "handler": "lucid.help.verb"}],
-                    "width": 12,
-                }
-            ],
-            "provenance": {
-                "schema": "ugui-provenance/1",
-                "sourceSchema": "mcp-call-tool-result",
-                "parentHash": provenance_hash,
-                "observedEpoch": observed_epoch,
-                "sourceField": "isError",
-            },
-            "fidelity": {
-                "schema": "lucid-ugui-projection-fidelity/1",
-                "lossless": False,
-                "sourceFields": ["isError", "content", "structuredContent"],
-                "projectedFields": ["state", "sections", "actions", "receipt"],
-                "omittedFields": ["transport"],
-                "generator": "catalyst.tools.lucid_outage@1",
-            },
-            "receipt": {
-                "schema": "lucid-ugui-action-receipt/1",
-                "action_provenance": [
-                    {
-                        "id": action_id,
-                        "state": "AVAILABLE",
-                        "provenance_hash": provenance_hash,
-                        "reason": "derived from the current MCP failure result",
-                        "kind": "domain-intent",
-                        "content_id": provenance_hash,
-                    }
-                ],
-            },
-        },
+        "error": (
+            f"🔴 LUCID · {tool} · transport · {code}\n"
+            f"🔎 Code={code} · Detail={bounded}\n➡️ {action}"
+        )
     }

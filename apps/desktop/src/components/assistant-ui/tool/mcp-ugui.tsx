@@ -1,4 +1,11 @@
-import { type ComponentProps, useEffect, useRef, useState } from 'react'
+import {
+  type ComponentProps,
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState
+} from 'react'
 
 import { CompactMarkdown } from '@/components/chat/compact-markdown'
 import {
@@ -18,7 +25,14 @@ import {
   extractMcpUguiDocument,
   type McpUguiDocument as McpUguiDocumentValue
 } from '@/lib/tool-presentation'
-import { projectMcpGestaltResult } from '@/lib/ugui-engine'
+import {
+  inputResidentUguiApp,
+  loadResidentUguiApp,
+  mountResidentUguiDocument,
+  projectMcpGestaltResult,
+  resetResidentUguiApp,
+  type ResidentUguiAppDocument
+} from '@/lib/ugui-engine'
 import { cn } from '@/lib/utils'
 
 const SIGNAL_CLASS: Record<string, string> = {
@@ -271,6 +285,115 @@ function UguiMarkdownCode({ code, language, title }: { code: string; language: s
   )
 }
 
+function UgUiResidentAppReference({ value }: { value: Record<string, unknown> }) {
+  const appId = text(value.appId)
+  const source = text(value.source)
+  const root = useRef<HTMLDivElement | null>(null)
+  const sending = useRef(false)
+  const [document, setDocument] = useState<ResidentUguiAppDocument | null>(null)
+  const [error, setError] = useState('')
+
+  const send = useCallback(async (message: Record<string, unknown>) => {
+    if (sending.current) return
+    sending.current = true
+    try {
+      const next = await inputResidentUguiApp(message)
+      setDocument(next)
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'UGUI app input failed')
+    } finally {
+      sending.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setDocument(null)
+    setError('')
+    void loadResidentUguiApp(appId, source, 20_260_702)
+      .then(next => {
+        if (!cancelled) setDocument(next)
+      })
+      .catch(cause => {
+        if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : 'UGUI app load failed')
+        }
+      })
+    return () => {
+      cancelled = true
+      void resetResidentUguiApp()
+    }
+  }, [appId, source])
+
+  useEffect(() => {
+    if (!document || !root.current) return
+    void mountResidentUguiDocument(root.current, document).catch(cause => {
+      setError(cause instanceof Error ? cause.message : 'UGUI browser paint failed')
+    })
+  }, [document])
+
+  useEffect(() => {
+    if (!document) return
+    const timer = window.setInterval(() => void send({ kind: 'tick', dt: 100 }), 100)
+    return () => window.clearInterval(timer)
+  }, [document, send])
+
+  const key = (value: string) => {
+    const normalized: Record<string, string> = {
+      ArrowUp: 'up',
+      ArrowDown: 'down',
+      ArrowLeft: 'left',
+      ArrowRight: 'right',
+      Escape: 'esc'
+    }
+    return normalized[value] ?? (/^[a-z]$/i.test(value) ? value.toLowerCase() : '')
+  }
+
+  const pointer = (event: ReactPointerEvent<HTMLDivElement>, phase: 'down' | 'move' | 'up') => {
+    if (!(event.target instanceof HTMLCanvasElement)) return
+    const bounds = event.target.getBoundingClientRect()
+    if (!bounds.width || !bounds.height) return
+    const x = Math.round(((event.clientX - bounds.left) * event.target.width) / bounds.width)
+    const y = Math.round(((event.clientY - bounds.top) * event.target.height) / bounds.height)
+    void send({ kind: 'pointer', phase, x, y })
+  }
+
+  return (
+    <section className="rounded-[0.25rem] bg-(--ui-bg-quinary) p-2" data-ugui-app-reference={appId}>
+      <div
+        className="max-h-[32rem] overflow-auto outline-none [&_button]:m-1 [&_button]:rounded [&_button]:border [&_button]:border-(--ui-stroke-tertiary) [&_button]:px-2 [&_button]:py-1 [&_canvas]:max-w-full [&_canvas]:image-rendering-pixelated"
+        onClick={event => {
+          const target = event.target instanceof Element ? event.target.closest('[data-ugui-id]') : null
+          const id = target?.getAttribute('data-ugui-id')
+          if (id) void send({ kind: 'tap', id })
+        }}
+        onInput={event => {
+          const target = event.target
+          if (!(target instanceof HTMLInputElement)) return
+          if (!target.closest('[data-ugui-id]')) return
+          void send({ kind: 'text', value: target.value })
+        }}
+        onKeyDown={event => {
+          const value = key(event.key)
+          if (!value) return
+          event.preventDefault()
+          void send({ kind: 'key', key: value })
+        }}
+        onPointerDown={event => pointer(event, 'down')}
+        onPointerMove={event => {
+          if (event.buttons) pointer(event, 'move')
+        }}
+        onPointerUp={event => pointer(event, 'up')}
+        ref={root}
+        role="application"
+        tabIndex={0}
+      />
+      {error && <p className="mt-1 text-[0.68rem] text-rose-600 dark:text-rose-400">{error}</p>}
+    </section>
+  )
+}
+
 function UgUiSection({ value }: { value: unknown }) {
   const section = record(value)
 
@@ -282,6 +405,10 @@ function UgUiSection({ value }: { value: unknown }) {
   const heading = text(section.heading ?? section.title)
   const body = text(section.body ?? section.text)
   const signal = text(section.signal)
+
+  if (type === 'app_reference') {
+    return <UgUiResidentAppReference value={section} />
+  }
 
   if (type === 'status') {
     return (

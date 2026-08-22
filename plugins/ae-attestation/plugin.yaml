@@ -1,9 +1,10 @@
 name: ae-attestation
-version: "1.0.0"
-description: "AE-only final-response role-attestation guard derived from the live LUCID host role and canonical QUINE role registry."
+version: "1.1.0"
+description: "AE-only final-response role-attestation guard and exact-once EFFIGY verbalization derived from the live LUCID host role and canonical QUINE role registry."
 author: "Microsoft Applied Sciences"
 kind: backend
 hooks:
   - pre_final
+  - post_final
   - transform_tool_result
   - on_session_end

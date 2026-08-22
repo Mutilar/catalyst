@@ -33,6 +33,7 @@ import {
   getMcpOAuthFlow,
   type HermesGateway,
   installMcpCatalogEntry,
+  listMcpServers,
   type McpCatalogEntry,
   type McpTestResult,
   saveMcpServers,
@@ -118,21 +119,8 @@ const NEEDS_AUTH_RE = /\b(401|unauthorized|forbidden|invalid[_ ]?token|authentic
 // and the Catalog install view; invalidated after an install.
 const MCP_CATALOG_KEY = ['mcp-catalog'] as const
 
-// Probe results outlive the component: each probe is a REAL connect/disconnect
-// (stdio servers get spawned!), so re-entering the page must not re-probe the
-// fleet. Manual refresh / auth / toggle-on bypass the cache.
-const PROBE_TTL_MS = 5 * 60_000
-const probeCache = new Map<string, { at: number; result: McpTestResult }>()
-
-// A probe is only valid for one (profile, exact-config) pair. Keying the cache
-// by a fingerprint of the connection-relevant fields — plus the active profile
-// — means a same-name edit (url/command/env change) or a same-named server in
-// another profile MISSES the cache instead of showing a stale probe.
 const serverFingerprint = (server: Record<string, unknown>): string =>
   JSON.stringify([server.url, server.command, server.args, server.env, server.headers, server.transport, server.auth])
-
-const probeKey = (name: string, server: Record<string, unknown> | undefined): string =>
-  `${normalizeProfileKey($activeGatewayProfile.get())}::${name}::${serverFingerprint(server ?? {})}`
 
 type Probe = McpTestResult | 'probing'
 
@@ -345,6 +333,7 @@ export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
   const { t } = useI18n()
   const m = t.settings.mcp
   const activeSessionId = useStore($activeSessionId)
+  const activeProfile = useStore($activeGatewayProfile)
 
   // Shared config cache (see use-config-record): revisiting the tab paints the
   // cached record instantly; mutations write through `setConfig` and stay
@@ -370,8 +359,6 @@ export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
 
   const [saving, setSaving] = useState(false)
   const [probes, setProbes] = useState<Record<string, Probe>>({})
-  const probesRef = useRef(probes)
-  probesRef.current = probes
 
   // Blocks the browser until an OAuth flow lands a token; also reset on profile
   // switch, so declared up here alongside the other per-profile view state.
@@ -421,9 +408,15 @@ export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
   // Key by active profile — installed/enabled badges are per-profile, so sharing
   // one cache across profiles would flash the previous profile's state on switch.
   const catalogQuery = useQuery({
-    queryKey: [...MCP_CATALOG_KEY, normalizeProfileKey(useStore($activeGatewayProfile))],
+    queryKey: [...MCP_CATALOG_KEY, normalizeProfileKey(activeProfile)],
     queryFn: getMcpCatalog,
     staleTime: 5 * 60_000
+  })
+  const runtimeQuery = useQuery({
+    queryKey: ['mcp-runtime', normalizeProfileKey(activeProfile)],
+    queryFn: listMcpServers,
+    refetchInterval: 3_000,
+    staleTime: 1_000
   })
 
   const catalog = catalogQuery.data?.entries ?? []
@@ -547,7 +540,6 @@ export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
 
   const runProbe = async (serverName: string) => {
     const epoch = profileEpoch.current
-    const key = probeKey(serverName, servers[serverName])
     setProbes(current => ({ ...current, [serverName]: 'probing' }))
 
     try {
@@ -558,7 +550,6 @@ export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
         return
       }
 
-      probeCache.set(key, { at: Date.now(), result })
       setProbes(current => ({ ...current, [serverName]: result }))
     } catch (err) {
       if (profileEpoch.current !== epoch) {
@@ -566,7 +557,6 @@ export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
       }
 
       const result = { ok: false, error: err instanceof Error ? err.message : String(err), tools: [] }
-      probeCache.set(key, { at: Date.now(), result })
       setProbes(current => ({ ...current, [serverName]: result }))
     }
   }
@@ -595,10 +585,6 @@ export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
       }
 
       setProbes(current => ({ ...current, [serverName]: result }))
-      // Cache under the POST-auth fingerprint (auth: oauth) on success — that's
-      // the config the mount effect will read back, so it hits this entry.
-      const probedConfig = result.ok ? { ...servers[serverName], auth: 'oauth' } : servers[serverName]
-      probeCache.set(probeKey(serverName, probedConfig), { at: Date.now(), result })
 
       if (result.ok) {
         // The endpoint persisted `auth: oauth` — mirror it locally.
@@ -641,26 +627,35 @@ export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
     }
   }
 
-  // It should just know: probe enabled servers as config arrives — but through
-  // the cache, so revisiting the page doesn't respawn/reconnect the fleet.
+  // Observe the resident MCP sessions started by dashboard startup. Page
+  // navigation must never spawn a second connect/disconnect probe fleet.
   useEffect(() => {
-    for (const [serverName, server] of Object.entries(servers)) {
-      if (!serverEnabled(server) || probesRef.current[serverName] !== undefined) {
-        continue
-      }
+    const rows = runtimeQuery.data?.servers
 
-      const cached = probeCache.get(probeKey(serverName, server))
+    if (!rows) {
+      return
+    }
 
-      if (cached && Date.now() - cached.at < PROBE_TTL_MS) {
-        setProbes(current => ({ ...current, [serverName]: cached.result }))
-      } else {
-        void runProbe(serverName)
+    const observed: Record<string, Probe> = {}
+
+    for (const row of rows) {
+      if (row.connected) {
+        observed[row.name] = {
+          ok: true,
+          tools: row.runtime_tools.map(name => ({ name, description: '' }))
+        }
+      } else if (row.runtime_status === 'connecting') {
+        observed[row.name] = 'probing'
+      } else if (row.runtime_status === 'failed') {
+        observed[row.name] = {
+          ok: false,
+          error: row.connection_error ?? 'Connection failed',
+          tools: []
+        }
       }
     }
-    // Re-run only when the server set changes; runProbe is recreated every
-    // render and adding it would re-probe the fleet on every keystroke.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [servers])
+    setProbes(observed)
+  }, [runtimeQuery.data])
 
   // Config writes reach live sessions immediately — no manual "Reload MCP".
   const silentReload = async () => {

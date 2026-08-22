@@ -1180,7 +1180,7 @@ def _make_run_env(env: dict) -> dict:
         # Ensure the hermes install dir is reachable so plugins can shell out
         # to bare ``hermes`` via the terminal tool even when the gateway was
         # launched without it on PATH (systemd, service managers, cron, etc.).
-        run_env[path_key] = _prepend_hermes_bin_dir(new_path)
+        run_env[path_key] = _prepend_current_butler_bin(_prepend_hermes_bin_dir(new_path), run_env)
 
     _inject_context_hermes_home(run_env)
 
@@ -1200,6 +1200,32 @@ def _make_run_env(env: dict) -> dict:
     run_env = _scrub_delegated_child_kanban_env(run_env)
 
     return run_env
+
+
+def _prepend_current_butler_bin(path: str, environment: dict[str, str]) -> str:
+    """Resolve RUN's stable Butler generation at each subprocess spawn.
+
+    RUN advances ``current`` independently of the long-lived Hermes process.
+    Capturing PATH only at gateway startup therefore strands terminal calls on
+    an older ``lucid`` binary after a successful generation promotion.
+    """
+
+    roots = []
+    configured = environment.get("BUTLER_REPOSITORY_ROOT")
+    if configured:
+        roots.append(Path(configured))
+    try:
+        roots.append(Path(__file__).resolve().parents[3])
+    except (IndexError, OSError):
+        pass
+    for root in roots:
+        package_bin = root / "run/target/toolchains/butler/current/bin"
+        if not (package_bin / "lucid").is_file() or not (package_bin / "butler").is_file():
+            continue
+        package = str(package_bin)
+        entries = [entry for entry in path.split(os.pathsep) if entry and entry != package]
+        return os.pathsep.join([package, *entries])
+    return path
 
 
 def _read_terminal_shell_init_config() -> tuple[list[str], bool]:

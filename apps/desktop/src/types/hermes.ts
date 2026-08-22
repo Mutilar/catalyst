@@ -1138,6 +1138,14 @@ export interface McpServerSummary {
   url: string | null
   enabled: boolean
   tools: string[] | null
+  connected: boolean
+  runtime_status: 'configured' | 'connecting' | 'connected' | 'disabled' | 'failed'
+  discovered_tools: number
+  runtime_tools: string[]
+  connection_error: string | null
+  health_status: 'degraded' | 'healthy' | 'pending' | 'unavailable' | 'unhealthy'
+  consecutive_failures: number
+  health_error: string | null
 }
 
 export interface McpServerTestResponse {

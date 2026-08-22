@@ -8,6 +8,7 @@ import {
   mcpToolTitle,
   MODEL_VISIBLE_TOOL_RESULT_KEY,
   modelVisibleToolResult,
+  terminalRunsLucid,
   terminalRequestsUgui
 } from './tool-presentation'
 
@@ -40,6 +41,18 @@ describe('model-visible MCP result', () => {
 })
 
 describe('UGUI extraction', () => {
+  it('separates full presentation UGUI from the model-visible Gestalt sidecar', () => {
+    const gestalt = '🟢 LUCID · get · onboarding · ready'
+    const result = {
+      [MODEL_VISIBLE_TOOL_RESULT_KEY]: gestalt,
+      result: gestalt,
+      structuredContent: document
+    }
+
+    expect(modelVisibleToolResult(result)).toBe(gestalt)
+    expect(extractMcpUguiDocument(result)).toEqual(document)
+  })
+
   it('admits a bounded canonical LUCID UGUI document', () => {
     const result = {
       duration_s: 0.4,
@@ -105,15 +118,37 @@ describe('Gestalt extraction', () => {
     expect(extractMcpGestalt(result)).toBe(gestalt)
   })
 
-  it('refuses arbitrary prose and oversized pseudo-Gestalt', () => {
+  it('refuses arbitrary prose while leaving bounds to the shared projector', () => {
     expect(extractMcpGestalt({ content: [{ type: 'text', text: 'ordinary prose' }] })).toBeNull()
-    expect(
-      extractMcpGestalt(`🟢 LUCID · get · logs · fresh\n${'x'.repeat(2_048)}`)
-    ).toBeNull()
+    const oversized = `🟢 LUCID · get · logs · fresh\n${'x'.repeat(2_048)}`
+    expect(extractMcpGestalt(oversized)).toBe(oversized)
+  })
+
+  it('extracts the existing CLI pulse header without parsing its semantics', () => {
+    const pulse = '🔴 QUINE.md · root · current\n🟢 GREEN'
+
+    expect(extractMcpGestalt({ output: pulse, exit_code: 0 })).toBe(pulse)
+  })
+
+  it('extracts canonical CLI help nested in terminal output', () => {
+    const help = [
+      '🟢 LUCID · get · help · ready',
+      'Read exact registered evidence.',
+      'CALL lucid get [typed arguments]'
+    ].join('\n')
+
+    expect(terminalRunsLucid({ command: 'lucid get --help' })).toBe(true)
+    expect(extractMcpGestalt({ output: help, exit_code: 0 })).toBe(help)
   })
 })
 
 describe('terminal UGUI selection', () => {
+  it('routes every direct lucid CLI invocation to the shared projector', () => {
+    expect(terminalRunsLucid({ command: 'lucid show pulse' })).toBe(true)
+    expect(terminalRunsLucid({ command: '/repo/bin/lucid get --args \'{"path":"gates"}\'' })).toBe(true)
+    expect(terminalRunsLucid({ command: 'echo lucid show pulse' })).toBe(false)
+  })
+
   it('recognizes direct LUCID UGUI commands and stable launcher paths', () => {
     expect(terminalRequestsUgui({ command: "LUCID show pulse --modality ugui" })).toBe(
       true

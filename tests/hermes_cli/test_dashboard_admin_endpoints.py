@@ -71,6 +71,34 @@ class TestMcpEndpoints:
         assert self.client.delete("/api/mcp/servers/srv1").status_code == 200
         assert self.client.get("/api/mcp/servers").json()["servers"] == []
 
+    def test_list_reports_resident_connection_without_probing(self, monkeypatch):
+        self.client.post(
+            "/api/mcp/servers",
+            json={"name": "LUCID", "command": "butler", "args": ["mcp"]},
+        )
+        monkeypatch.setattr(
+            "tools.mcp_tool.get_mcp_status",
+            lambda: [
+                {
+                    "name": "LUCID",
+                    "transport": "stdio",
+                    "tools": 7,
+                    "tool_names": ["show", "get", "set"],
+                    "connected": True,
+                    "disabled": False,
+                    "status": "connected",
+                }
+            ],
+        )
+
+        server = self.client.get("/api/mcp/servers").json()["servers"][0]
+
+        assert server["connected"] is True
+        assert server["runtime_status"] == "connected"
+        assert server["discovered_tools"] == 7
+        assert server["runtime_tools"] == ["show", "get", "set"]
+        assert server["connection_error"] is None
+
     def test_stdio_env_is_redacted_on_read(self):
         self.client.post(
             "/api/mcp/servers",

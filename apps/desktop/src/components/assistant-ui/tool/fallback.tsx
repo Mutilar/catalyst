@@ -38,7 +38,8 @@ import { normalize } from '@/lib/text'
 import {
   extractToolUguiDocument,
   mcpToolIdentity,
-  modelVisibleToolResult
+  modelVisibleToolResult,
+  terminalRunsLucid
 } from '@/lib/tool-presentation'
 import { projectMcpGestaltResult } from '@/lib/ugui-engine'
 import { useEnterAnimation } from '@/lib/use-enter-animation'
@@ -330,7 +331,11 @@ function ToolEntry({ part }: ToolEntryProps) {
   useEffect(() => {
     let cancelled = false
 
-    if (rawMcpUgui || result === undefined || !mcpToolIdentity(toolName)) {
+    if (
+      rawMcpUgui ||
+      result === undefined ||
+      (!mcpToolIdentity(toolName) && !(toolName === 'terminal' && terminalRunsLucid(args)))
+    ) {
       setGestaltUgui(null)
       return () => {
         cancelled = true
@@ -346,7 +351,7 @@ function ToolEntry({ part }: ToolEntryProps) {
     return () => {
       cancelled = true
     }
-  }, [rawMcpUgui, result, toolName])
+  }, [args, rawMcpUgui, result, toolName])
 
   const mcpUgui = rawMcpUgui ?? gestaltUgui
 

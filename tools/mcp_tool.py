@@ -104,6 +104,7 @@ import shutil
 import sys
 import threading
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
 from datetime import datetime
@@ -689,6 +690,37 @@ def _resolve_stdio_command(command: str, env: dict) -> tuple[str, dict]:
         resolved_env = _prepend_path(resolved_env, command_dir)
 
     return resolved_command, resolved_env
+
+
+def _current_butler_binding() -> tuple[Optional[str], Optional[Path]]:
+    """Return RUN's current Butler generation and stable bin directory."""
+
+    roots = []
+    configured = os.environ.get("BUTLER_REPOSITORY_ROOT")
+    if configured:
+        roots.append(Path(configured))
+    try:
+        roots.append(Path(__file__).resolve().parents[2])
+    except (IndexError, OSError):
+        pass
+    for root in roots:
+        pointer = root / "run/target/toolchains/butler/current.json"
+        package_bin = root / "run/target/toolchains/butler/current/bin"
+        try:
+            if pointer.stat().st_size > 4096:
+                continue
+            document = json.loads(pointer.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            continue
+        generation = document.get("generation")
+        if (
+            isinstance(generation, str)
+            and generation
+            and (package_bin / "lucid").is_file()
+            and (package_bin / "butler").is_file()
+        ):
+            return generation, package_bin
+    return None, None
 
 
 def _wrap_command_with_watchdog(command: str, args: list) -> tuple[str, list]:
@@ -1832,6 +1864,7 @@ class MCPServerTask:
         "_idle_timeout_seconds", "_max_lifetime_seconds", "_recycled_reason",
         "initialize_result", "_ping_unsupported",
         "_reconnect_retries", "_session_proven", "_was_parked",
+        "_butler_generation",
     )
 
     def __init__(self, name: str):
@@ -1866,6 +1899,7 @@ class MCPServerTask:
         # until the session proves healthy again — used to log the
         # parked→revived transition exactly once.
         self._was_parked: bool = False
+        self._butler_generation: Optional[str] = None
         self._auth_type: str = ""
         self._refresh_lock = asyncio.Lock()
         # MCP stdio sessions are a single JSON-RPC stream. Some servers emit
@@ -2367,6 +2401,16 @@ class MCPServerTask:
             )
 
         safe_env = _build_safe_env(user_env)
+        if self.name.casefold() == "lucid":
+            generation, package_bin = _current_butler_binding()
+            if package_bin is not None:
+                safe_env["PATH"] = os.pathsep.join(
+                    [str(package_bin), safe_env.get("PATH", "")]
+                ).rstrip(os.pathsep)
+                safe_env["BUTLER_HOST"] = str(package_bin / "butler")
+                if Path(str(command)).name.casefold() in {"lucid", "butler"}:
+                    command = str(package_bin / Path(str(command)).name.casefold())
+            self._butler_generation = generation
         command, safe_env = _resolve_stdio_command(command, safe_env)
 
         # Check package against OSV malware database before spawning.
@@ -3568,6 +3612,7 @@ def _connect_cooldown_active(server_name: str) -> bool:
 # this state — they keep the count and timestamp in sync.
 _server_error_counts: Dict[str, int] = {}
 _server_breaker_opened_at: Dict[str, float] = {}
+_server_last_call_errors: Dict[str, str] = {}
 _CIRCUIT_BREAKER_THRESHOLD = 3
 _CIRCUIT_BREAKER_COOLDOWN_SEC = 60.0
 _RESPONSE_MODALITY_EXTENSION = "com.asg.lucid/response-modality"
@@ -3595,6 +3640,7 @@ def _reset_server_error(server_name: str) -> None:
     """
     _server_error_counts[server_name] = 0
     _server_breaker_opened_at.pop(server_name, None)
+    _server_last_call_errors.pop(server_name, None)
 
 
 def _preferred_tool_call_meta(server: Any) -> Optional[dict]:
@@ -4561,11 +4607,16 @@ def _project_tool_failure(
 ) -> str:
     bounded = _sanitize_error(detail)
     if server_name == "LUCID":
+        from agent.tool_result_channels import encode_tool_result_channels
         from tools.lucid_outage import project_lucid_failure
 
-        return json.dumps(
-            project_lucid_failure(tool_name, args, bounded, structured, code),
-            ensure_ascii=False,
+        projected = project_lucid_failure(tool_name, args, bounded, structured, code)
+        model = projected.get("error") if isinstance(projected.get("error"), str) else bounded
+        projected["__hermes_model_visible_result"] = model
+        return encode_tool_result_channels(
+            model,
+            projected,
+            is_error=True,
         )
     return json.dumps({"error": bounded}, ensure_ascii=False)
 
@@ -4612,6 +4663,19 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                 args,
                 f"MCP server '{server_name}' is not connected",
             )
+
+        if server_name.casefold() == "lucid" and not server._is_http():
+            generation, _ = _current_butler_binding()
+            bound = getattr(server, "_butler_generation", None)
+            if generation is not None and bound != generation:
+                server._recycled_reason = "butler-generation-advanced"
+                _signal_reconnect(server)
+                return _project_tool_failure(
+                    server_name,
+                    tool_name,
+                    args,
+                    "LUCID Butler generation advanced; reconnect requested",
+                )
 
         if not server.session:
             # No live session. A reconnect may already be completing (the
@@ -4750,16 +4814,22 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                     )
             text_result = "\n".join(parts) if parts else ""
 
-            # Combine content + structuredContent when both are present.
-            # MCP spec: content is model-oriented (text), structuredContent
-            # is machine-oriented (JSON metadata).  For an AI agent, content
-            # is the primary payload; structuredContent supplements it.
+            # Keep MCP's channels separate: content is model-visible Gestalt;
+            # structuredContent is presentation-only machine data. The agent
+            # executor splits this private envelope before model history and
+            # sends the full presentation object only to the UI callback.
             structured = getattr(result, "structuredContent", None)
             if structured is not None:
-                return json.dumps({
-                    "result": text_result,
-                    "structuredContent": structured,
-                }, ensure_ascii=False)
+                from agent.tool_result_channels import encode_tool_result_channels
+
+                return encode_tool_result_channels(
+                    text_result,
+                    {
+                        "__hermes_model_visible_result": text_result,
+                        "result": text_result,
+                        "structuredContent": structured,
+                    },
+                )
             return json.dumps({"result": text_result}, ensure_ascii=False)
 
         def _call_once():
@@ -4797,6 +4867,9 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
             if recovered is not None:
                 return recovered
 
+            _server_last_call_errors[server_name] = _sanitize_error(
+                f"{type(exc).__name__}: {_exc_str(exc)}"
+            )
             _bump_server_error(server_name)
             logger.error(
                 "MCP tool %s/%s call failed: %s",
@@ -5912,19 +5985,36 @@ def get_mcp_status() -> List[dict]:
         active_servers = dict(_servers)
         connecting = set(_server_connecting)
         connect_errors = dict(_server_connect_errors)
+        call_failures = dict(_server_error_counts)
+        call_errors = dict(_server_last_call_errors)
 
     for name, cfg in configured.items():
         transport = cfg.get("transport", "http") if "url" in cfg else "stdio"
         enabled = _parse_boolish(cfg.get("enabled", True), default=True)
         server = active_servers.get(name)
         if server and server.session is not None:
+            failure_count = call_failures.get(name, 0)
+            if failure_count >= _CIRCUIT_BREAKER_THRESHOLD:
+                health_status = "unhealthy"
+            elif failure_count > 0:
+                health_status = "degraded"
+            elif getattr(server, "_session_proven", False):
+                health_status = "healthy"
+            else:
+                health_status = "pending"
             entry = {
                 "name": name,
                 "transport": transport,
                 "tools": len(server._registered_tool_names) if hasattr(server, "_registered_tool_names") else len(server._tools),
+                "tool_names": list(server._registered_tool_names)
+                if hasattr(server, "_registered_tool_names")
+                else [tool.name for tool in server._tools],
                 "connected": True,
                 "disabled": False,
                 "status": "connected",
+                "health_status": health_status,
+                "consecutive_failures": failure_count,
+                "health_error": call_errors.get(name),
             }
             if server._sampling:
                 entry["sampling"] = dict(server._sampling.metrics)
@@ -5940,6 +6030,8 @@ def get_mcp_status() -> List[dict]:
                 "connected": False,
                 "disabled": True,
                 "status": "disabled",
+                "health_status": "unavailable",
+                "consecutive_failures": 0,
             })
         elif name in connecting:
             result.append({
@@ -5949,6 +6041,8 @@ def get_mcp_status() -> List[dict]:
                 "connected": False,
                 "disabled": False,
                 "status": "connecting",
+                "health_status": "pending",
+                "consecutive_failures": 0,
             })
         elif name in connect_errors:
             result.append({
@@ -5959,6 +6053,8 @@ def get_mcp_status() -> List[dict]:
                 "disabled": False,
                 "status": "failed",
                 "error": connect_errors[name],
+                "health_status": "unhealthy",
+                "consecutive_failures": 0,
             })
         else:
             result.append({
@@ -5968,6 +6064,8 @@ def get_mcp_status() -> List[dict]:
                 "connected": False,
                 "disabled": False,
                 "status": "configured",
+                "health_status": "unavailable",
+                "consecutive_failures": 0,
             })
 
     return result

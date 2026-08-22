@@ -52,25 +52,32 @@ export function modelVisibleToolResult(result: unknown): unknown {
   return visible
 }
 
-export function terminalRequestsUgui(args: unknown): boolean {
+function terminalLucidInvocations(args: unknown): string[] {
   const command = record(args)?.command
 
   if (typeof command !== 'string') {
-    return false
+    return []
   }
 
-  return command.split(/&&|\|\||;|\n/).some(segment => {
-    const invocation = segment.trim()
+  return command
+    .split(/&&|\|\||;|\n/)
+    .map(segment => segment.trim())
+    .filter(invocation =>
+      /^(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S+\/)?lucid(?=\s|$)/i.test(invocation)
+    )
+}
 
-    if (!/^(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S+\/)?lucid(?=\s|$)/i.test(invocation)) {
-      return false
-    }
+export function terminalRunsLucid(args: unknown): boolean {
+  return terminalLucidInvocations(args).length > 0
+}
 
-    return (
+export function terminalRequestsUgui(args: unknown): boolean {
+  return terminalLucidInvocations(args).some(invocation =>
+    (
       /(?:^|\s)--modality(?:=|\s+)ugui(?=\s|$)/i.test(invocation) ||
       /(?:^|\s)--help=ugui(?=\s|$)/i.test(invocation)
     )
-  })
+  )
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -96,10 +103,10 @@ function record(value: unknown): Record<string, unknown> | null {
 export function extractMcpGestalt(result: unknown): string | null {
   const visibleValue = modelVisibleToolResult(result)
   const visible = record(visibleValue)
-  const candidates: unknown[] = [visibleValue, visible?.result, visible?.output]
+  const candidates: unknown[] = [visibleValue, visible?.result, visible?.output, visible?.error]
 
   for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.length <= 2_048 && /^(?:🟢|⏳|⚠️|🔴)\s+LUCID(?:\/1)?\s+·/u.test(candidate)) {
+    if (typeof candidate === 'string' && /^(?:🟢|⏳|⚠️|🔴)\s+(?:LUCID(?:\/1)?|QUINE\.md)\s+·/u.test(candidate)) {
       return candidate
     }
 
@@ -113,7 +120,7 @@ export function extractMcpGestalt(result: unknown): string | null {
       const row = record(item)
       const value = typeof row?.text === 'string' ? row.text : null
 
-      if (value && value.length <= 2_048 && /^(?:🟢|⏳|⚠️|🔴)\s+LUCID(?:\/1)?\s+·/u.test(value)) {
+      if (value && /^(?:🟢|⏳|⚠️|🔴)\s+(?:LUCID(?:\/1)?|QUINE\.md)\s+·/u.test(value)) {
         return value
       }
     }
@@ -123,9 +130,14 @@ export function extractMcpGestalt(result: unknown): string | null {
 }
 
 export function extractMcpUguiDocument(result: unknown): McpUguiDocument | null {
+  const raw = record(result)
   const visible = record(modelVisibleToolResult(result))
 
   const candidates = [
+    record(raw?.structuredContent),
+    record(raw?.result),
+    record(raw?.output),
+    raw,
     record(visible?.structuredContent),
     record(visible?.result),
     record(visible?.output),

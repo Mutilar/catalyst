@@ -6089,6 +6089,7 @@ def run_conversation(
                 ):
                     messages.pop()
 
+                _workspace_root = ""
                 try:
                     from agent.coding_context import project_facts_for
                     from hermes_cli.plugins import (
@@ -6254,6 +6255,22 @@ def run_conversation(
                     )
                     final_response = None
                     continue
+
+                try:
+                    from hermes_cli.plugins import has_hook, invoke_hook
+
+                    if has_hook("post_final"):
+                        invoke_hook(
+                            "post_final",
+                            session_id=getattr(agent, "session_id", None) or "",
+                            platform=getattr(agent, "platform", "") or "",
+                            model=getattr(agent, "model", "") or "",
+                            final_response=final_response,
+                            workspace_root=_workspace_root,
+                            finish_reason=finish_reason,
+                        )
+                except Exception:
+                    logger.debug("post_final hook failed", exc_info=True)
 
                 messages.append(final_msg)
                 

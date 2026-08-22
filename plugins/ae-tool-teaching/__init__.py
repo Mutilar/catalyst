@@ -571,13 +571,24 @@ def _heuristic_candidate(
     arguments = _resolve_binding(declaration.get("arguments"), intent, args, root)
     if not isinstance(arguments, dict) or not arguments:
         raise ValueError("empty-generated-arguments")
+    target_identity = declaration.get("target")
+    explanation = declaration.get("explanation")
+    if isinstance(target_identity, dict) and target_identity.get("id") == "run-qualification":
+        area = arguments.get("area")
+        if not isinstance(area, str) or not area:
+            raise ValueError("quality-area-missing")
+        operation = arguments.get("operation")
+        if operation not in {"test", "lint", "line_coverage", "branch_coverage"}:
+            operation = "test"
+        arguments = {"area": area, "operation": operation}
+        explanation = f"Use LUCID DISPATCH {operation.upper()} {area.upper()}."
     return {
         "schema": CANDIDATE_SCHEMA,
         "tool": declaration.get("tool"),
         "verb": declaration.get("verb"),
         "target": declaration.get("target"),
         "arguments": arguments,
-        "explanation": declaration.get("explanation"),
+        "explanation": explanation,
         "syntax": {"tool": declaration.get("tool"), "arguments": arguments},
     }
 

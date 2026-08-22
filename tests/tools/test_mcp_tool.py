@@ -133,6 +133,7 @@ class TestMCPStatus:
             mcp_tool,
             "_load_mcp_config",
             lambda: {
+                "connected": {"command": "butler", "args": ["mcp"]},
                 "configured": {"command": "docker", "args": ["mcp", "gateway", "run"]},
                 "connecting": {"command": "slow-mcp"},
                 "failed": {"command": "bad-mcp"},
@@ -146,6 +147,10 @@ class TestMCPStatus:
             mcp_tool._servers.clear()
             mcp_tool._server_connecting.clear()
             mcp_tool._server_connect_errors.clear()
+            connected = _make_mock_server("connected", session=object())
+            connected._registered_tool_names = ["show", "get", "set"]
+            connected._session_proven = True
+            mcp_tool._servers["connected"] = connected
             mcp_tool._server_connecting.add("connecting")
             mcp_tool._server_connect_errors["failed"] = "Connection closed"
 
@@ -163,6 +168,12 @@ class TestMCPStatus:
                 mcp_tool._server_connect_errors.clear()
                 mcp_tool._server_connect_errors.update(saved_errors)
 
+        assert statuses["connected"]["status"] == "connected"
+        assert statuses["connected"]["connected"] is True
+        assert statuses["connected"]["tools"] == 3
+        assert statuses["connected"]["tool_names"] == ["show", "get", "set"]
+        assert statuses["connected"]["health_status"] == "healthy"
+        assert statuses["connected"]["consecutive_failures"] == 0
         assert statuses["configured"]["status"] == "configured"
         assert statuses["configured"]["connected"] is False
         assert statuses["configured"]["disabled"] is False

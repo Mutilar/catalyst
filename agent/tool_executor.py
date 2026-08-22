@@ -32,6 +32,7 @@ from agent.display import (
     _detect_tool_failure,
 )
 from agent.tool_guardrails import ToolGuardrailDecision
+from agent.tool_result_channels import split_tool_result_channels
 from agent.tool_dispatch_helpers import (
     _is_destructive_command,
     _is_multimodal_tool_result,
@@ -950,6 +951,8 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                 logging.debug(f"Tool {function_name} completed in {tool_duration:.2f}s")
                 logging.debug(f"Tool result ({len(function_result)} chars): {function_result}")
 
+        function_result, presentation_result = split_tool_result_channels(function_result)
+
         # Print cute message per tool
         if agent._should_emit_quiet_tool_messages():
             cute_msg = _get_cute_tool_message_impl(name, args, tool_duration, result=function_result)
@@ -969,7 +972,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
         if not blocked and agent.tool_complete_callback:
             try:
                 display_args = _redact_tool_args_for_display(name, args) or args
-                agent.tool_complete_callback(tc.id, name, display_args, function_result)
+                agent.tool_complete_callback(tc.id, name, display_args, presentation_result)
             except Exception as cb_err:
                 logging.debug(f"Tool complete callback error: {cb_err}")
 
@@ -1622,6 +1625,8 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 logger.error("handle_function_call raised for %s: %s", function_name, tool_error, exc_info=True)
             tool_duration = time.time() - tool_start_time
 
+        function_result, presentation_result = split_tool_result_channels(function_result)
+
         if isinstance(function_result, str):
             result_preview = function_result if agent.verbose_logging else (
                 function_result[:200] if len(function_result) > 200 else function_result
@@ -1705,7 +1710,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
         if not _execution_blocked and agent.tool_complete_callback:
             try:
                 display_args = _redact_tool_args_for_display(function_name, function_args) or function_args
-                agent.tool_complete_callback(tool_call.id, function_name, display_args, function_result)
+                agent.tool_complete_callback(tool_call.id, function_name, display_args, presentation_result)
             except Exception as cb_err:
                 logging.debug(f"Tool complete callback error: {cb_err}")
 

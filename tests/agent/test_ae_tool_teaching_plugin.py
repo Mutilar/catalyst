@@ -134,6 +134,22 @@ def test_focused_diagnostic_executes_then_whispers(plugin, workspace):
     assert suggestion["trajectory"] == {"state": "whisper", "attempt": 1}
 
 
+def test_artifact_build_teaching_never_exposes_internal_run_qualify(plugin, workspace):
+    args = {
+        "command": "cargo build --manifest-path butler/Cargo.toml --bin lucid",
+        "workdir": str(workspace),
+    }
+    assert plugin._on_pre_tool_call(tool_name="terminal", args=args, session_id="build") is None
+    transformed = plugin._on_transform_tool_result(
+        tool_name="terminal", args=args, result="build passed", session_id="build", status="ok"
+    )
+    assert transformed is not None
+    suggestion = json.loads(transformed.splitlines()[-1])
+    assert suggestion["candidate"]["arguments"] == {"area": "butler", "operation": "test"}
+    assert suggestion["candidate"]["explanation"] == "Use LUCID DISPATCH TEST BUTLER."
+    assert "run.qualify" not in json.dumps(suggestion["candidate"], sort_keys=True)
+
+
 def test_search_files_maps_to_bounded_get_search_recursively(plugin, workspace, monkeypatch):
     monkeypatch.chdir(workspace)
     args = {

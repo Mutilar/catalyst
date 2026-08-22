@@ -3,8 +3,20 @@ import { extractMcpGestalt, extractMcpUguiDocument, type McpUguiDocument } from 
 type UgUiWasmModule = {
   default?: (input?: string | URL | Request) => Promise<unknown>
   ugui_project_lucid_gestalt?: (gestalt: string) => string
+  ugui_app_load_reference?: (appId: string, source: string, seed: number) => string
+  ugui_app_input?: (message: string) => string
+  ugui_app_reset?: () => void
+  ugui_mount_application_document?: (root: Element, document: string) => string
   projects_project_lucid_gestalt?: (gestalt: string) => string
   catalyst_project_lucid_gestalt?: (gestalt: string) => string
+}
+
+export type ResidentUguiAppDocument = Record<string, unknown> & {
+  actions: unknown[]
+  header: unknown[]
+  id: string
+  sections: unknown[]
+  type: string
 }
 
 let modulePromise: Promise<UgUiWasmModule | null> | null = null
@@ -37,6 +49,74 @@ async function loadUgUi(): Promise<UgUiWasmModule | null> {
   }
 
   return modulePromise
+}
+
+function parseResidentDocument(source: string): ResidentUguiAppDocument {
+  const value = JSON.parse(source) as Record<string, unknown>
+
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    typeof value.id !== 'string' ||
+    typeof value.type !== 'string' ||
+    !Array.isArray(value.header) ||
+    !Array.isArray(value.sections) ||
+    !Array.isArray(value.actions) ||
+    typeof value.error === 'string'
+  ) {
+    throw new Error(typeof value?.detail === 'string' ? value.detail : 'UGUI app returned an invalid document')
+  }
+
+  return value as ResidentUguiAppDocument
+}
+
+export async function loadResidentUguiApp(
+  appId: string,
+  source: string,
+  seed: number
+): Promise<ResidentUguiAppDocument> {
+  const module = await loadUgUi()
+  const load = module?.ugui_app_load_reference
+
+  if (!load) {
+    throw new Error('The UGUI resident app engine is unavailable')
+  }
+
+  return parseResidentDocument(load(appId, source, seed))
+}
+
+export async function inputResidentUguiApp(
+  message: Record<string, unknown>
+): Promise<ResidentUguiAppDocument> {
+  const module = await loadUgUi()
+  const input = module?.ugui_app_input
+
+  if (!input) {
+    throw new Error('The UGUI resident app input seam is unavailable')
+  }
+
+  return parseResidentDocument(input(JSON.stringify(message)))
+}
+
+export async function mountResidentUguiDocument(
+  root: Element,
+  document: ResidentUguiAppDocument
+): Promise<void> {
+  const module = await loadUgUi()
+  const mount = module?.ugui_mount_application_document
+
+  if (!mount) {
+    throw new Error('The UGUI browser painter is unavailable')
+  }
+  const receipt = JSON.parse(mount(root, JSON.stringify(document))) as Record<string, unknown>
+  if (receipt.mounted !== true) {
+    throw new Error(typeof receipt.detail === 'string' ? receipt.detail : 'UGUI browser painter refused the app')
+  }
+}
+
+export async function resetResidentUguiApp(): Promise<void> {
+  const module = await loadUgUi()
+  module?.ugui_app_reset?.()
 }
 
 /**

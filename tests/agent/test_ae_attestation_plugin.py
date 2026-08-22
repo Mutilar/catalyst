@@ -47,6 +47,59 @@ def test_exact_canonical_suffix_passes_without_synthetic_turn(plugin, tmp_path):
     assert plugin._pre_final(final_response="Done.\n\n🎼🐧", workspace_root=str(root)) is None
 
 
+def test_attested_final_submits_once_to_current_role_effigy(plugin, tmp_path, monkeypatch):
+    root = _workspace(tmp_path)
+    observed = []
+
+    def submit(arguments):
+        observed.append(arguments)
+        return {"structuredContent": {"status": "accepted"}}
+
+    monkeypatch.setattr(plugin, "_submit_effigy_speech", submit)
+    response = "The exact final statement.\n\n🎼🐧"
+    receipt = plugin._post_final(
+        final_response=response,
+        workspace_root=str(root),
+        session_id="session-1",
+    )
+
+    assert receipt == {
+        "state": "submitted",
+        "code": "effigy-response-final-submitted",
+    }
+    assert observed == [
+        {
+            "kind": "text",
+            "data": {"text": response},
+            "from": "response-final",
+            "presentation": "audio-only",
+            "scope": "this",
+        }
+    ]
+    assert plugin._post_final(
+        final_response=response,
+        workspace_root=str(root),
+        session_id="session-1",
+    ) is None
+
+
+def test_unattested_final_is_never_submitted_to_effigy(plugin, tmp_path, monkeypatch):
+    root = _workspace(tmp_path)
+    observed = []
+    monkeypatch.setattr(
+        plugin,
+        "_submit_effigy_speech",
+        lambda arguments: observed.append(arguments),
+    )
+
+    assert plugin._post_final(
+        final_response="Missing glyph.",
+        workspace_root=str(root),
+        session_id="session-2",
+    ) is None
+    assert observed == []
+
+
 def test_missing_suffix_reinjects_canonical_onboarding_then_requires_signout(plugin, tmp_path):
     root = _workspace(tmp_path)
     result = plugin._pre_final(
@@ -119,6 +172,7 @@ def test_registers_attestation_lifecycle_hooks(plugin):
     plugin.register(Context())
     assert registered == [
         ("pre_final", plugin._pre_final),
+        ("post_final", plugin._post_final),
         ("transform_tool_result", plugin._transform_tool_result),
         ("on_session_end", plugin._on_session_end),
     ]
@@ -129,6 +183,7 @@ def test_conversation_loop_uses_attestation_hook_not_verify_on_stop():
         encoding="utf-8"
     )
     assert "get_pre_final_decision" in source
+    assert 'invoke_hook(\n                            "post_final"' in source
     assert "_attestation_attempt < 1" not in source
     assert '"attestation_offline"' in source
     assert "build_verify_on_stop_nudge" not in source

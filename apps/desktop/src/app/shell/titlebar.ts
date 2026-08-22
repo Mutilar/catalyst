@@ -11,6 +11,9 @@ export const TITLEBAR_FALLBACK_WINDOW_BUTTON_X = 24
 // Windows/Linux (native overlay is on the right) and macOS fullscreen
 // (traffic lights are hidden). Matches the right-cluster's 0.75rem padding.
 export const TITLEBAR_EDGE_INSET = 14
+// LUCID, layout, haptics, keybinds, settings, and the right-sidebar toggle.
+// This reserves Electron's drag region away from every interactive control.
+export const TITLEBAR_SYSTEM_TOOL_COUNT = 6
 
 // Titlebar palette only. All sizing/radius/cursor/centering come from the
 // shared <Button size="icon-titlebar"> (used polymorphically via asChild) —

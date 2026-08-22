@@ -144,6 +144,10 @@ VALID_HOOKS: Set[str] = {
     # Final-response contract gate. Repository-aware plugins may request one
     # bounded conversational correction before a proposed final is emitted.
     "pre_final",
+    # Accepted-final observer. Fired only after pre_final, pre_verify, and
+    # terminal-tool continuation gates settle, immediately before the final
+    # assistant message becomes durable. Return values are observational.
+    "post_final",
     "pre_llm_call",
     "post_llm_call",
     # Verification-loop gate. Fired once per turn when the agent has edited code

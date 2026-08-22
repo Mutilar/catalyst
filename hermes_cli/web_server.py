@@ -12600,7 +12600,11 @@ def _redact_mcp_env(env: Dict[str, Any]) -> Dict[str, str]:
     return out
 
 
-def _mcp_server_summary(name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
+def _mcp_server_summary(
+    name: str,
+    cfg: Dict[str, Any],
+    runtime: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     transport = "http" if cfg.get("url") else ("stdio" if cfg.get("command") else "unknown")
     auth = cfg.get("auth")
     headers = cfg.get("headers") or {}
@@ -12608,6 +12612,7 @@ def _mcp_server_summary(name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
         str(key).lower() == "authorization" for key in headers
     ):
         auth = "header"
+    runtime = runtime or {}
     return {
         "name": name,
         "transport": transport,
@@ -12619,6 +12624,14 @@ def _mcp_server_summary(name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
         "enabled": cfg.get("enabled", True) is not False,
         # Tool selection: list of enabled tool names, or None = all.
         "tools": cfg.get("tools"),
+        "connected": runtime.get("connected", False) is True,
+        "runtime_status": runtime.get("status", "configured"),
+        "discovered_tools": runtime.get("tools", 0),
+        "runtime_tools": list(runtime.get("tool_names") or []),
+        "connection_error": runtime.get("error"),
+        "health_status": runtime.get("health_status", "unavailable"),
+        "consecutive_failures": runtime.get("consecutive_failures", 0),
+        "health_error": runtime.get("health_error"),
     }
 
 
@@ -12654,12 +12667,19 @@ async def invoke_ugui_action(body: UguiActionInvoke, profile: Optional[str] = No
 @app.get("/api/mcp/servers")
 async def list_mcp_servers(profile: Optional[str] = None):
     from hermes_cli.mcp_config import _get_mcp_servers
+    from tools.mcp_tool import get_mcp_status
 
     with _profile_scope(profile):
         servers = _get_mcp_servers()
+        runtime = {
+            row["name"]: row
+            for row in get_mcp_status()
+            if isinstance(row, dict) and isinstance(row.get("name"), str)
+        }
     return {
         "servers": [
-            _mcp_server_summary(name, cfg) for name, cfg in sorted(servers.items())
+            _mcp_server_summary(name, cfg, runtime.get(name))
+            for name, cfg in sorted(servers.items())
         ]
     }
 

@@ -59,10 +59,13 @@ def test_active_outage_projects_exact_search_fallback(monkeypatch, tmp_path):
     result = lucid_outage.project_lucid_transport_outage("get", arguments)
 
     assert result is not None
-    assert result["structuredContent"]["state"] == "mcp-unavailable"
+    assert set(result) == {"error"}
+    assert result["error"].startswith("⚠️ LUCID · get · transport · mcp-unavailable")
     assert "⏳ ETA T-10s" in result["error"]
-    assert "OFFLINE lucid get --args" in result["error"]
-    assert "RETIRE port:mcp fresh 🟢" in result["error"]
+    assert "OfflineCommand=lucid get search --query" in result["error"]
+    assert "\n🔎 " in result["error"]
+    assert "--args" not in result["error"]
+    assert "Retires=port:mcp fresh 🟢" in result["error"]
 
 
 def test_green_or_unregistered_noun_never_suggests_fallback(monkeypatch, tmp_path):
@@ -95,9 +98,10 @@ def test_empty_error_uses_run_attested_eta_and_offline_facade(monkeypatch, tmp_p
         code="outcome-envelope-invalid",
     )
 
-    assert result["structuredContent"]["state"] == "mcp-unavailable"
+    assert set(result) == {"error"}
     assert "⏳ ETA T-10s" in result["error"]
-    assert "OFFLINE lucid get --args" in result["error"]
+    assert "OfflineCommand=lucid get search --query" in result["error"]
+    assert "--args" not in result["error"]
 
 
 def test_unattested_empty_error_uses_canonical_outcome_code(monkeypatch, tmp_path):
@@ -111,50 +115,26 @@ def test_unattested_empty_error_uses_canonical_outcome_code(monkeypatch, tmp_pat
         code="outcome-envelope-invalid",
     )
 
-    assert result["structuredContent"]["state"] == "outcome-envelope-invalid"
-    assert result["structuredContent"]["schema"] == "lucid-ugui-response/1"
+    assert set(result) == {"error"}
+    assert result["error"].startswith(
+        "🔴 LUCID · dispatch · transport · outcome-envelope-invalid"
+    )
     assert "MCP tool returned an error" not in result["error"]
-    assert "NEXT lucid dispatch --help" in result["error"]
-    document = result["structuredContent"]
-    assert [section["id"] for section in document["sections"]] == ["lucid.error.status"]
-    assert document["provenance"]["parentHash"].startswith("sha256:")
-    assert document["provenance"]["observedEpoch"] > 0
-    assert document["actions"] == [
-        {
-            "id": "lucid.error.help.dispatch",
-            "type": "button",
-            "label": "dispatch --help",
-            "action": "lucid.help.verb",
-            "value": "dispatch",
-            "intent": {"verb": "dispatch", "arguments": {}},
-            "handlers": [{"gesture": "tap", "handler": "lucid.help.verb"}],
-            "width": 12,
-        }
-    ]
-    receipt = document["receipt"]["action_provenance"]
-    assert len(receipt) == 1
-    assert receipt[0]["id"] == "lucid.error.help.dispatch"
-    assert receipt[0]["state"] == "AVAILABLE"
-    assert receipt[0]["provenance_hash"] == document["provenance"]["parentHash"]
-    assert receipt[0]["content_id"] == document["provenance"]["parentHash"]
+    assert '➡️ {"arguments":{},"label":"?","verb":"dispatch"}' in result["error"]
 
 
-def test_failure_help_action_provenance_is_stable_for_the_same_evidence(monkeypatch, tmp_path):
+def test_failure_gestalt_is_stable_for_the_same_evidence(monkeypatch, tmp_path):
     monkeypatch.setattr(lucid_outage, "_OFFLINE", tmp_path / "absent-offline.json")
     monkeypatch.setattr(lucid_outage, "_REVIVAL", tmp_path / "absent-revival.json")
-    monkeypatch.setattr(lucid_outage.time, "time", lambda: 1234)
 
     first = lucid_outage.project_lucid_failure("get", {"path": "search"}, "deadline expired")
     second = lucid_outage.project_lucid_failure("get", {"path": "search"}, "deadline expired")
 
-    first_document = first["structuredContent"]
-    second_document = second["structuredContent"]
-    assert first_document["provenance"] == second_document["provenance"]
-    assert first_document["provenance"]["observedEpoch"] == 1234
-    assert first_document["receipt"]["action_provenance"][0]["provenance_hash"] == first_document["provenance"]["parentHash"]
+    assert first == second
+    assert "structuredContent" not in first
 
 
-def test_server_supplied_ugui_error_is_preserved():
+def test_server_supplied_ugui_error_is_not_forwarded_through_model_context():
     structured = {"schema": "lucid-ugui-response/1", "state": "malformed-args"}
     result = lucid_outage.project_lucid_failure(
         "dispatch",
@@ -163,4 +143,8 @@ def test_server_supplied_ugui_error_is_preserved():
         structured=structured,
         code="outcome-envelope-invalid",
     )
-    assert result == {"error": "typed refusal", "structuredContent": structured}
+    assert set(result) == {"error"}
+    assert "structuredContent" not in result
+    assert result["error"].startswith(
+        "🔴 LUCID · dispatch · transport · outcome-envelope-invalid"
+    )
