@@ -662,7 +662,7 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
           )}
         </span>
       </header>
-      <div className="grid grid-cols-12 gap-1.5" data-ugui-layout="responsive-grid">
+      <div className="grid grid-cols-12 gap-[var(--ugui-section-gap)]" data-ugui-layout="responsive-grid">
         {rendered.sections.map((section, index) => (
           <div
             className={cn('col-span-12 min-w-0', uguiResponsiveSpan(section))}

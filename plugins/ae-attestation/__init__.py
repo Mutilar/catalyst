@@ -289,13 +289,14 @@ def _effigy_failure_fields(result: Any) -> tuple[str, str]:
     return stage, code
 
 
-def _emit_effigy_warning(role: str, result: Any) -> None:
+def _emit_effigy_warning(role: str, result: Any) -> tuple[str, str]:
     stage, code = _effigy_failure_fields(result)
     print(
         f"⚠️ EFFIGY · response-final · failed role={role} stage={stage} code={code}",
         file=sys.stderr,
         flush=True,
     )
+    return stage, code
 
 
 def _post_final(
@@ -336,14 +337,25 @@ def _post_final(
     except Exception:
         with _STATE_LOCK:
             _SPOKEN_FINALS.discard(identity)
-        _emit_effigy_warning(role, None)
-        logger.warning("Attested %s final EFFIGY submission raised", role, exc_info=True)
+        stage, code = _emit_effigy_warning(role, None)
+        logger.warning(
+            "Attested %s final EFFIGY submission raised stage=%s code=%s",
+            role,
+            stage,
+            code,
+            exc_info=True,
+        )
         return {"state": "degraded", "code": "effigy-submission-failed"}
     if not _effigy_submission_accepted(result):
         with _STATE_LOCK:
             _SPOKEN_FINALS.discard(identity)
-        _emit_effigy_warning(role, result)
-        logger.warning("Attested %s final EFFIGY submission failed", role)
+        stage, code = _emit_effigy_warning(role, result)
+        logger.warning(
+            "Attested %s final EFFIGY submission failed stage=%s code=%s",
+            role,
+            stage,
+            code,
+        )
         return {"state": "degraded", "code": "effigy-submission-failed"}
     return {"state": "submitted", "code": "effigy-response-final-submitted"}
 

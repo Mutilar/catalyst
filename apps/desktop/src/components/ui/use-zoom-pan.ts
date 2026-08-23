@@ -1,8 +1,9 @@
 import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
+  type RefObject,
   useCallback,
+  useEffect,
   useRef,
   useState
 } from 'react'
@@ -27,7 +28,7 @@ const clamp = (scale: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale))
  * zoom toward centre. Returns the transform style plus the surface handlers, so
  * any content (SVG, image, canvas) can be made pan/zoomable.
  */
-export function useZoomPan() {
+export function useZoomPan(surfaceRef: RefObject<HTMLElement | null>) {
   const [transform, setTransform] = useState<Transform>({ scale: 1, x: 0, y: 0 })
   const drag = useRef<{ x: number; y: number } | null>(null)
   const [panning, setPanning] = useState(false)
@@ -43,7 +44,7 @@ export function useZoomPan() {
   }, [])
 
   const onWheel = useCallback(
-    (event: ReactWheelEvent) => {
+    (event: WheelEvent) => {
       event.preventDefault()
 
       // macOS smart zoom (two-finger double-tap) → reset, not zoom-in.
@@ -53,14 +54,27 @@ export function useZoomPan() {
         return
       }
 
-      const rect = event.currentTarget.getBoundingClientRect()
+      const rect = surfaceRef.current?.getBoundingClientRect()
+      if (!rect) {
+        return
+      }
       const cx = event.clientX - rect.left - rect.width / 2
       const cy = event.clientY - rect.top - rect.height / 2
 
       zoomAt(event.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP, cx, cy)
     },
-    [zoomAt]
+    [surfaceRef, zoomAt]
   )
+
+  useEffect(() => {
+    const surface = surfaceRef.current
+    if (!surface) {
+      return
+    }
+    surface.addEventListener('wheel', onWheel, { passive: false })
+
+    return () => surface.removeEventListener('wheel', onWheel)
+  }, [onWheel, surfaceRef])
 
   const onPointerDown = useCallback((event: ReactPointerEvent) => {
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -99,7 +113,7 @@ export function useZoomPan() {
     panning,
     reset,
     scale: transform.scale,
-    stageProps: { onPointerDown, onPointerLeave: endPan, onPointerMove, onPointerUp: endPan, onWheel },
+    stageProps: { onPointerDown, onPointerLeave: endPan, onPointerMove, onPointerUp: endPan },
     style,
     zoomIn,
     zoomOut
