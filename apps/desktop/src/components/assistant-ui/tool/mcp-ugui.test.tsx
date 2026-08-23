@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { McpUguiDocument as Document } from '@/lib/tool-presentation'
 
-import { McpUguiDocument, projectUguiAction } from './mcp-ugui'
+import { McpUguiDocument, projectUguiAction, residentUguiActionId } from './mcp-ugui'
 
 const mocks = vi.hoisted(() => ({ invokeUguiAction: vi.fn() }))
 
@@ -34,6 +34,19 @@ const document: Document = {
 }
 
 describe('McpUguiDocument', () => {
+  it('routes resident app events by the UGUI-authored action identity', () => {
+    const button = window.document.createElement('button')
+    const label = window.document.createElement('span')
+    button.setAttribute('data-ugui-action', 'snake-start')
+    button.append(label)
+
+    expect(residentUguiActionId(label)).toBe('snake-start')
+    const obsolete = window.document.createElement('button')
+    obsolete.setAttribute('data-ugui-id', 'legacy-action')
+    expect(residentUguiActionId(obsolete)).toBe('')
+    expect(residentUguiActionId(window.document.createTextNode('outside'))).toBe('')
+  })
+
   it('renders canonical UGUI semantics as visual tool-card content', () => {
     const { container } = render(<McpUguiDocument document={document} />)
 
@@ -90,6 +103,26 @@ describe('McpUguiDocument', () => {
 
     expect(container.querySelector('[data-ugui-renderer="shiki"]')).toBeTruthy()
     expect(container.querySelector('[data-ugui-renderer="streamdown"]')).toBeNull()
+  })
+
+  it('uses the engine width contract in a container-responsive grid', () => {
+    const responsiveDocument = {
+      ...document,
+      sections: [
+        { id: 'left', type: 'status', signal: '🟢', body: 'Left', width: 5 },
+        { id: 'right', type: 'status', signal: '🟢', body: 'Right', width: 7 }
+      ]
+    } satisfies Document
+
+    const { container } = render(<McpUguiDocument document={responsiveDocument} />)
+    const grid = container.querySelector('[data-ugui-layout="responsive-grid"]')
+    const left = grid?.querySelector('[data-ugui-width="5"]')
+    const right = grid?.querySelector('[data-ugui-width="7"]')
+
+    expect(grid).toBeTruthy()
+    expect(left?.className).toContain('col-span-12')
+    expect(left?.className).toContain('@lg:col-span-5')
+    expect(right?.className).toContain('@lg:col-span-7')
   })
 
   it('renders universal current-verb Help in the header and invokes it once', async () => {

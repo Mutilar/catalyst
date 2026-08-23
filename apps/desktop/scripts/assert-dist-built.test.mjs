@@ -20,6 +20,15 @@ function writeCompleteDist(distDir) {
   fs.writeFileSync(path.join(distDir, 'assets', 'index-abc123.js'), 'console.log(1)', 'utf8')
   fs.writeFileSync(path.join(distDir, 'electron-main.mjs'), 'export {}', 'utf8')
   fs.writeFileSync(path.join(distDir, 'electron-preload.js'), 'module.exports = {}', 'utf8')
+  fs.mkdirSync(path.join(distDir, 'wasm'))
+  for (const name of [
+    'ugui_gestalt_wasm.js',
+    'ugui_gestalt_wasm_bg.wasm',
+    'catalyst_wasm.js',
+    'catalyst_wasm_bg.wasm'
+  ]) {
+    fs.writeFileSync(path.join(distDir, 'wasm', name), 'generated', 'utf8')
+  }
 }
 
 test('checkDistBuilt passes when renderer, main, and preload outputs exist', () => {
@@ -106,6 +115,18 @@ test('checkDistBuilt fails when Electron preload is missing', () => {
     const result = checkDistBuilt(distDir)
     assert.equal(result.ok, false)
     assert.match(result.error, /electron-preload\.js is missing/)
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('checkDistBuilt fails when a UGUI WASM asset is missing', () => {
+  const { tempRoot, distDir } = makeDist(writeCompleteDist)
+  fs.rmSync(path.join(distDir, 'wasm', 'ugui_gestalt_wasm_bg.wasm'))
+  try {
+    const result = checkDistBuilt(distDir)
+    assert.equal(result.ok, false)
+    assert.match(result.error, /ugui_gestalt_wasm_bg\.wasm is missing or empty/)
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true })
   }

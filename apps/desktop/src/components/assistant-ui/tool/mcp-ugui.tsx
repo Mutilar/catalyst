@@ -285,6 +285,13 @@ function UguiMarkdownCode({ code, language, title }: { code: string; language: s
   )
 }
 
+export function residentUguiActionId(target: EventTarget | null): string {
+  if (!(target instanceof Element)) return ''
+  const action = target.closest('[data-ugui-action]')
+
+  return action?.getAttribute('data-ugui-action') ?? ''
+}
+
 function UgUiResidentAppReference({ value }: { value: Record<string, unknown> }) {
   const appId = text(value.appId)
   const source = text(value.source)
@@ -364,14 +371,13 @@ function UgUiResidentAppReference({ value }: { value: Record<string, unknown> })
       <div
         className="max-h-[32rem] overflow-auto outline-none [&_button]:m-1 [&_button]:rounded [&_button]:border [&_button]:border-(--ui-stroke-tertiary) [&_button]:px-2 [&_button]:py-1 [&_canvas]:max-w-full [&_canvas]:image-rendering-pixelated"
         onClick={event => {
-          const target = event.target instanceof Element ? event.target.closest('[data-ugui-id]') : null
-          const id = target?.getAttribute('data-ugui-id')
+          const id = residentUguiActionId(event.target)
           if (id) void send({ kind: 'tap', id })
         }}
         onInput={event => {
           const target = event.target
           if (!(target instanceof HTMLInputElement)) return
-          if (!target.closest('[data-ugui-id]')) return
+          if (!residentUguiActionId(target)) return
           void send({ kind: 'text', value: target.value })
         }}
         onKeyDown={event => {
@@ -531,6 +537,29 @@ function UgUiSection({ value }: { value: unknown }) {
   ) : null
 }
 
+const UGUI_RESPONSIVE_SPAN: Record<number, string> = {
+  1: '@lg:col-span-1',
+  2: '@lg:col-span-2',
+  3: '@lg:col-span-3',
+  4: '@lg:col-span-4',
+  5: '@lg:col-span-5',
+  6: '@lg:col-span-6',
+  7: '@lg:col-span-7',
+  8: '@lg:col-span-8',
+  9: '@lg:col-span-9',
+  10: '@lg:col-span-10',
+  11: '@lg:col-span-11',
+  12: '@lg:col-span-12'
+}
+
+function uguiResponsiveSpan(value: unknown): string {
+  const width = Number(record(value)?.width ?? 12)
+
+  const span = Math.max(1, Math.min(12, Number.isFinite(width) ? Math.round(width) : 12))
+
+  return UGUI_RESPONSIVE_SPAN[span] ?? '@lg:col-span-12'
+}
+
 export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }) {
   const [rendered, setRendered] = useState(document)
   const [pendingAction, setPendingAction] = useState('')
@@ -608,7 +637,7 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
 
   return (
     <article
-      className="space-y-1.5 rounded-[0.3125rem] border border-(--ui-stroke-tertiary) bg-(--ui-bg-elevated) p-2 text-xs"
+      className="@container space-y-1.5 rounded-[0.3125rem] border border-(--ui-stroke-tertiary) bg-(--ui-bg-elevated) p-2 text-xs"
       data-mcp-ugui={rendered.schema}
     >
       <header className="flex min-w-0 items-center justify-between gap-2">
@@ -633,9 +662,17 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
           )}
         </span>
       </header>
-      {rendered.sections.map((section, index) => (
-        <UgUiSection key={text(record(section)?.id) || index} value={section} />
-      ))}
+      <div className="grid grid-cols-12 gap-1.5" data-ugui-layout="responsive-grid">
+        {rendered.sections.map((section, index) => (
+          <div
+            className={cn('col-span-12 min-w-0', uguiResponsiveSpan(section))}
+            data-ugui-width={String(record(section)?.width ?? 12)}
+            key={text(record(section)?.id) || index}
+          >
+            <UgUiSection value={section} />
+          </div>
+        ))}
+      </div>
       {actionStatus && (
         <p aria-live="polite" className="text-[0.68rem] text-(--ui-text-tertiary)">
           {actionStatus}

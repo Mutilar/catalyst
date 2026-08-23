@@ -86,6 +86,7 @@ declare global {
       requestMicrophoneAccess: () => Promise<boolean>
       readFileDataUrl: (filePath: string) => Promise<string>
       readFileText: (filePath: string) => Promise<HermesReadFileTextResult>
+      readUguiWasm: (assetName: string) => Promise<Uint8Array>
       selectPaths: (options?: HermesSelectPathsOptions) => Promise<string[]>
       writeClipboard: (text: string) => Promise<boolean>
       saveImageFromUrl: (url: string) => Promise<boolean>

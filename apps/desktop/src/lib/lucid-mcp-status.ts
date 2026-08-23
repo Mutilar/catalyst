@@ -27,23 +27,19 @@ export function lucidMcpGestalt(status: LucidMcpStatus): string {
     red: 'failed',
     warning: 'degraded'
   }[status.signal]
-  const lines = [
-    `${status.glyph} LUCID · show · mcp-health · ${state}`,
-    `MCP Connection=${status.connection}`,
-    `MCP Health=${status.health}`,
-    `MCP Transport=${status.transport.toUpperCase()}`,
-    `MCP Tools=${status.tools}`,
-    `MCP Failures=${status.failures}`
+  const lines: Array<string | null> = [
+    `${status.glyph} LUCID · show · health · ${state}`,
+    `Runtime Connection=${status.connection} · Health=${status.health} · Transport=${status.transport.toUpperCase()} · Tools=${status.tools} · Failures=${status.failures} · Startup=Automatic`
   ]
   const error = status.error?.replace(/[\r\n\0]+/g, ' ').trim().slice(0, 512)
 
   lines.push(
     error
-      ? `🔎 Code=mcp-health-error · Detail=${error}`
-      : '🔎 StartupPolicy=auto-connect-with-catalyst'
+      ? `🔎 Code=lucid-health-error · Detail=${error}`
+      : null
   )
 
-  return lines.join('\n')
+  return lines.filter((line): line is string => Boolean(line)).join('\n')
 }
 
 export function lucidMcpTooltip(status: LucidMcpStatus): string {

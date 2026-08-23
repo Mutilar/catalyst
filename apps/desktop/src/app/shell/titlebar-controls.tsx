@@ -153,6 +153,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
   const lucidGestalt = lucidMcpGestalt(lucidStatus)
   const [lucidModalOpen, setLucidModalOpen] = useState(false)
   const [lucidDocument, setLucidDocument] = useState<McpUguiDocumentValue | null>(null)
+  const [lucidProjectionFailed, setLucidProjectionFailed] = useState(false)
   const [restartModalOpen, setRestartModalOpen] = useState(false)
   const [restartDecisionPending, setRestartDecisionPending] = useState(false)
   const [restartDecisionError, setRestartDecisionError] = useState<string | null>(null)
@@ -204,14 +205,17 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
 
     if (!lucidModalOpen) {
       setLucidDocument(null)
+      setLucidProjectionFailed(false)
       return () => {
         cancelled = true
       }
     }
 
+    setLucidProjectionFailed(false)
     void projectLucidGestalt(lucidGestalt).then(document => {
       if (!cancelled) {
         setLucidDocument(document)
+        setLucidProjectionFailed(document === null)
       }
     })
 
@@ -281,7 +285,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
     {
       icon: <span className="text-[0.8125rem] leading-none">{lucidStatus.glyph}</span>,
       id: 'lucid-mcp-status',
-      label: `LUCID MCP: ${lucidStatus.connection}`,
+      label: `LUCID: ${lucidStatus.connection}`,
       onSelect: () => {
         triggerHaptic(lucidStatus.signal === 'green' ? 'tap' : 'warning')
         setLucidModalOpen(true)
@@ -420,9 +424,10 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
           className="min-w-[min(42rem,92vw)]"
           fitContent
           onOpenAutoFocus={preventCloseButtonAutoFocus}
+          resizable
         >
           <DialogHeader>
-            <DialogTitle>LUCID MCP</DialogTitle>
+            <DialogTitle>LUCID</DialogTitle>
             <DialogDescription>
               Canonical GESTALT projected through the resident UGUI engine.
             </DialogDescription>
@@ -430,9 +435,9 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
           {lucidDocument ? (
             <McpUguiDocument document={lucidDocument} />
           ) : (
-            <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-md bg-(--ui-bg-quinary) p-3 font-mono text-xs text-(--ui-text-secondary)">
-              {lucidGestalt}
-            </pre>
+            <p className={lucidProjectionFailed ? 'text-sm text-(--ui-danger)' : 'text-sm text-(--ui-text-secondary)'}>
+              {lucidProjectionFailed ? 'Resident UGUI projector unavailable.' : 'Projecting through UGUI…'}
+            </p>
           )}
           <DialogFooter>
             <Button
@@ -442,7 +447,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
               }}
               type="button"
             >
-              Open MCP capabilities
+              Open LUCID capabilities
             </Button>
           </DialogFooter>
         </DialogContent>

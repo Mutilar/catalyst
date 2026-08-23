@@ -65,6 +65,7 @@ function DialogContent({
   children,
   showCloseButton = true,
   fitContent = false,
+  resizable = false,
   banner,
   bannerTone = 'error',
   onOpenAutoFocus,
@@ -75,6 +76,10 @@ function DialogContent({
   // default fixed `max-w-lg`. For content that has no intrinsic width (grids,
   // full-width inputs) pair it with a `min-w-*` in `className`.
   fitContent?: boolean
+  // Geometry only: allow the user to resize this dialog while the child
+  // surface remains responsible for responsive composition and SKIN remains
+  // responsible for appearance.
+  resizable?: boolean
   // A dialog-level notice rendered as a banner flush to the bottom edge (tinted,
   // inherited bottom radius) so it reads as part of the dialog, not a floating
   // alert. Falsy → no banner. Tone picks the colour.
@@ -123,6 +128,8 @@ function DialogContent({
             'fixed left-1/2 top-1/2 z-[130] pointer-events-auto flex max-h-[85vh] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-(--ui-chat-bubble-background) text-[length:var(--conversation-text-font-size)] text-foreground shadow-nous duration-200 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
             widthClass,
             className,
+            resizable &&
+              'min-h-48 min-w-80 max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] resize overflow-auto',
             // Callers often pass `gap-*` for the no-banner grid layout — suppress
             // it here so the banner can tuck under the body's rounded bottom edge.
             'gap-0'
@@ -163,7 +170,9 @@ function DialogContent({
           // dumps, etc.). Individual dialogs can still override via className.
           'fixed left-1/2 top-1/2 z-[130] pointer-events-auto grid max-h-[85vh] -translate-x-1/2 -translate-y-1/2 gap-3 overflow-y-auto rounded-xl border border-(--stroke-nous) bg-(--ui-chat-bubble-background) p-4 text-[length:var(--conversation-text-font-size)] text-foreground shadow-nous duration-200 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
           widthClass,
-          className
+          className,
+          resizable &&
+            'min-h-48 min-w-80 max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] resize overflow-auto'
         )}
         data-slot="dialog-content"
         onOpenAutoFocus={onOpenAutoFocus}

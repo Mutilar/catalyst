@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import os
+import sys
 import threading
 from pathlib import Path
 from typing import Any, Optional
@@ -229,6 +230,74 @@ def _submit_effigy_speech(arguments: dict[str, Any]) -> dict[str, Any]:
     return invoke_registered_mcp_tool("LUCID", "show", arguments, timeout=10.0)
 
 
+def _effigy_submission_accepted(result: Any) -> bool:
+    if not isinstance(result, dict) or result.get("error") or result.get("isError") is True:
+        return False
+    candidates = [result.get("model"), result.get("result")]
+    presentation = result.get("presentation")
+    if isinstance(presentation, dict):
+        candidates.extend(
+            [
+                presentation.get("__hermes_model_visible_result"),
+                presentation.get("result"),
+            ]
+        )
+    for candidate in candidates:
+        if not isinstance(candidate, str):
+            continue
+        if (
+            candidate.startswith("🟢 LUCID · show · text · fresh")
+            and "Presentation Audio Accepted=true" in candidate
+            and "Presentation Audio Status=accepted" in candidate
+            and "Presentation Audio Code=speech-queued" in candidate
+        ):
+            return True
+    structured = result.get("structuredContent")
+    return (
+        isinstance(structured, dict)
+        and structured.get("accepted") is True
+        and structured.get("status") == "accepted"
+        and structured.get("code") == "speech-queued"
+    )
+
+
+def _effigy_failure_fields(result: Any) -> tuple[str, str]:
+    stage = "submission"
+    code = "effigy-submission-failed"
+    if not isinstance(result, dict):
+        return stage, code
+    candidates = [result.get("model"), result.get("result")]
+    presentation = result.get("presentation")
+    if isinstance(presentation, dict):
+        candidates.extend(
+            [
+                presentation.get("__hermes_model_visible_result"),
+                presentation.get("result"),
+            ]
+        )
+    for candidate in candidates:
+        if not isinstance(candidate, str):
+            continue
+        for line in candidate.splitlines():
+            if line.startswith("Presentation Audio Effigy Transfer Code="):
+                code = line.split("=", 1)[1].strip()[:96] or code
+                stage = "effigy-transfer"
+            elif line.startswith("Presentation Audio Code=") and stage == "submission":
+                code = line.split("=", 1)[1].strip()[:96] or code
+            elif line.startswith("Presentation Audio Stage="):
+                stage = line.split("=", 1)[1].strip()[:64] or stage
+    return stage, code
+
+
+def _emit_effigy_warning(role: str, result: Any) -> None:
+    stage, code = _effigy_failure_fields(result)
+    print(
+        f"⚠️ EFFIGY · response-final · failed role={role} stage={stage} code={code}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def _post_final(
     *,
     final_response: str = "",
@@ -238,7 +307,7 @@ def _post_final(
 ) -> Optional[dict[str, str]]:
     """Submit one attested final through the current role's EFFIGY speech profile."""
 
-    if not isinstance(final_response, str) or not final_response.strip() or not session_id:
+    if not isinstance(final_response, str) or not final_response.strip():
         return None
     attestation = _role_attestation(workspace_root)
     if attestation is None:
@@ -250,7 +319,8 @@ def _post_final(
     if len(encoded) > _MAX_FINAL_SPEECH_BYTES:
         return {"state": "omitted", "code": "response-final-oversized"}
     digest = hashlib.sha256(encoded).hexdigest()
-    identity = (session_id, digest)
+    identity_scope = session_id or f"workspace:{root}:{role}"
+    identity = (identity_scope, digest)
     with _STATE_LOCK:
         if session_id in _SIGNED_OUT_SESSIONS or identity in _SPOKEN_FINALS:
             return None
@@ -261,12 +331,18 @@ def _post_final(
         "presentation": "audio-only",
         "scope": "this",
     }
-    result = _submit_effigy_speech(arguments)
-    if (
-        not isinstance(result, dict)
-        or result.get("error")
-        or result.get("isError") is True
-    ):
+    try:
+        result = _submit_effigy_speech(arguments)
+    except Exception:
+        with _STATE_LOCK:
+            _SPOKEN_FINALS.discard(identity)
+        _emit_effigy_warning(role, None)
+        logger.warning("Attested %s final EFFIGY submission raised", role, exc_info=True)
+        return {"state": "degraded", "code": "effigy-submission-failed"}
+    if not _effigy_submission_accepted(result):
+        with _STATE_LOCK:
+            _SPOKEN_FINALS.discard(identity)
+        _emit_effigy_warning(role, result)
         logger.warning("Attested %s final EFFIGY submission failed", role)
         return {"state": "degraded", "code": "effigy-submission-failed"}
     return {"state": "submitted", "code": "effigy-response-final-submitted"}

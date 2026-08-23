@@ -1,7 +1,9 @@
 import { extractMcpGestalt, extractMcpUguiDocument, type McpUguiDocument } from '@/lib/tool-presentation'
 
-type UgUiWasmModule = {
-  default?: (input?: string | URL | Request) => Promise<unknown>
+type UguiWasmInitInput = BufferSource | Request | string | URL | WebAssembly.Module
+
+export type UgUiWasmModule = {
+  default?: (input?: UguiWasmInitInput | { module_or_path: UguiWasmInitInput }) => Promise<unknown>
   ugui_project_lucid_gestalt?: (gestalt: string) => string
   ugui_app_load_reference?: (appId: string, source: string, seed: number) => string
   ugui_app_input?: (message: string) => string
@@ -10,6 +12,8 @@ type UgUiWasmModule = {
   projects_project_lucid_gestalt?: (gestalt: string) => string
   catalyst_project_lucid_gestalt?: (gestalt: string) => string
 }
+
+export type UguiWasmReader = (assetName: string) => Promise<Uint8Array>
 
 export type ResidentUguiAppDocument = Record<string, unknown> & {
   actions: unknown[]
@@ -27,16 +31,46 @@ export function resolveUguiModuleUrls(baseUrl: string): string[] {
   )
 }
 
+export function resolveUguiWasmUrl(moduleUrl: string): string {
+  const url = new URL(moduleUrl)
+
+  url.pathname = url.pathname.replace(/\.js$/, '_bg.wasm')
+  return url.href
+}
+
+export async function initializeUguiModule(
+  module: UgUiWasmModule,
+  moduleUrl: string,
+  readPackagedWasm?: UguiWasmReader
+): Promise<UgUiWasmModule> {
+  if (module.default) {
+    const wasmUrl = resolveUguiWasmUrl(moduleUrl)
+    const parsed = new URL(wasmUrl)
+    const assetName = parsed.pathname.split('/').pop()
+    const input =
+      parsed.protocol === 'file:' && assetName && readPackagedWasm
+        ? await readPackagedWasm(assetName)
+        : wasmUrl
+
+    await module.default({ module_or_path: input })
+  }
+
+  return module
+}
+
 async function loadUgUi(): Promise<UgUiWasmModule | null> {
   if (!modulePromise) {
     modulePromise = (async () => {
       for (const url of resolveUguiModuleUrls(document.baseURI)) {
         try {
-          const module = (await import(/* @vite-ignore */ url)) as UgUiWasmModule
-
-          if (module.default) {
-            await module.default()
-          }
+          // wasm-bindgen-cli-support can emit a `web` initializer without a
+          // synthesized sibling `_bg.wasm` URL. Bind the exact asset explicitly
+          // so Vite HTTP development and packaged Electron resolve identically.
+          const module = await initializeUguiModule(
+            (await import(/* @vite-ignore */ url)) as UgUiWasmModule,
+            url,
+            window.hermesDesktop.readUguiWasm
+          )
 
           if (
             module.ugui_project_lucid_gestalt ||
@@ -45,8 +79,11 @@ async function loadUgUi(): Promise<UgUiWasmModule | null> {
           ) {
             return module
           }
-        } catch {
-          // Try the temporary legacy façade before degrading to raw Gestalt.
+        } catch (error) {
+          // Keep the legacy façade fallback, but do not make a missing or
+          // uninitializable projector observationally identical to a non-UGUI
+          // result. This remains renderer-local diagnostic evidence.
+          console.warn(`UGUI projector initialization failed for ${url}`, error)
         }
       }
 

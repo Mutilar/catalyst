@@ -51,6 +51,18 @@ export function checkDistBuilt(distDir) {
     }
   }
 
+  for (const name of [
+    "ugui_gestalt_wasm.js",
+    "ugui_gestalt_wasm_bg.wasm",
+    "catalyst_wasm.js",
+    "catalyst_wasm_bg.wasm",
+  ]) {
+    const output = join(distDir, "wasm", name)
+    if (!existsSync(output) || !statSync(output).isFile() || statSync(output).size === 0) {
+      return { ok: false, error: `dist/wasm/${name} is missing or empty at ${output}` }
+    }
+  }
+
   return { ok: true }
 }
 

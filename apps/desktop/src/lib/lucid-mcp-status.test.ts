@@ -61,14 +61,11 @@ describe('LUCID MCP titlebar status', () => {
 
     expect(tooltip).toBe(gestalt)
     expect(gestalt.split('\n')).toEqual([
-      '🔴 LUCID · show · mcp-health · failed',
-      'MCP Connection=Connected, unhealthy',
-      'MCP Health=Unhealthy',
-      'MCP Transport=STDIO',
-      'MCP Tools=7',
-      'MCP Failures=3',
-      '🔎 Code=mcp-health-error · Detail=projection failed'
+      '🔴 LUCID · show · health · failed',
+      'Runtime Connection=Connected, unhealthy · Health=Unhealthy · Transport=STDIO · Tools=7 · Failures=3 · Startup=Automatic',
+      '🔎 Code=lucid-health-error · Detail=projection failed'
     ])
+    expect(gestalt).not.toContain('MCP Connection=')
   })
 
   it('sanitizes error text before admitting it to GESTALT', () => {
@@ -78,7 +75,7 @@ describe('LUCID MCP titlebar status', () => {
       ])
     )
 
-    expect(gestalt).toContain('🔎 Code=mcp-health-error · Detail=line one line two')
+    expect(gestalt).toContain('🔎 Code=lucid-health-error · Detail=line one line two')
     expect(gestalt).not.toContain('\0')
   })
 })

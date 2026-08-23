@@ -41,6 +41,19 @@ def _workspace(root: Path, role: str = "EM", glyph: str = "🎼🐧") -> Path:
     return root
 
 
+def _accepted_submission() -> dict:
+    return {
+        "model": "\n".join(
+            [
+                "🟢 LUCID · show · text · fresh",
+                "Presentation Audio Accepted=true",
+                "Presentation Audio Code=speech-queued",
+                "Presentation Audio Status=accepted",
+            ]
+        )
+    }
+
+
 def test_exact_canonical_suffix_passes_without_synthetic_turn(plugin, tmp_path):
     root = _workspace(tmp_path)
     assert plugin.required_terminal_suffix(root) == "🎼🐧"
@@ -53,7 +66,7 @@ def test_attested_final_submits_once_to_current_role_effigy(plugin, tmp_path, mo
 
     def submit(arguments):
         observed.append(arguments)
-        return {"structuredContent": {"status": "accepted"}}
+        return _accepted_submission()
 
     monkeypatch.setattr(plugin, "_submit_effigy_speech", submit)
     response = "The exact final statement.\n\n🎼🐧"
@@ -80,6 +93,63 @@ def test_attested_final_submits_once_to_current_role_effigy(plugin, tmp_path, mo
         workspace_root=str(root),
         session_id="session-1",
     ) is None
+
+
+def test_attested_final_without_session_id_still_submits(plugin, tmp_path, monkeypatch):
+    root = _workspace(tmp_path)
+    observed = []
+    monkeypatch.setattr(
+        plugin,
+        "_submit_effigy_speech",
+        lambda arguments: observed.append(arguments)
+        or _accepted_submission(),
+    )
+
+    receipt = plugin._post_final(
+        final_response="Desktop final without an agent session id.\n\n🎼🐧",
+        workspace_root=str(root),
+        session_id="",
+    )
+
+    assert receipt == {"state": "submitted", "code": "effigy-response-final-submitted"}
+    assert len(observed) == 1
+
+
+def test_failed_effigy_submission_releases_exact_once_claim(plugin, tmp_path, monkeypatch):
+    root = _workspace(tmp_path)
+    responses = iter(
+        [{"error": "speech unavailable"}, _accepted_submission()]
+    )
+    monkeypatch.setattr(plugin, "_submit_effigy_speech", lambda _arguments: next(responses))
+    final = "Retry this final after transient speech failure.\n\n🎼🐧"
+
+    assert plugin._post_final(
+        final_response=final, workspace_root=str(root), session_id="session-retry"
+    ) == {"state": "degraded", "code": "effigy-submission-failed"}
+    assert plugin._post_final(
+        final_response=final, workspace_root=str(root), session_id="session-retry"
+    ) == {"state": "submitted", "code": "effigy-response-final-submitted"}
+
+
+def test_typed_lucid_speech_refusal_is_visible_with_stage_and_code(plugin, capsys):
+    refusal = {
+        "model": "\n".join(
+            [
+                "🔴 LUCID · show · text · refused",
+                "Presentation Audio Accepted=false",
+                "Presentation Audio Code=effigy-transfer-protected-identity-refused",
+                "Presentation Audio Effigy Transfer Code=effigy-transfer-protected-identity-refused",
+                "Presentation Audio Status=refused",
+            ]
+        )
+    }
+
+    assert plugin._effigy_submission_accepted(refusal) is False
+    plugin._emit_effigy_warning("EM", refusal)
+    assert capsys.readouterr().err == (
+        "⚠️ EFFIGY · response-final · failed role=EM stage=effigy-transfer "
+        "code=effigy-transfer-protected-identity-refused\n"
+    )
 
 
 def test_unattested_final_is_never_submitted_to_effigy(plugin, tmp_path, monkeypatch):

@@ -157,6 +157,7 @@ import {
 } from './ssh-connection'
 import { staleBundlePaths } from './stale-bundles'
 import { nativeOverlayWidth as computeNativeOverlayWidth, macTitleBarOverlayHeight } from './titlebar-overlay-width'
+import { readPackagedUguiWasm } from './ugui-wasm'
 import { resolveBehindCount, resolveClientUpdateBaseline, shouldCountCommits } from './update-count'
 import { readLiveUpdateMarker, writeUpdateMarker } from './update-marker'
 import { runRebuildWithRetry } from './update-rebuild'
@@ -9590,6 +9591,10 @@ ipcMain.handle('hermes:readFileText', async (_event, filePath) => {
   } finally {
     await handle.close()
   }
+})
+
+ipcMain.handle('hermes:ugui:readWasm', async (_event, assetName) => {
+  return readPackagedUguiWasm(APP_ROOT, assetName)
 })
 
 ipcMain.handle('hermes:selectPaths', async (_event, options: any = {}) => {
