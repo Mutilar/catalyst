@@ -7,22 +7,77 @@
  * one place the desktop turns that CLI-shaped palette into a `DesktopTheme`, so a
  * skin Hermes authors from a prompt lights up all three surfaces from one file.
  *
- * Skins carry terminal-oriented keys (banner/status/completion). We seed the
- * desktop model from the load-bearing few (background, foreground, accent, error)
- * and derive every glass/shadcn surface by mixing toward bg/fg — the same "naive
- * token converter" strategy as the VS Code importer. A skin is single-mode, so
- * both `colors` and `darkColors` get the converted palette; `renderedModeFor`
- * still picks `.dark` from the real background luminance.
+ * Legacy Hermes skins carry terminal-oriented keys and use the bounded palette
+ * derivation below. Canonical UGUI skins carry a complete eight-slot StyleModel
+ * binding and use `uguiBindingToDesktopTheme` without dropping structural tokens.
  */
 
 import type { HermesSkin, SkinColors } from '@hermes/shared/skin'
 
-import { ensureContrast, luminance, mix, normalizeHex, readableOn } from './color'
-import type { DesktopTheme, DesktopThemeColors } from './types'
+import { ensureContrast, luminance, mix, normalizeHex, readableOn, rgbToHex } from './color'
+import type { DesktopTheme, DesktopThemeColors, UgUiSkinBinding } from './types'
 
 // The accent labels the sidebar in small uppercase text, so it must clear WCAG AA
 // for normal text or section headers go invisible — mirrors the VS Code importer.
 const ACCENT_MIN_CONTRAST = 4.5
+const UGUI_STYLE_SLOTS = [
+  'palette',
+  'typography',
+  'geometry',
+  'border-model',
+  'elevation',
+  'density',
+  'motion',
+  'chrome'
+] as const
+
+export function isUgUiSkinBinding(value: unknown): value is UgUiSkinBinding {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+  const binding = value as Record<string, unknown>
+  if (
+    Object.keys(binding).length !== UGUI_STYLE_SLOTS.length ||
+    !UGUI_STYLE_SLOTS.every(slot => {
+      const tokens = binding[slot]
+      return (
+        !!tokens &&
+        typeof tokens === 'object' &&
+        !Array.isArray(tokens) &&
+        Object.keys(tokens).length <= 32 &&
+        Object.values(tokens).every(token => typeof token === 'string' && token.length <= 512)
+      )
+    })
+  ) {
+    return false
+  }
+  return true
+}
+
+const safeCssColor = (value: string | undefined, fallback: string): string => {
+  const candidate = value?.trim() ?? ''
+  return /^(?:#[0-9a-f]{3,8}|rgba?\([0-9.,%\s]+\))$/i.test(candidate) ? candidate : fallback
+}
+
+const flatCssColor = (value: string, backdrop: string): string => {
+  const normalized = normalizeHex(value, backdrop)
+  if (normalized) {
+    return normalized
+  }
+  const match = value.match(
+    /^rgba?\(\s*([0-9.]+)[,\s]+([0-9.]+)[,\s]+([0-9.]+)(?:\s*[,/]\s*([0-9.]+)(%)?)?\s*\)$/i
+  )
+  if (!match) {
+    return backdrop
+  }
+  const rgb = rgbToHex([
+    Math.min(255, Number(match[1])),
+    Math.min(255, Number(match[2])),
+    Math.min(255, Number(match[3]))
+  ])
+  const alpha = match[4] === undefined ? 1 : Math.min(1, Number(match[4]) / (match[5] ? 100 : 1))
+  return mix(backdrop, rgb, alpha)
+}
 
 /** First normalizable hex among `keys`, alpha flattened over `backdrop`. */
 const pick = (colors: SkinColors, keys: string[], backdrop: string): string | null => {
@@ -46,6 +101,10 @@ const titleCase = (name: string): string => name.charAt(0).toUpperCase() + name.
 export function skinToDesktopTheme(skin: HermesSkin): DesktopTheme | null {
   const name = (skin.name ?? '').trim()
   const colors = skin.colors
+
+  if (name && skin.binding) {
+    return uguiBindingToDesktopTheme(name, titleCase(name), skin.binding)
+  }
 
   if (!name || !colors || typeof colors !== 'object') {
     return null
@@ -113,5 +172,66 @@ export function skinToDesktopTheme(skin: HermesSkin): DesktopTheme | null {
     // shouldn't invert it. renderedModeFor still paints `.dark` from luminance.
     colors: palette,
     darkColors: palette
+  }
+}
+
+/** Convert one generated UGUI StyleModel binding without dropping non-color slots. */
+export function uguiBindingToDesktopTheme(id: string, label: string, binding: UgUiSkinBinding): DesktopTheme | null {
+  const palette = binding.palette
+  const surface = safeCssColor(palette.surface, '')
+  const surfaceFlat = flatCssColor(surface, '#ffffff')
+  const foreground = safeCssColor(palette['on-surface'], '')
+  const foregroundFlat = flatCssColor(foreground, surfaceFlat)
+
+  if (!id || !surface || !foreground) {
+    return null
+  }
+
+  const primary = safeCssColor(palette.primary ?? palette.accent, foreground)
+  const primaryFlat = flatCssColor(primary, surfaceFlat)
+  const accent = safeCssColor(palette.accent ?? palette.primary, primary)
+  const accentFlat = flatCssColor(accent, surfaceFlat)
+  const border = safeCssColor(palette.border, mix(surfaceFlat, foregroundFlat, 0.2))
+  const destructive = safeCssColor(palette.danger, '#c42b1c')
+  const disabled = safeCssColor(palette.disabled, mix(foregroundFlat, surfaceFlat, 0.55))
+  const dark = luminance(surfaceFlat) < 0.4
+  const colors: DesktopThemeColors = {
+    background: surface,
+    foreground,
+    card: surface,
+    cardForeground: foreground,
+    muted: mix(surfaceFlat, foregroundFlat, dark ? 0.08 : 0.06),
+    mutedForeground: disabled,
+    popover: surface,
+    popoverForeground: foreground,
+    primary,
+    primaryForeground: readableOn(primaryFlat),
+    secondary: mix(accentFlat, surfaceFlat, dark ? 0.7 : 0.82),
+    secondaryForeground: foreground,
+    accent: mix(accentFlat, surfaceFlat, dark ? 0.76 : 0.86),
+    accentForeground: foreground,
+    border,
+    input: mix(surfaceFlat, foregroundFlat, dark ? 0.12 : 0.08),
+    ring: accent,
+    midground: accent,
+    midgroundForeground: readableOn(accentFlat),
+    composerRing: accent,
+    destructive,
+    destructiveForeground: readableOn(flatCssColor(destructive, surfaceFlat)),
+    sidebarBackground: surface,
+    sidebarBorder: border,
+    userBubble: mix(surfaceFlat, accentFlat, dark ? 0.2 : 0.12),
+    userBubbleBorder: border
+  }
+  const family = binding.typography['family-stack']
+
+  return {
+    name: id,
+    label,
+    description: 'UGUI StyleModel skin',
+    colors,
+    typography: family ? { fontSans: family, fontMono: family } : undefined,
+    skinBinding: binding,
+    fixedMode: dark ? 'dark' : 'light'
   }
 }

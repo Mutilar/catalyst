@@ -2663,6 +2663,68 @@ async def fs_read_data_url(path: str):
     return {"dataUrl": f"data:{_fs_mime_type(target)};base64,{encoded}"}
 
 
+_SCREEN_ARTIFACT_HANDLE = re.compile(r"^screen-[a-z0-9.-]{1,120}\.preview\.png$")
+_SCREEN_CAPTURE_CONTRACT = Path("projects/json/spec/screen-capture.json")
+
+
+def _screen_artifact_contract() -> tuple[Path, int]:
+    start = Path(_fs_default_cwd()).expanduser().resolve(strict=False)
+    for candidate in (start, *start.parents):
+        contract_path = candidate / _SCREEN_CAPTURE_CONTRACT
+        try:
+            metadata = contract_path.lstat()
+            if contract_path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 64 * 1024:
+                continue
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError, TypeError):
+            continue
+        defaults = contract.get("defaults") if isinstance(contract, dict) else None
+        limits = contract.get("limits") if isinstance(contract, dict) else None
+        persistence = defaults.get("persistence_root") if isinstance(defaults, dict) else None
+        maximum = limits.get("max_png_bytes") if isinstance(limits, dict) else None
+        if (
+            contract.get("$schema") != "screen-capture-sot/1"
+            or not isinstance(persistence, str)
+            or not persistence
+            or Path(persistence).is_absolute()
+            or ".." in Path(persistence).parts
+            or not isinstance(maximum, int)
+            or not 1 <= maximum <= 64 * 1024 * 1024
+        ):
+            raise HTTPException(status_code=503, detail="Screen artifact contract is invalid")
+        root = (candidate / persistence).resolve(strict=False)
+        try:
+            root.relative_to(candidate.resolve())
+        except ValueError:
+            raise HTTPException(status_code=503, detail="Screen artifact root escapes the repository")
+        return root, maximum
+    raise HTTPException(status_code=503, detail="Screen artifact contract is unavailable")
+
+
+@app.get("/api/artifacts/screen/{handle}")
+async def read_screen_artifact(handle: str):
+    if _SCREEN_ARTIFACT_HANDLE.fullmatch(handle) is None:
+        raise HTTPException(status_code=400, detail="Screen artifact handle is invalid")
+    root, maximum = _screen_artifact_contract()
+    target = root / handle
+    try:
+        metadata = target.lstat()
+        if target.is_symlink() or not stat.S_ISREG(metadata.st_mode):
+            raise HTTPException(status_code=404, detail="Screen artifact is unavailable")
+        if metadata.st_size <= 0 or metadata.st_size > maximum:
+            raise HTTPException(status_code=413, detail="Screen artifact exceeds its byte bound")
+        payload = target.read_bytes()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Screen artifact is unavailable")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Screen artifact is unreadable")
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=str(exc) or "Screen artifact read failed")
+    if not payload.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise HTTPException(status_code=400, detail="Screen artifact is not a PNG")
+    return {"dataUrl": f"data:image/png;base64,{base64.b64encode(payload).decode('ascii')}"}
+
+
 @app.get("/api/fs/git-root")
 async def fs_git_root(path: str):
     target = _fs_path(path)

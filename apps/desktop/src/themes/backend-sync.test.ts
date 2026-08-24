@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { $backendThemes, $pendingSkinApply, __resetBackendSkinSync, ingestBackendSkin } from './backend-sync'
+import {
+  $backendThemes,
+  $pendingModeApply,
+  $pendingSkinApply,
+  __resetBackendSkinSync,
+  ingestBackendSkin,
+  ingestLucidHostAppearance
+} from './backend-sync'
 
 const skin = (name: string) => ({
   name,
@@ -104,6 +111,26 @@ describe('ingestBackendSkin', () => {
     ingestBackendSkin(undefined, { apply: true })
     ingestBackendSkin({ name: '' }, { apply: true })
 
+    expect($pendingSkinApply.get()).toBeNull()
+  })
+
+  it('accepts one typed LUCID appearance effect', () => {
+    expect(
+      ingestLucidHostAppearance({
+        schema: 'lucid-host-appearance/1',
+        apply: true,
+        mode: 'light',
+        skin: 'windows-95'
+      })
+    ).toBe(true)
+    expect($pendingModeApply.get()).toBe('light')
+    expect($pendingSkinApply.get()).toBe('windows-95')
+  })
+
+  it('refuses malformed and validation-only appearance effects', () => {
+    expect(ingestLucidHostAppearance({ schema: 'lucid-host-appearance/1', apply: false, mode: 'dark' })).toBe(false)
+    expect(ingestLucidHostAppearance({ schema: 'lucid-host-appearance/1', apply: true, mode: 'sepia' })).toBe(false)
+    expect($pendingModeApply.get()).toBeNull()
     expect($pendingSkinApply.get()).toBeNull()
   })
 })

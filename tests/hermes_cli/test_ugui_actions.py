@@ -397,6 +397,48 @@ def test_execution_uses_the_registered_mcp_transport(monkeypatch):
     }
 
 
+def test_capabilities_next_action_is_one_empty_get_call(monkeypatch):
+    observed = []
+    action = {
+        "id": "lucid.gestalt.action.0",
+        "action": "lucid.get.continue",
+        "value": PARENT_HASH,
+        "intent": {"verb": "get", "arguments": {}},
+    }
+
+    def invoke(server_name, tool_name, arguments):
+        observed.append((server_name, tool_name, arguments))
+        return {"structuredContent": {"schema": "lucid-ugui-response/1"}}
+
+    monkeypatch.setattr("tools.mcp_tool.invoke_registered_mcp_tool", invoke)
+    result = execute_lucid_ugui_action(document(action), action["id"])
+
+    assert result["ok"] is True
+    assert observed == [("LUCID", "get", {})]
+
+
+def test_execution_returns_the_presentation_channel_directly(monkeypatch):
+    replacement = document(show_action())
+
+    def invoke(_server_name, _tool_name, _arguments):
+        return {
+            "schema": "hermes-tool-result-channels/1",
+            "model": "🟢 LUCID · show · execution · complete",
+            "presentation": {
+                "__hermes_model_visible_result": "🟢 LUCID · show · execution · complete",
+                "result": "🟢 LUCID · show · execution · complete",
+                "structuredContent": replacement,
+            },
+        }
+
+    monkeypatch.setattr("tools.mcp_tool.invoke_registered_mcp_tool", invoke)
+    result = execute_lucid_ugui_action(document(show_action()), "lucid.response.execution")
+
+    assert result["ok"] is True
+    assert result["result"]["structuredContent"] == replacement
+    assert result["result"].get("schema") != "hermes-tool-result-channels/1"
+
+
 def test_morph_choice_execution_is_one_registered_mcp_call(monkeypatch):
     observed = []
     action = {

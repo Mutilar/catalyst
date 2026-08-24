@@ -2,16 +2,27 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { McpUguiDocument as Document } from '@/lib/tool-presentation'
+import {
+  $pendingModeApply,
+  $pendingSkinApply,
+  __resetBackendSkinSync
+} from '@/themes/backend-sync'
 
 import { McpUguiDocument, projectUguiAction, residentUguiActionId } from './mcp-ugui'
 
-const mocks = vi.hoisted(() => ({ invokeUguiAction: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  invokeUguiAction: vi.fn(),
+  resolveUguiMediaReference: vi.fn()
+}))
 
 vi.mock('@/hermes', () => ({ invokeUguiAction: mocks.invokeUguiAction }))
+vi.mock('@/lib/media', () => ({ resolveUguiMediaReference: mocks.resolveUguiMediaReference }))
 
 afterEach(() => {
   cleanup()
   mocks.invokeUguiAction.mockReset()
+  mocks.resolveUguiMediaReference.mockReset()
+  __resetBackendSkinSync()
 })
 
 const document: Document = {
@@ -34,6 +45,25 @@ const document: Document = {
 }
 
 describe('McpUguiDocument', () => {
+  it('consumes a typed LUCID appearance host effect', async () => {
+    render(
+      <McpUguiDocument
+        document={{
+          ...document,
+          hostEffect: {
+            schema: 'lucid-host-appearance/1',
+            apply: true,
+            mode: 'light',
+            skin: 'windows-95'
+          }
+        }}
+      />
+    )
+
+    await waitFor(() => expect($pendingModeApply.get()).toBe('light'))
+    expect($pendingSkinApply.get()).toBe('windows-95')
+  })
+
   it('routes resident app events by the UGUI-authored action identity', () => {
     const button = window.document.createElement('button')
     const label = window.document.createElement('span')
@@ -56,6 +86,39 @@ describe('McpUguiDocument', () => {
     expect(screen.getByText('one-pager')).toBeTruthy()
     expect(screen.getByText('Inspect')).toBeTruthy()
     expect(container.querySelector('[data-mcp-ugui="lucid-ugui-response/1"]')).toBeTruthy()
+  })
+
+  it('resolves a projected screen reference into a true accessible image', async () => {
+    mocks.resolveUguiMediaReference.mockResolvedValue('data:image/png;base64,iVBORw0KGgo=')
+    const mediaDocument = {
+      ...document,
+      sections: [
+        {
+          id: 'device-screenshot',
+          type: 'image',
+          src: 'artifact://screen/screen-123-00-abcdef.preview.png',
+          alt: 'Enrolled device screenshot',
+          fit: 'contain',
+          sha256: `sha256:${'a'.repeat(64)}`,
+          pixelWidth: 1080,
+          pixelHeight: 1920,
+          provenance: {
+            owner: 'butler::screen',
+            retention: 'private-frozen',
+            network_used: false
+          }
+        }
+      ]
+    } satisfies Document
+
+    const { container } = render(<McpUguiDocument document={mediaDocument} />)
+    const image = await screen.findByRole('img', { name: 'Enrolled device screenshot' })
+
+    expect(mocks.resolveUguiMediaReference).toHaveBeenCalledWith(
+      'artifact://screen/screen-123-00-abcdef.preview.png'
+    )
+    expect(image.getAttribute('src')).toBe('data:image/png;base64,iVBORw0KGgo=')
+    expect(container.querySelector('[data-ugui-primitive="image"]')).toBeTruthy()
   })
 
   it('renders Markdown code primitives through Streamdown with source-copy chrome', () => {
@@ -279,7 +342,16 @@ describe('McpUguiDocument', () => {
         }
       ]
     } satisfies Document
-    mocks.invokeUguiAction.mockResolvedValue({ ok: true, result: {} })
+    mocks.invokeUguiAction.mockResolvedValue({
+      ok: true,
+      result: {
+        structuredContent: {
+          ...document,
+          header: [{ id: 'title', type: 'text', body: 'Cancellation complete' }],
+          actions: []
+        }
+      }
+    })
 
     render(<McpUguiDocument document={cancellable} />)
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
@@ -287,6 +359,37 @@ describe('McpUguiDocument', () => {
       expect(mocks.invokeUguiAction).toHaveBeenCalledWith(cancellable, 'lucid.response.cancel', false)
     )
     expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(1)
+    expect(await screen.findByRole('heading', { name: 'Cancellation complete' })).toBeTruthy()
+  })
+
+  it('refuses false completion when an action returns no replacement UGUI', async () => {
+    const provenance = `sha256:${'a'.repeat(64)}`
+    const action = {
+      id: 'lucid.response.inspect',
+      label: 'Refresh',
+      action: 'lucid.get.readback',
+      value: 'gates',
+      intent: { verb: 'get', arguments: { path: 'gates' } }
+    }
+    const actionable = {
+      ...document,
+      provenance: { parentHash: provenance },
+      receipt: {
+        action_provenance: [
+          { id: action.id, state: 'AVAILABLE', provenance_hash: provenance }
+        ]
+      },
+      actions: [action]
+    } satisfies Document
+    mocks.invokeUguiAction.mockResolvedValue({ ok: true, result: {} })
+
+    render(<McpUguiDocument document={actionable} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+
+    expect(
+      await screen.findByText('LUCID action completed without a replacement UGUI document')
+    ).toBeTruthy()
+    expect(screen.queryByText('Refresh completed.')).toBeNull()
   })
 
   it('submits one bounded STEER input after exact confirmation', async () => {
@@ -326,7 +429,16 @@ describe('McpUguiDocument', () => {
         }
       ]
     } satisfies Document
-    mocks.invokeUguiAction.mockResolvedValue({ ok: true, result: {} })
+    mocks.invokeUguiAction.mockResolvedValue({
+      ok: true,
+      result: {
+        structuredContent: {
+          ...document,
+          header: [{ id: 'title', type: 'text', body: 'Steering accepted' }],
+          actions: []
+        }
+      }
+    })
 
     render(<McpUguiDocument document={steerable} />)
     fireEvent.change(screen.getByRole('textbox', { name: 'Correction' }), {
@@ -342,10 +454,12 @@ describe('McpUguiDocument', () => {
       })
     )
     expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(1)
+    expect(await screen.findByRole('heading', { name: 'Steering accepted' })).toBeTruthy()
   })
 
-  it('executes one read-like MORPH choice in one call and adopts its returned UGUI', async () => {
+  it('adopts subsequent action documents as a multi-step CYOA branch', async () => {
     const provenance = `sha256:${'a'.repeat(64)}`
+    const nextProvenance = `sha256:${'c'.repeat(64)}`
     const choice = {
       id: 'lucid.response.morph.choice.0',
       label: 'One-pager',
@@ -366,24 +480,55 @@ describe('McpUguiDocument', () => {
       },
       actions: [choice]
     } satisfies Document
-    mocks.invokeUguiAction.mockResolvedValue({
-      ok: true,
-      result: {
-        structuredContent: {
-          ...document,
-          header: [{ id: 'title', type: 'text', body: 'One-pager choices' }],
-          actions: []
+    const inspect = {
+      id: 'lucid.gestalt.action.0',
+      label: 'Inspect quality',
+      action: 'lucid.get.continue',
+      value: nextProvenance,
+      intent: { verb: 'get', arguments: { path: 'gates' } }
+    }
+    const choices = {
+      ...document,
+      header: [{ id: 'title', type: 'text', body: 'One-pager choices' }],
+      provenance: { parentHash: nextProvenance },
+      receipt: {
+        action_provenance: [
+          { id: inspect.id, state: 'AVAILABLE', provenance_hash: nextProvenance }
+        ]
+      },
+      actions: [inspect]
+    } satisfies Document
+    const quality = {
+      ...document,
+      header: [{ id: 'title', type: 'text', body: 'Quality gates' }],
+      actions: []
+    } satisfies Document
+    mocks.invokeUguiAction
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          schema: 'hermes-tool-result-channels/1',
+          model: '🟢 LUCID · morph · one-pager · ready',
+          presentation: {
+            structuredContent: choices
+          }
         }
-      }
-    })
+      })
+      .mockResolvedValueOnce({ ok: true, result: { structuredContent: quality } })
 
-    render(<McpUguiDocument document={choose} />)
+    const { rerender } = render(<McpUguiDocument document={choose} />)
     fireEvent.click(screen.getByRole('button', { name: 'One-pager' }))
 
     await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(choose, choice.id, false))
     expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(1)
     expect(screen.queryByText(/Confirmation required/)).toBeNull()
     expect(await screen.findByRole('heading', { name: 'One-pager choices' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect quality' }))
+    await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(choices, inspect.id, false))
+    expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(2)
+    expect(await screen.findByRole('heading', { name: 'Quality gates' })).toBeTruthy()
+    rerender(<McpUguiDocument document={{ ...choose }} />)
+    expect(screen.getByRole('heading', { name: 'Quality gates' })).toBeTruthy()
   })
 
   it('renders incomplete compose actions as disabled rather than inert affordances', () => {

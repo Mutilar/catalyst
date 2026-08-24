@@ -54,6 +54,22 @@ describe('UGUI extraction', () => {
     expect(extractMcpUguiDocument(result)).toEqual(document)
   })
 
+  it('extracts replacement UGUI from the exact inline-action channel envelope', () => {
+    const gestalt = '🟢 LUCID · get · gates · fresh'
+    const result = {
+      schema: 'hermes-tool-result-channels/1',
+      model: gestalt,
+      presentation: {
+        [MODEL_VISIBLE_TOOL_RESULT_KEY]: gestalt,
+        result: gestalt,
+        structuredContent: document
+      }
+    }
+
+    expect(extractMcpUguiDocument(result)).toEqual(document)
+    expect(extractMcpGestalt(result)).toBe(gestalt)
+  })
+
   it('admits a bounded canonical LUCID UGUI document', () => {
     const result = {
       duration_s: 0.4,

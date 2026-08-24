@@ -17,10 +17,10 @@ import { matchesQuery, useMediaQuery } from '@/hooks/use-media-query'
 import { persistString, persistStringRecord, storedString, storedStringRecord } from '@/lib/storage'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 
-import { $backendThemes, $pendingSkinApply } from './backend-sync'
-import { hexToRgb, mix, readableOn } from './color'
+import { $backendThemes, $pendingModeApply, $pendingSkinApply } from './backend-sync'
+import { hexToRgb, mix, normalizeHex, readableOn } from './color'
 import { BUILTIN_THEME_LIST, DEFAULT_SKIN_NAME, DEFAULT_TYPOGRAPHY, nousTheme } from './presets'
-import type { DesktopTheme, DesktopThemeColors } from './types'
+import type { DesktopTheme, DesktopThemeColors, ThemeMode, UgUiSkinBinding } from './types'
 import { $userThemes, listAllThemes, resolveTheme } from './user-themes'
 
 // Legacy global skin (pre per-profile themes). Still the inheritance fallback
@@ -37,7 +37,7 @@ const PROFILE_MODES_KEY = 'hermes-desktop-profile-modes-v1'
 const LAST_PROFILE_KEY = 'hermes-desktop-active-profile-v1'
 const RETIRED_SKINS = new Set(['nous-light', 'default', 'gold'])
 
-export type ThemeMode = 'light' | 'dark' | 'system'
+export type { ThemeMode } from './types'
 
 const INJECTED_FONT_URLS = new Set<string>()
 
@@ -118,6 +118,10 @@ function synthLightColors(seed: DesktopTheme): DesktopThemeColors {
 export function getBaseColors(skinName: string, mode: 'light' | 'dark'): DesktopThemeColors {
   const seed = resolveTheme(skinName) ?? nousTheme
 
+  if (seed.fixedMode) {
+    return seed.colors
+  }
+
   if (mode === 'dark') {
     return seed.darkColors ?? seed.colors
   }
@@ -173,6 +177,140 @@ const mixesFor = (isDark: boolean): Record<string, string> => ({
   '--theme-mix-bubble': isDark ? '46%' : '0%'
 })
 
+const SKIN_STYLE_SLOTS: Array<keyof UgUiSkinBinding> = [
+  'palette',
+  'typography',
+  'geometry',
+  'border-model',
+  'elevation',
+  'density',
+  'motion',
+  'chrome'
+]
+
+const descriptorValue = (value: string | undefined, key: string): string | undefined =>
+  value
+    ?.split(';')
+    .map(part => part.trim())
+    .find(part => part.startsWith(`${key}:`))
+    ?.slice(key.length + 1)
+
+function applySkinBinding(root: HTMLElement, binding: UgUiSkinBinding | undefined): void {
+  for (const property of Array.from(root.style)) {
+    if (property.startsWith('--skin-')) {
+      root.style.removeProperty(property)
+    }
+  }
+  delete root.dataset.hermesBorderModel
+  delete root.dataset.hermesMotion
+  for (const property of [
+    '--radius-scalar',
+    '--dt-spacing-mul',
+    '--titlebar-height',
+    '--conversation-caption-font-size',
+    '--conversation-text-font-size'
+  ]) {
+    root.style.removeProperty(property)
+  }
+
+  if (!binding) {
+    return
+  }
+
+  for (const slot of SKIN_STYLE_SLOTS) {
+    for (const [token, value] of Object.entries(binding[slot] ?? {})) {
+      root.style.setProperty(`--skin-${slot}-${token}`, value)
+    }
+  }
+  const desktopBackground = binding.chrome['desktop-background']
+  if (desktopBackground?.startsWith('url("/png/backgrounds/')) {
+    root.style.setProperty(
+      '--skin-chrome-desktop-background',
+      desktopBackground.replace('url("/png/backgrounds/', 'url("./png/backgrounds/')
+    )
+  }
+
+  const radii = binding.geometry['radius-scale']?.split('/').map(value => value.trim()) ?? []
+  const radius = radii[Math.min(1, radii.length - 1)]
+  const radiusPx = Number.parseFloat(radius ?? '')
+  if (Number.isFinite(radiusPx)) {
+    root.style.setProperty('--radius-scalar', String(radiusPx / 12))
+  }
+  if (radius) {
+    root.style.setProperty('--skin-radius', radius)
+  }
+  const strokeWidth = binding.geometry['stroke-width']?.split('/')[0]?.trim()
+  if (strokeWidth) {
+    root.style.setProperty('--skin-stroke-width', strokeWidth)
+  }
+  const gridPx = Number.parseFloat(binding.geometry['grid-unit'] ?? '')
+  if (Number.isFinite(gridPx)) {
+    root.style.setProperty('--dt-spacing-mul', String(gridPx / 8))
+  }
+  const spacing = binding.density['spacing-scale']?.split('/')[0]?.trim()
+  if (spacing) {
+    root.style.setProperty('--skin-spacing', spacing)
+  }
+  const typeScale = binding.typography['scale-ramp']?.split('/').map(value => value.trim()) ?? []
+  if (typeScale[0]) {
+    root.style.setProperty('--conversation-caption-font-size', typeScale[0])
+  }
+  if (typeScale[1]) {
+    root.style.setProperty('--conversation-text-font-size', typeScale[1])
+  }
+  if (binding.typography.tracking) {
+    root.style.setProperty('--skin-letter-spacing', binding.typography.tracking.split('/')[0].trim())
+  }
+  if (binding.typography.case) {
+    root.style.setProperty('--skin-text-transform', binding.typography.case)
+  }
+  for (const [token, property] of [
+    ['control-height', '--skin-control-height'],
+    ['hit-target', '--skin-hit-target']
+  ] as const) {
+    const value = binding.density[token]
+    if (value) {
+      root.style.setProperty(property, value)
+    }
+  }
+  const titlebarHeight = descriptorValue(binding.chrome['title-bar'], 'height')
+  if (titlebarHeight) {
+    root.style.setProperty('--titlebar-height', titlebarHeight)
+  }
+  const scrollbarWidth = descriptorValue(binding.chrome.scrollbar, 'width')
+  if (scrollbarWidth) {
+    root.style.setProperty('--skin-scrollbar-width', scrollbarWidth)
+  }
+  const duration = binding.motion.none ?? binding.motion['duration-ramp']?.split('/')[0]?.trim()
+  if (duration) {
+    root.style.setProperty('--skin-motion-duration', duration)
+  }
+  const easing = binding.motion['easing-set']?.split(';')[0]?.split(':').at(-1)?.trim()
+  if (easing) {
+    root.style.setProperty('--skin-motion-easing', easing)
+  }
+  const raisedColors = binding['border-model']['raised-delta']?.match(/#[0-9a-f]{6,8}/gi) ?? []
+  const sunkenColors = binding['border-model']['sunken-delta']?.match(/#[0-9a-f]{6,8}/gi) ?? []
+  if (raisedColors[0]) root.style.setProperty('--skin-raised-light', raisedColors[0])
+  if (raisedColors[1]) root.style.setProperty('--skin-raised-dark', raisedColors[1])
+  if (sunkenColors[0]) root.style.setProperty('--skin-sunken-dark', sunkenColors[0])
+  if (sunkenColors[1]) root.style.setProperty('--skin-sunken-light', sunkenColors[1])
+  const shadow = binding.elevation['dual-shadow']
+  if (shadow) {
+    root.style.setProperty('--skin-elevation-shadow', shadow)
+  }
+  const outline = binding['border-model'].outline
+  if (outline) {
+    root.style.setProperty('--skin-outline', outline)
+  }
+  if (binding['border-model'].bevel) {
+    root.dataset.hermesBorderModel = 'bevel'
+  } else if (binding['border-model'].outline || binding['border-model'].flat) {
+    root.dataset.hermesBorderModel = 'flat'
+  }
+  root.dataset.hermesMotion = binding.motion.none !== undefined ? 'none' : 'animated'
+}
+
 function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
   if (typeof document === 'undefined') {
     return
@@ -190,6 +328,7 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
   root.dataset.hermesTheme = skinName
   root.dataset.hermesMode = rendered
   root.classList.toggle('dark', isDark)
+  applySkinBinding(root, theme.skinBinding)
 
   // Brand seeds feed every glass + shadcn token via `color-mix()` in styles.css.
   const seeds: Record<string, string> = {
@@ -230,11 +369,16 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
     root.style.setProperty(k, v)
   }
 
-  const chromeBg = chromeBackground(c.background, isDark)
+  const authoredTitlebar = normalizeHex(theme.skinBinding?.palette.titlebar, c.background)
+  const authoredTitlebarText = normalizeHex(
+    descriptorValue(theme.skinBinding?.chrome['title-bar'], 'color'),
+    authoredTitlebar ?? c.background
+  )
+  const chromeBg = authoredTitlebar ?? chromeBackground(c.background, isDark)
 
   window.hermesDesktop?.setTitleBarTheme?.({
     background: chromeBg,
-    foreground: c.foreground
+    foreground: authoredTitlebarText ?? c.foreground
   })
 
   // Raw (non-JSON) keys read by the inline pre-paint script in index.html —
@@ -391,6 +535,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // prompt, or `/skin` on another surface). setTheme persists it per profile, so
   // the choice sticks like any manual pick.
   const pendingSkin = useStore($pendingSkinApply)
+  const pendingMode = useStore($pendingModeApply)
 
   useEffect(() => {
     if (pendingSkin) {
@@ -398,6 +543,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       $pendingSkinApply.set(null)
     }
   }, [pendingSkin, setTheme])
+
+  useEffect(() => {
+    if (pendingMode) {
+      setMode(pendingMode)
+      $pendingModeApply.set(null)
+    }
+  }, [pendingMode, setMode])
 
   // The light/dark toggle (Shift+X by default) is owned by the keybind runtime
   // (`appearance.toggleMode`) so it shows up in the hotkey map and is rebindable.

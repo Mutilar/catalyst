@@ -302,8 +302,17 @@ def execute_lucid_ugui_action(
         compiled.tool_name,
         compiled.arguments,
     )
+    ok = "error" not in result
+    if result.get("schema") == "hermes-tool-result-channels/1":
+        presentation = result.get("presentation")
+        if not isinstance(presentation, dict):
+            raise UguiActionError(
+                "action-result-invalid",
+                "LUCID action presentation channel is missing or malformed",
+            )
+        result = presentation
     return {
-        "ok": "error" not in result,
+        "ok": ok,
         "action_id": compiled.action_id,
         "provenance_hash": compiled.provenance_hash,
         "result": result,

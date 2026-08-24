@@ -1,7 +1,7 @@
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { __resetBackendSkinSync, ingestBackendSkin } from './backend-sync'
+import { __resetBackendSkinSync, ingestBackendSkin, ingestLucidHostAppearance } from './backend-sync'
 import { ThemeProvider } from './context'
 
 // The live-authoring loop: Hermes writes/edits one skin file and every surface
@@ -66,5 +66,33 @@ describe('ThemeProvider ← backend skin sync', () => {
       ingestBackendSkin({ name: 'forest', colors: { background: '#001100', ui_text: '#66ff66' } }, { apply: false })
     )
     expect(cssVar('--theme-foreground')).toBe('#ff9f0a')
+  })
+
+  it('applies LUCID light mode and the complete Windows 95 UGUI binding', () => {
+    render(
+      <ThemeProvider>
+        <div />
+      </ThemeProvider>
+    )
+
+    act(() => {
+      ingestLucidHostAppearance({
+        schema: 'lucid-host-appearance/1',
+        apply: true,
+        mode: 'light',
+        skin: 'windows-95'
+      })
+    })
+
+    const root = window.document.documentElement
+    expect(root.dataset.hermesTheme).toBe('windows-95')
+    expect(root.dataset.hermesMode).toBe('light')
+    expect(root.dataset.hermesBorderModel).toBe('bevel')
+    expect(cssVar('--theme-background-seed')).toBe('#c0c0c0')
+    expect(cssVar('--skin-palette-desktop')).toBe('#008081')
+    expect(cssVar('--skin-geometry-radius-scale')).toBe('0px')
+    expect(cssVar('--skin-density-control-height')).toBe('23px')
+    expect(cssVar('--skin-chrome-title-bar')).toContain('background:#000181')
+    expect(cssVar('--skin-motion-none')).toBe('0ms')
   })
 })

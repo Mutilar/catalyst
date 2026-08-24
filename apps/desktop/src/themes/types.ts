@@ -4,10 +4,11 @@
  *   colors      — Tailwind color tokens written directly to CSS vars.
  *   darkColors  — optional hand-tuned dark variant (else `colors` is reused
  *                 unchanged for dark, and a synth pass generates light).
- *   typography  — font families + optional stylesheet URL.
+ *   typography — font families + optional stylesheet URL.
+ *   skinBinding — complete UGUI StyleModel parameters consumed as CSS variables.
  *
- * Everything else (layout, sizing, radius, line-height) lives in styles.css.
- * Add new themes in `presets.ts` — no other code changes needed.
+ * Catalyst-native themes live in `presets.ts`; canonical UGUI skins are bundled
+ * automatically from `genui/ugui/skins/bindings/*.json`.
  */
 
 export interface DesktopThemeColors {
@@ -54,6 +55,22 @@ export interface DesktopThemeTypography {
   fontUrl?: string
 }
 
+export type ThemeMode = 'light' | 'dark' | 'system'
+
+export type UgUiStyleSlot = Record<string, string>
+
+/** Complete UGUI StyleModel binding carried without flattening or host-specific loss. */
+export interface UgUiSkinBinding {
+  palette: UgUiStyleSlot
+  typography: UgUiStyleSlot
+  geometry: UgUiStyleSlot
+  'border-model': UgUiStyleSlot
+  elevation: UgUiStyleSlot
+  density: UgUiStyleSlot
+  motion: UgUiStyleSlot
+  chrome: UgUiStyleSlot
+}
+
 /**
  * Integrated-terminal ANSI palette (xterm `ITheme`, minus `background`).
  *
@@ -98,4 +115,8 @@ export interface DesktopTheme {
   terminal?: DesktopTerminalPalette
   /** Dark-variant terminal ANSI palette. Falls back to `terminal`. */
   darkTerminal?: DesktopTerminalPalette
+  /** Canonical UGUI StyleModel parameters; Catalyst maps all slots to CSS variables. */
+  skinBinding?: UgUiSkinBinding
+  /** Fixed-polarity authored skins remain faithful when the global mode changes. */
+  fixedMode?: 'light' | 'dark'
 }

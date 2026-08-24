@@ -21,6 +21,60 @@
   }
 }
 
+/* UGUI StyleModel host adapter. Every selector is semantic: skins choose tokens,
+   while Catalyst maps those tokens onto its own DOM without skin-name branches. */
+:root[data-hermes-theme] body {
+  background-color: var(--skin-palette-desktop, var(--dt-background));
+  background-image: var(--skin-chrome-desktop-background, none);
+  background-position: center;
+  background-size: cover;
+  letter-spacing: var(--skin-letter-spacing, normal);
+  text-transform: var(--skin-text-transform, none);
+}
+
+:root[data-hermes-theme] [class*='h-(--titlebar-height)'] {
+  background: var(--skin-palette-titlebar, var(--ui-bg-primary));
+}
+
+:root[data-hermes-border-model='bevel'] :where(button, input, textarea, select, [role='button']) {
+  border-color: var(--skin-raised-light, var(--dt-border)) var(--skin-raised-dark, var(--dt-border))
+    var(--skin-raised-dark, var(--dt-border)) var(--skin-raised-light, var(--dt-border));
+  border-radius: var(--skin-radius, 0);
+  border-style: solid;
+  border-width: var(--skin-stroke-width, 2px);
+  box-shadow: none;
+  min-height: var(--skin-control-height, auto);
+}
+
+:root[data-hermes-border-model='bevel']
+  :where(button:active, [role='button'][aria-pressed='true'], input:focus, textarea:focus, select:focus) {
+  border-color: var(--skin-sunken-dark, var(--dt-border)) var(--skin-sunken-light, var(--dt-border))
+    var(--skin-sunken-light, var(--dt-border)) var(--skin-sunken-dark, var(--dt-border));
+}
+
+:root[data-hermes-motion='none'] *,
+:root[data-hermes-motion='none'] *::before,
+:root[data-hermes-motion='none'] *::after {
+  animation-duration: 0ms !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0ms !important;
+}
+
+:root[data-hermes-theme] * {
+  scrollbar-color: var(--skin-palette-border, auto) var(--skin-palette-surface, auto);
+}
+
+:root[data-hermes-theme] *::-webkit-scrollbar {
+  height: var(--skin-scrollbar-width, auto);
+  width: var(--skin-scrollbar-width, auto);
+}
+
+:root[data-hermes-theme] :where([role='dialog'], [data-mcp-ugui]) {
+  border-radius: var(--skin-radius, var(--radius-lg));
+  box-shadow: var(--skin-elevation-shadow, var(--shadow-lg));
+  outline: var(--skin-outline, none);
+}
+
 /* Sidebar sections: tall viewports give each its own scroller; compact ones
    (this variant) flatten everything into one shared scroll. See ChatSidebar. */
 @custom-variant compact (@media (max-height: 768px));

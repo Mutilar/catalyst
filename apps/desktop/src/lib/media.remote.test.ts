@@ -11,7 +11,8 @@ import {
   isInlineMediaSrc,
   isRemoteGateway,
   mediaExternalUrl,
-  resolveMediaDisplaySrc
+  resolveMediaDisplaySrc,
+  resolveUguiMediaReference
 } from './media'
 
 describe('isRemoteGateway', () => {
@@ -136,6 +137,45 @@ describe('resolveMediaDisplaySrc', () => {
       'data:image/png;base64,bG9jYWw='
     )
     expect(readFileDataUrl).toHaveBeenCalledWith('/Users/me/project/a b.png')
+  })
+})
+
+describe('resolveUguiMediaReference', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    $connection.set(null)
+  })
+
+  it('resolves only bounded screen artifact references through the authenticated API', async () => {
+    const api = vi.fn(async () => ({ dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }))
+    vi.stubGlobal('window', { hermesDesktop: { api } })
+    $connection.set({ mode: 'remote', profile: 'remote-work' } as never)
+
+    await expect(
+      resolveUguiMediaReference('artifact://screen/screen-123-00-abcdef.preview.png')
+    ).resolves.toBe('data:image/png;base64,iVBORw0KGgo=')
+    expect(api).toHaveBeenCalledWith({
+      path: '/api/artifacts/screen/screen-123-00-abcdef.preview.png',
+      profile: 'remote-work'
+    })
+  })
+
+  it('rejects file, network, traversal, and malformed resolver responses', async () => {
+    const api = vi.fn(async () => ({ dataUrl: 'file:///tmp/private.png' }))
+    vi.stubGlobal('window', { hermesDesktop: { api } })
+
+    for (const src of [
+      'file:///tmp/private.png',
+      'https://example.com/device.png',
+      'artifact://screen/../private.png'
+    ]) {
+      await expect(resolveUguiMediaReference(src)).rejects.toThrow(
+        'UGUI media reference is not an admitted screen artifact'
+      )
+    }
+    await expect(
+      resolveUguiMediaReference('artifact://screen/screen-123.preview.png')
+    ).rejects.toThrow('Screen artifact resolver returned an invalid image')
   })
 })
 

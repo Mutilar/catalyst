@@ -62,6 +62,28 @@ export function isInlineMediaSrc(path: string): boolean {
   return /^(?:https?|data):/i.test(path)
 }
 
+const SCREEN_ARTIFACT_REFERENCE = /^artifact:\/\/screen\/(screen-[a-z0-9.-]{1,120}\.preview\.png)$/
+
+export async function resolveUguiMediaReference(src: string): Promise<string> {
+  const match = SCREEN_ARTIFACT_REFERENCE.exec(src)
+
+  if (!match) {
+    throw new Error('UGUI media reference is not an admitted screen artifact')
+  }
+
+  const result = await window.hermesDesktop.api<{ dataUrl?: string }>({
+    path: `/api/artifacts/screen/${encodeURIComponent(match[1])}`,
+    profile: $connection.get()?.profile
+  })
+  const dataUrl = result.dataUrl || ''
+
+  if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(dataUrl)) {
+    throw new Error('Screen artifact resolver returned an invalid image')
+  }
+
+  return dataUrl
+}
+
 function isFileMediaPath(path: string): boolean {
   return /^(?:file:|\/|~\/|[a-z]:[\\/]|\\\\)/i.test(path)
 }

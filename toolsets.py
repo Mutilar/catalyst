@@ -72,15 +72,6 @@ _HERMES_CORE_TOOLS = [
     "cronjob",
     # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
     "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
-    # Kanban multi-agent coordination — only in schema when the agent is
-    # spawned as a kanban worker (HERMES_KANBAN_TASK env set) or the current
-    # profile explicitly enables the kanban toolset. Gated via check_fn in
-    # tools/kanban_tools.py.
-    "kanban_show", "kanban_list",
-    "kanban_complete", "kanban_block", "kanban_heartbeat",
-    "kanban_comment", "kanban_create", "kanban_link",
-    "kanban_unblock",
-    "kanban_attach", "kanban_attach_url", "kanban_attachments",
     # Computer use (macOS, gated on cua-driver being installed via check_fn)
     "computer_use",
 ]
@@ -271,23 +262,11 @@ TOOLSETS = {
         "includes": []
     },
 
+    # Compatibility tombstone for profiles written before AE consolidated work
+    # orchestration under LUCID. It intentionally admits no tools.
     "kanban": {
-        "description": (
-            "Kanban multi-agent coordination — only active when the agent "
-            "is spawned by the kanban dispatcher (HERMES_KANBAN_TASK env "
-            "set). The dispatcher runs inside the gateway by default; see "
-            "`kanban.dispatch_in_gateway` in config.yaml. Lets workers mark "
-            "tasks done with structured handoffs, block for human input, "
-            "heartbeat during long ops, comment on threads, attach files, and "
-            "(for orchestrators) list, unblock, and fan out tasks."
-        ),
-        "tools": [
-            "kanban_show", "kanban_list", "kanban_complete", "kanban_block",
-            "kanban_heartbeat", "kanban_comment",
-            "kanban_create", "kanban_link",
-            "kanban_unblock",
-            "kanban_attach", "kanban_attach_url", "kanban_attachments",
-        ],
+        "description": "Retired in AE; LUCID owns work orchestration",
+        "tools": [],
         "includes": [],
     },
 

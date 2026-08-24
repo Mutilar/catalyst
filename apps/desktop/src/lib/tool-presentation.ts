@@ -8,6 +8,7 @@ export interface McpToolIdentity {
 export interface McpUguiDocument {
   actions?: unknown[]
   header: unknown[]
+  hostEffect?: unknown
   id: string
   provenance?: Record<string, unknown>
   receipt?: Record<string, unknown>
@@ -50,6 +51,16 @@ export function modelVisibleToolResult(result: unknown): unknown {
   const { duration_s: _duration, ...visible } = record
 
   return visible
+}
+
+function presentationToolResult(result: unknown): Record<string, unknown> | null {
+  const channel = record(result)
+
+  if (channel?.schema !== 'hermes-tool-result-channels/1') {
+    return null
+  }
+
+  return record(channel.presentation)
 }
 
 function terminalLucidInvocations(args: unknown): string[] {
@@ -105,9 +116,21 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 export function extractMcpGestalt(result: unknown): string | null {
-  const visibleValue = modelVisibleToolResult(result)
+  const channel = record(result)
+  const presentation = presentationToolResult(result)
+  const visibleValue =
+    channel?.schema === 'hermes-tool-result-channels/1' && typeof channel.model === 'string'
+      ? channel.model
+      : modelVisibleToolResult(result)
   const visible = record(visibleValue)
-  const candidates: unknown[] = [visibleValue, visible?.result, visible?.output, visible?.error]
+  const candidates: unknown[] = [
+    visibleValue,
+    visible?.result,
+    visible?.output,
+    visible?.error,
+    presentation?.result,
+    presentation?.output
+  ]
 
   for (const candidate of candidates) {
     if (typeof candidate === 'string' && /^(?:🟢|⏳|⚠️|🔴)\s+(?:LUCID(?:\/1)?|QUINE\.md)\s+·/u.test(candidate)) {
@@ -136,8 +159,13 @@ export function extractMcpGestalt(result: unknown): string | null {
 export function extractMcpUguiDocument(result: unknown): McpUguiDocument | null {
   const raw = record(result)
   const visible = record(modelVisibleToolResult(result))
+  const presentation = presentationToolResult(result)
 
   const candidates = [
+    record(presentation?.structuredContent),
+    record(presentation?.result),
+    record(presentation?.output),
+    presentation,
     record(raw?.structuredContent),
     record(raw?.result),
     record(raw?.output),

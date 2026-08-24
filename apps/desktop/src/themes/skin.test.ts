@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { luminance, normalizeHex } from './color'
-import { skinToDesktopTheme } from './skin'
+import { isUgUiSkinBinding, skinToDesktopTheme, uguiBindingToDesktopTheme } from './skin'
 
 const withColors = (name: string, colors: Record<string, string>) => skinToDesktopTheme({ name, colors })
 
@@ -46,5 +46,28 @@ describe('skinToDesktopTheme', () => {
     const theme = withColors('e', { background: '#101010', ui_error: '#ff5566' })!
 
     expect(theme.colors.destructive).toBe(normalizeHex('#ff5566'))
+  })
+
+  it('preserves a complete UGUI binding and translucent CSS colors', () => {
+    const binding = {
+      palette: {
+        surface: 'rgba(17,25,40,0.75)',
+        'on-surface': '#ffffff',
+        accent: '#60a5fa',
+        border: 'rgba(255,255,255,0.35)'
+      },
+      typography: { 'family-stack': 'Inter, sans-serif', 'scale-ramp': '12px/16px/24px' },
+      geometry: { 'radius-scale': '12px/20px', 'stroke-width': '1px', 'grid-unit': '8px' },
+      'border-model': { outline: '1px solid rgba(255,255,255,0.35)' },
+      elevation: { blur: '24px', 'backdrop-blur': '20px' },
+      density: { 'spacing-scale': '8px/16px', 'control-height': '40px' },
+      motion: { 'duration-ramp': '150ms/250ms', 'easing-set': 'ease-out' },
+      chrome: { 'window-frame': 'none' }
+    }
+
+    expect(isUgUiSkinBinding(binding)).toBe(true)
+    const theme = uguiBindingToDesktopTheme('glassmorphism', 'Glassmorphism', binding)!
+    expect(theme.colors.background).toBe('rgba(17,25,40,0.75)')
+    expect(theme.skinBinding).toBe(binding)
   })
 })

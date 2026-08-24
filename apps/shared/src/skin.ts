@@ -91,6 +91,19 @@ export type SkinColors = Partial<Record<SkinColorToken, string>> & { [key: strin
 /** Branding strings per token. Open-ended for the same reason. */
 export type SkinBranding = Partial<Record<SkinBrandingToken, string>> & { [key: string]: string | undefined }
 
+export type SkinStyleSlot = Record<string, string>
+
+export interface HermesSkinBinding {
+  palette: SkinStyleSlot
+  typography: SkinStyleSlot
+  geometry: SkinStyleSlot
+  'border-model': SkinStyleSlot
+  elevation: SkinStyleSlot
+  density: SkinStyleSlot
+  motion: SkinStyleSlot
+  chrome: SkinStyleSlot
+}
+
 /** The resolved skin payload (matches Python's `resolve_skin()`). */
 export interface HermesSkin {
   name?: string
@@ -107,4 +120,6 @@ export interface HermesSkin {
   banner_hero?: string
   tool_prefix?: string
   help_header?: string
+  /** Complete UGUI StyleModel binding when the skin was resolved from that catalog. */
+  binding?: HermesSkinBinding
 }

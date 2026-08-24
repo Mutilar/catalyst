@@ -61,11 +61,26 @@ describe('LUCID MCP titlebar status', () => {
 
     expect(tooltip).toBe(gestalt)
     expect(gestalt.split('\n')).toEqual([
-      '🔴 LUCID · show · health · failed',
-      'Runtime Connection=Connected, unhealthy · Health=Unhealthy · Transport=STDIO · Tools=7 · Failures=3 · Startup=Automatic',
-      '🔎 Code=lucid-health-error · Detail=projection failed'
+      '🔴 LUCID · show · mcp · failed',
+      'MCP Connection=Connected, unhealthy · Health=Unhealthy · Transport=STDIO · Tools=7 · Failures=3 · Startup=Automatic',
+      '🔎 Code=lucid-health-error · Detail=projection failed',
+      '➡️ {"arguments":{},"label":"Open LUCID capabilities","verb":"get"}'
     ])
-    expect(gestalt).not.toContain('MCP Connection=')
+    expect(gestalt).not.toContain('show · health')
+  })
+
+  it('emits capabilities as a typed next action only with connected tool evidence', () => {
+    const available = lucidMcpGestalt(deriveLucidMcpStatus([lucid()]))
+    const unavailable = lucidMcpGestalt(
+      deriveLucidMcpStatus([lucid({ connected: false, runtime_status: 'connecting' })])
+    )
+    const toolLess = lucidMcpGestalt(deriveLucidMcpStatus([lucid({ discovered_tools: 0 })]))
+
+    expect(available).toContain(
+      '➡️ {"arguments":{},"label":"Open LUCID capabilities","verb":"get"}'
+    )
+    expect(unavailable).not.toContain('➡️ ')
+    expect(toolLess).not.toContain('➡️ ')
   })
 
   it('sanitizes error text before admitting it to GESTALT', () => {

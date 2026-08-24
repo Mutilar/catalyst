@@ -11,12 +11,12 @@ test('forwards only complete bounded semantic observation lines across chunk bou
   push('ordinary backend log\nHARNESS_TOOL_OBSER')
   push('VATION {"schema":"ae-catalyst-harness-tool-observation/1"}\n')
   push('PENGUIN_TEACHING_EVENT {"schema":"penguin-tool-intent-observed/1"}\n')
-  push('⚠️ EFFIGY · response-final · failed role=EM stage=effigy-transfer code=effigy-transfer-protected-identity-refused\n')
+  push('⚠️ 🎼🐧 · 🔎 effigy-transfer-protected-identity-refused · effigy-transfer: protected identity reached transfer\n')
 
   assert.deepEqual(forwarded, [
     'HARNESS_TOOL_OBSERVATION {"schema":"ae-catalyst-harness-tool-observation/1"}\n',
     'PENGUIN_TEACHING_EVENT {"schema":"penguin-tool-intent-observed/1"}\n',
-    '⚠️ EFFIGY · response-final · failed role=EM stage=effigy-transfer code=effigy-transfer-protected-identity-refused\n'
+    '⚠️ 🎼🐧 · 🔎 effigy-transfer-protected-identity-refused · effigy-transfer: protected identity reached transfer\n'
   ])
 })
 

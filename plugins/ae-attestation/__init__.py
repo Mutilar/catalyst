@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
 import threading
 from pathlib import Path
@@ -261,20 +262,54 @@ def _effigy_submission_accepted(result: Any) -> bool:
     )
 
 
-def _effigy_failure_fields(result: Any) -> tuple[str, str]:
+def _bounded_effigy_detail(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    detail = " ".join(value.replace("\0", " ").split()).strip()
+    if not detail:
+        return None
+    detail = re.sub(
+        r"(?i)(bearer|token|secret|password)(\s*[:=]\s*)\S+",
+        r"\1\2[redacted]",
+        detail,
+    )
+    return detail[:256]
+
+
+def _effigy_failure_fields(
+    result: Any,
+    cause: Optional[BaseException] = None,
+) -> tuple[str, str, str]:
     stage = "submission"
     code = "effigy-submission-failed"
+    if cause is not None:
+        detail = _bounded_effigy_detail(str(cause)) or "submission raised without an error message"
+        return stage, code, f"{type(cause).__name__}: {detail}"
     if not isinstance(result, dict):
-        return stage, code
+        return stage, code, "LUCID returned no typed submission result"
     candidates = [result.get("model"), result.get("result")]
     presentation = result.get("presentation")
+    containers = [result]
     if isinstance(presentation, dict):
+        containers.append(presentation)
         candidates.extend(
             [
                 presentation.get("__hermes_model_visible_result"),
                 presentation.get("result"),
             ]
         )
+    structured = result.get("structuredContent")
+    if isinstance(structured, dict):
+        containers.append(structured)
+    detail = next(
+        (
+            bounded
+            for container in containers
+            for key in ("detail", "error", "reason", "message")
+            if (bounded := _bounded_effigy_detail(container.get(key))) is not None
+        ),
+        None,
+    )
     for candidate in candidates:
         if not isinstance(candidate, str):
             continue
@@ -286,17 +321,26 @@ def _effigy_failure_fields(result: Any) -> tuple[str, str]:
                 code = line.split("=", 1)[1].strip()[:96] or code
             elif line.startswith("Presentation Audio Stage="):
                 stage = line.split("=", 1)[1].strip()[:64] or stage
-    return stage, code
+            elif "Detail=" in line and detail is None:
+                detail = _bounded_effigy_detail(line.split("Detail=", 1)[1])
+            elif "Error=" in line and detail is None:
+                detail = _bounded_effigy_detail(line.split("Error=", 1)[1])
+    return stage, code, detail or "LUCID returned a refusal without a typed failure detail"
 
 
-def _emit_effigy_warning(role: str, result: Any) -> tuple[str, str]:
-    stage, code = _effigy_failure_fields(result)
+def _emit_effigy_warning(
+    _role: str,
+    role_glyph: str,
+    result: Any,
+    cause: Optional[BaseException] = None,
+) -> tuple[str, str, str]:
+    stage, code, detail = _effigy_failure_fields(result, cause)
     print(
-        f"⚠️ EFFIGY · response-final · failed role={role} stage={stage} code={code}",
+        f"⚠️ {role_glyph} · 🔎 {code} · {stage}: {detail}",
         file=sys.stderr,
         flush=True,
     )
-    return stage, code
+    return stage, code, detail
 
 
 def _post_final(
@@ -334,29 +378,31 @@ def _post_final(
     }
     try:
         result = _submit_effigy_speech(arguments)
-    except Exception:
+    except Exception as exc:
         with _STATE_LOCK:
             _SPOKEN_FINALS.discard(identity)
-        stage, code = _emit_effigy_warning(role, None)
+        stage, code, detail = _emit_effigy_warning(role, suffix, None, exc)
         logger.warning(
-            "Attested %s final EFFIGY submission raised stage=%s code=%s",
+            "Attested %s final EFFIGY submission raised stage=%s code=%s detail=%s",
             role,
             stage,
             code,
+            detail,
             exc_info=True,
         )
-        return {"state": "degraded", "code": "effigy-submission-failed"}
+        return {"state": "degraded", "code": code}
     if not _effigy_submission_accepted(result):
         with _STATE_LOCK:
             _SPOKEN_FINALS.discard(identity)
-        stage, code = _emit_effigy_warning(role, result)
+        stage, code, detail = _emit_effigy_warning(role, suffix, result)
         logger.warning(
-            "Attested %s final EFFIGY submission failed stage=%s code=%s",
+            "Attested %s final EFFIGY submission failed stage=%s code=%s detail=%s",
             role,
             stage,
             code,
+            detail,
         )
-        return {"state": "degraded", "code": "effigy-submission-failed"}
+        return {"state": "degraded", "code": code}
     return {"state": "submitted", "code": "effigy-response-final-submitted"}
 
 

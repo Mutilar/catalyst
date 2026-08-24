@@ -140,15 +140,57 @@ def test_typed_lucid_speech_refusal_is_visible_with_stage_and_code(plugin, capsy
                 "Presentation Audio Code=effigy-transfer-protected-identity-refused",
                 "Presentation Audio Effigy Transfer Code=effigy-transfer-protected-identity-refused",
                 "Presentation Audio Status=refused",
+                "Presentation Audio Detail=protected identity was present in transfer input",
             ]
         )
     }
 
     assert plugin._effigy_submission_accepted(refusal) is False
-    plugin._emit_effigy_warning("EM", refusal)
+    plugin._emit_effigy_warning("EM", "🎼🐧", refusal)
     assert capsys.readouterr().err == (
-        "⚠️ EFFIGY · response-final · failed role=EM stage=effigy-transfer "
-        "code=effigy-transfer-protected-identity-refused\n"
+        "⚠️ 🎼🐧 · 🔎 effigy-transfer-protected-identity-refused · "
+        "effigy-transfer: protected identity was present in transfer input\n"
+    )
+
+
+def test_effigy_exception_warning_preserves_cause_and_redacts_secrets(plugin, capsys):
+    plugin._emit_effigy_warning(
+        "EM",
+        "🎼🐧",
+        None,
+        RuntimeError("speech worker refused token=private-value after queue closure"),
+    )
+
+    assert capsys.readouterr().err == (
+        "⚠️ 🎼🐧 · 🔎 effigy-submission-failed · submission: "
+        "RuntimeError: speech worker refused token=[redacted] after queue closure\n"
+    )
+
+
+def test_post_final_returns_the_exact_typed_effigy_failure(plugin, tmp_path, monkeypatch, capsys):
+    root = _workspace(tmp_path)
+    refusal = {
+        "model": "\n".join(
+            [
+                "🔴 LUCID · show · text · refused",
+                "Presentation Audio Effigy Transfer Code=effigy-transfer-timeout",
+                "Presentation Audio Stage=effigy-transfer",
+                "Presentation Audio Detail=local transfer exceeded its 2000ms deadline",
+            ]
+        )
+    }
+    monkeypatch.setattr(plugin, "_submit_effigy_speech", lambda _arguments: refusal)
+
+    receipt = plugin._post_final(
+        final_response="Bounded final.\n\n🎼🐧",
+        workspace_root=str(root),
+        session_id="typed-effigy-failure",
+    )
+
+    assert receipt == {"state": "degraded", "code": "effigy-transfer-timeout"}
+    assert capsys.readouterr().err == (
+        "⚠️ 🎼🐧 · 🔎 effigy-transfer-timeout · "
+        "effigy-transfer: local transfer exceeded its 2000ms deadline\n"
     )
 
 

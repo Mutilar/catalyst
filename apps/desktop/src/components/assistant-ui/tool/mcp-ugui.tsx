@@ -21,6 +21,7 @@ import { SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
 import { CopyButton } from '@/components/ui/copy-button'
 import { invokeUguiAction } from '@/hermes'
 import { codiconForLanguage } from '@/lib/markdown-code'
+import { resolveUguiMediaReference } from '@/lib/media'
 import {
   extractMcpUguiDocument,
   type McpUguiDocument as McpUguiDocumentValue
@@ -34,6 +35,7 @@ import {
   type ResidentUguiAppDocument
 } from '@/lib/ugui-engine'
 import { cn } from '@/lib/utils'
+import { ingestLucidHostAppearance } from '@/themes/backend-sync'
 
 const SIGNAL_CLASS: Record<string, string> = {
   '🟢': 'text-emerald-600 dark:text-emerald-400',
@@ -80,6 +82,12 @@ function text(value: unknown): string {
   } catch {
     return String(value)
   }
+}
+
+function uguiDocumentIdentity(document: McpUguiDocumentValue): string {
+  const provenanceHash = text(record(document.provenance)?.parentHash)
+
+  return provenanceHash || JSON.stringify([document.schema, document.id, document.state, document.header])
 }
 
 export function projectUguiAction(
@@ -400,6 +408,54 @@ function UgUiResidentAppReference({ value }: { value: Record<string, unknown> })
   )
 }
 
+function UgUiImage({ value }: { value: Record<string, unknown> }) {
+  const src = text(value.src)
+  const alt = text(value.alt)
+  const [resolvedSrc, setResolvedSrc] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    setResolvedSrc('')
+    setError('')
+    void resolveUguiMediaReference(src)
+      .then(result => {
+        if (!cancelled) setResolvedSrc(result)
+      })
+      .catch(cause => {
+        if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : 'UGUI image reference failed')
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [src])
+
+  if (!src || !alt) {
+    return null
+  }
+
+  return (
+    <figure className="space-y-1 rounded-[0.25rem] bg-(--ui-bg-quinary) p-2" data-ugui-primitive="image">
+      {resolvedSrc ? (
+        <img
+          alt={alt}
+          className="max-h-[min(32rem,60vh)] max-w-full rounded object-contain"
+          height={Number(value.pixelHeight) || undefined}
+          src={resolvedSrc}
+          width={Number(value.pixelWidth) || undefined}
+        />
+      ) : (
+        <p className="text-[0.68rem] text-(--ui-text-tertiary)">
+          {error || 'Resolving image reference…'}
+        </p>
+      )}
+      <figcaption className="text-[0.65rem] text-(--ui-text-tertiary)">{alt}</figcaption>
+    </figure>
+  )
+}
+
 function UgUiSection({ value }: { value: unknown }) {
   const section = record(value)
 
@@ -414,6 +470,10 @@ function UgUiSection({ value }: { value: unknown }) {
 
   if (type === 'app_reference') {
     return <UgUiResidentAppReference value={section} />
+  }
+
+  if (type === 'image') {
+    return <UgUiImage value={section} />
   }
 
   if (type === 'status') {
@@ -568,8 +628,15 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
   const [actionStatus, setActionStatus] = useState('')
   const [actionInputs, setActionInputs] = useState<Record<string, string>>({})
   const actionInFlight = useRef('')
+  const appliedHostEffect = useRef('')
+  const receivedDocumentIdentity = useRef(uguiDocumentIdentity(document))
 
   useEffect(() => {
+    const identity = uguiDocumentIdentity(document)
+    if (receivedDocumentIdentity.current === identity) {
+      return
+    }
+    receivedDocumentIdentity.current = identity
     setRendered(document)
     setPendingAction('')
     setConfirmationAction('')
@@ -578,6 +645,18 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
     setActionInputs({})
     actionInFlight.current = ''
   }, [document])
+
+  useEffect(() => {
+    const hostEffect = rendered.hostEffect
+    const identity = hostEffect ? JSON.stringify(hostEffect) : ''
+
+    if (!identity || appliedHostEffect.current === identity) {
+      return
+    }
+    if (ingestLucidHostAppearance(hostEffect)) {
+      appliedHostEffect.current = identity
+    }
+  }, [rendered.hostEffect])
 
   const activateAction = async (projected: ProjectedAction) => {
     const { executable, id: actionId, label } = projected
@@ -612,10 +691,11 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
       )
       const next =
         extractMcpUguiDocument(response.result) ?? (await projectMcpGestaltResult(response.result))
-      if (next) {
-        setRendered(next)
+      if (!next) {
+        throw new Error('LUCID action completed without a replacement UGUI document')
       }
-      setActionStatus(`${label} completed.`)
+      setRendered(next)
+      setActionStatus('')
       setConfirmationAction('')
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'UGUI action failed')

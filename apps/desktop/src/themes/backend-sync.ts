@@ -20,14 +20,25 @@ import type { HermesSkin } from '@hermes/shared/skin'
 import { atom } from 'nanostores'
 
 import { BUILTIN_THEMES } from './presets'
-import { skinToDesktopTheme } from './skin'
-import type { DesktopTheme } from './types'
+import { isUgUiSkinBinding, skinToDesktopTheme, uguiBindingToDesktopTheme } from './skin'
+import type { DesktopTheme, ThemeMode } from './types'
+import { UGUI_THEMES } from './ugui-skins'
 
 /** Skins pushed by the backend, keyed by name. Merged by `listAllThemes`. */
 export const $backendThemes = atom<Record<string, DesktopTheme>>({})
 
 /** One-shot skin name the ThemeProvider should switch to (it clears this). */
 export const $pendingSkinApply = atom<string | null>(null)
+export const $pendingModeApply = atom<ThemeMode | null>(null)
+
+interface LucidHostAppearance {
+  apply?: boolean
+  binding?: unknown
+  mode?: ThemeMode
+  schema?: string
+  skin?: string
+  skin_name?: string
+}
 
 // Last skin name synced from the backend + whether it was ever APPLIED (vs
 // merely seeded at connect). Once applied, only a name change applies again —
@@ -42,6 +53,46 @@ export function __resetBackendSkinSync(): void {
   lastSynced = null
   $backendThemes.set({})
   $pendingSkinApply.set(null)
+  $pendingModeApply.set(null)
+}
+
+/** Apply one validated LUCID appearance effect through ThemeProvider's persistence seam. */
+export function ingestLucidHostAppearance(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+  const effect = value as LucidHostAppearance
+  if (effect.schema !== 'lucid-host-appearance/1' || effect.apply !== true) {
+    return false
+  }
+  const mode = effect.mode
+  const skin = typeof effect.skin === 'string' ? effect.skin.trim() : ''
+  if (mode !== undefined && mode !== 'light' && mode !== 'dark' && mode !== 'system') {
+    return false
+  }
+  if (skin && !/^[a-z0-9][a-z0-9-]{0,63}$/.test(skin)) {
+    return false
+  }
+  if (!mode && !skin) {
+    return false
+  }
+  if (skin && effect.binding !== undefined) {
+    if (!isUgUiSkinBinding(effect.binding)) {
+      return false
+    }
+    const theme = uguiBindingToDesktopTheme(skin, effect.skin_name?.trim() || skin, effect.binding)
+    if (!theme) {
+      return false
+    }
+    $backendThemes.set({ ...$backendThemes.get(), [skin]: theme })
+  }
+  if (mode) {
+    $pendingModeApply.set(mode)
+  }
+  if (skin) {
+    $pendingSkinApply.set(skin)
+  }
+  return true
 }
 
 /**
@@ -63,7 +114,7 @@ export function ingestBackendSkin(skin: HermesSkin | undefined | null, { apply }
   // skip the registry step here and let it flow through the apply logic below.
   // Built-in names (mono/slate/…) already have a hand-tuned desktop palette — we
   // never shadow it, but the name is still a valid apply target.
-  if (name !== 'default' && !BUILTIN_THEMES[name]) {
+  if (name !== 'default' && !BUILTIN_THEMES[name] && !UGUI_THEMES[name]) {
     const theme = skinToDesktopTheme(skin as HermesSkin)
 
     if (!theme) {

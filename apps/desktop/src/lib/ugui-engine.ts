@@ -24,6 +24,17 @@ export type ResidentUguiAppDocument = Record<string, unknown> & {
 }
 
 let modulePromise: Promise<UgUiWasmModule | null> | null = null
+let moduleFailure: string | null = null
+
+export type UguiProjectionResult = {
+  document: McpUguiDocument | null
+  error: string | null
+}
+
+function boundedError(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error)
+  return detail.replace(/[\r\n\t]+/g, ' ').slice(0, 512)
+}
 
 export function resolveUguiModuleUrls(baseUrl: string): string[] {
   return ['wasm/ugui_gestalt_wasm.js', 'wasm/catalyst_wasm.js'].map(
@@ -77,13 +88,16 @@ async function loadUgUi(): Promise<UgUiWasmModule | null> {
             module.projects_project_lucid_gestalt ||
             module.catalyst_project_lucid_gestalt
           ) {
+            moduleFailure = null
             return module
           }
+          moduleFailure = `projector-export-missing: ${url}`
         } catch (error) {
           // Keep the legacy façade fallback, but do not make a missing or
           // uninitializable projector observationally identical to a non-UGUI
           // result. This remains renderer-local diagnostic evidence.
           console.warn(`UGUI projector initialization failed for ${url}`, error)
+          moduleFailure = `projector-initialization-failed: ${url}: ${boundedError(error)}`
         }
       }
 
@@ -185,8 +199,14 @@ export async function projectMcpGestaltResult(result: unknown): Promise<McpUguiD
 }
 
 export async function projectLucidGestalt(gestalt: string): Promise<McpUguiDocument | null> {
+  return (await projectLucidGestaltDetailed(gestalt)).document
+}
+
+export async function projectLucidGestaltDetailed(
+  gestalt: string
+): Promise<UguiProjectionResult> {
   if (!gestalt.trim()) {
-    return null
+    return { document: null, error: 'gestalt-empty' }
   }
 
   const module = await loadUgUi()
@@ -196,14 +216,21 @@ export async function projectLucidGestalt(gestalt: string): Promise<McpUguiDocum
     module?.catalyst_project_lucid_gestalt
 
   if (!project) {
-    return null
+    return { document: null, error: moduleFailure ?? 'resident-projector-unavailable' }
   }
 
   try {
-    const document = JSON.parse(project(gestalt))
-
-    return extractMcpUguiDocument(document)
-  } catch {
-    return null
+    const document = JSON.parse(project(gestalt)) as Record<string, unknown>
+    if (document.schema === 'lucid-gestalt-projection-error/1') {
+      const code = typeof document.code === 'string' ? document.code : 'projector-refused'
+      const detail = typeof document.detail === 'string' ? document.detail : 'UGUI refused the GESTALT input'
+      return { document: null, error: `${code}: ${detail}` }
+    }
+    const extracted = extractMcpUguiDocument(document)
+    return extracted
+      ? { document: extracted, error: null }
+      : { document: null, error: 'projector-document-invalid' }
+  } catch (error) {
+    return { document: null, error: `projector-execution-failed: ${boundedError(error)}` }
   }
 }

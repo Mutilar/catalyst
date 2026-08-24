@@ -1,4 +1,5 @@
 import base64
+import json
 from pathlib import Path
 
 import pytest
@@ -126,6 +127,45 @@ def test_fs_read_data_url_rejects_over_cap(client, tmp_path, monkeypatch):
     response = client.get("/api/fs/read-data-url", params={"path": str(target)})
 
     assert response.status_code == 413
+
+
+def test_screen_artifact_resolver_uses_authored_contract_and_opaque_handle(
+    client, tmp_path, monkeypatch
+):
+    contract = tmp_path / "projects/json/spec/screen-capture.json"
+    contract.parent.mkdir(parents=True)
+    contract.write_text(
+        json.dumps(
+            {
+                "$schema": "screen-capture-sot/1",
+                "defaults": {"persistence_root": "run/state/runtime/screens"},
+                "limits": {"max_png_bytes": 1024},
+            }
+        )
+    )
+    artifacts = tmp_path / "run/state/runtime/screens"
+    artifacts.mkdir(parents=True)
+    handle = "screen-123-00-abcdef.preview.png"
+    payload = b"\x89PNG\r\n\x1a\nfixture"
+    (artifacts / handle).write_bytes(payload)
+    monkeypatch.setattr(web_server, "_fs_default_cwd", lambda: str(tmp_path / "projects"))
+
+    response = client.get(f"/api/artifacts/screen/{handle}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "dataUrl": "data:image/png;base64," + base64.b64encode(payload).decode("ascii")
+    }
+
+
+@pytest.mark.parametrize(
+    "handle",
+    ["private.png", "..%2Fprivate.png", "screen-a.native.png", "screen-a.preview.jpg"],
+)
+def test_screen_artifact_resolver_rejects_unadmitted_handles(client, handle):
+    response = client.get(f"/api/artifacts/screen/{handle}")
+
+    assert response.status_code in {400, 404}
 
 
 def test_fs_git_root_for_nested_file(client, tmp_path):

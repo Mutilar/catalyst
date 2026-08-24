@@ -1,14 +1,16 @@
-<!-- GENERATED — DO NOT EDIT. The quine daemon regenerates it from quine/canon/AGENT_INSTRUCTIONS.json (the human-in-the-loop canon). Read as SOT. (Also derives from this area's SPEC.) -->
-
+<!-- GENERATED · SOT: CANON.json + SPEC.json -->
 ---
 applyTo: 'catalyst/**'
 ---
 
-# `catalyst` — area instructions (delta only)
+# `catalyst` · local delta
 
-> Root `AGENTS.md` governs and is always loaded — the 🐧 protocol, RLHF/eng-manager rules, and the *daemon-gates-you-don't* validation doctrine live THERE. This file adds ONLY what is specific to `catalyst`.
+| **SIGNAL** | **LOCAL RULE** |
+|---|---|
+| ◆ SCOPE | Catalyst is the desktop executive shell that packages Hermes Agent, hosts Electron and React interaction surfaces, and connects user intent to canonical RUN, Butler, and UGUI owners without assuming their authority. |
+| 📐 OWNERS | `CANON.json` semantics · `SPEC.json` execution · `README.md` human map · `SPEC.md` specification map |
+| 🧪 LINT | `node catalyst/scripts/quality/lint.mjs --check` |
+| 🧪 TEST | `node catalyst/scripts/quality/test.mjs --check` |
+| ⚙️ GENERATED | DAEMON OWNS DECLARED OUTPUTS · EDIT OWNERS, NEVER PROJECTIONS |
 
-## AREA — `catalyst`
-
-> Catalyst desktop product shell — Electron + React hosts the canonical RUN executive and UGUI Documents, routes bounded semantic intents to their exact owners, and packages one immutable AE generation without owning RUN, Butler, QUINE, or Store authority
-
+🐧

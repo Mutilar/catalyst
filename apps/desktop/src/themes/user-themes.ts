@@ -17,6 +17,7 @@ import { registry } from '@/contrib/registry'
 import { $backendThemes } from './backend-sync'
 import { BUILTIN_THEMES } from './presets'
 import type { DesktopTheme, DesktopThemeColors } from './types'
+import { UGUI_THEMES } from './ugui-skins'
 
 const USER_THEMES_KEY = 'hermes-desktop-user-themes-v1'
 
@@ -64,7 +65,7 @@ function readStored(): Record<string, DesktopTheme> {
 
     for (const [key, value] of Object.entries(parsed)) {
       // Never let a stored theme shadow a built-in name.
-      if (!BUILTIN_THEMES[key] && isValidTheme(value)) {
+      if (!BUILTIN_THEMES[key] && !UGUI_THEMES[key] && isValidTheme(value)) {
         out[key] = value
       }
     }
@@ -88,7 +89,7 @@ export const $userThemes = atom<Record<string, DesktopTheme>>(typeof window === 
 
 /** Install (or replace) a user theme. Returns the stored theme. */
 export function installUserTheme(theme: DesktopTheme): DesktopTheme {
-  if (BUILTIN_THEMES[theme.name]) {
+  if (BUILTIN_THEMES[theme.name] || UGUI_THEMES[theme.name]) {
     throw new Error(`"${theme.name}" collides with a built-in theme.`)
   }
 
@@ -159,7 +160,13 @@ export function contributedThemes(): DesktopTheme[] {
   for (const c of registry.getArea(THEMES_AREA)) {
     const theme = c.data as DesktopTheme | undefined
 
-    if (theme && isValidTheme(theme) && !BUILTIN_THEMES[theme.name] && !seen.has(theme.name)) {
+    if (
+      theme &&
+      isValidTheme(theme) &&
+      !BUILTIN_THEMES[theme.name] &&
+      !UGUI_THEMES[theme.name] &&
+      !seen.has(theme.name)
+    ) {
       seen.add(theme.name)
       out.push(theme)
     }
@@ -172,6 +179,7 @@ export function contributedThemes(): DesktopTheme[] {
 export function resolveTheme(name: string): DesktopTheme | undefined {
   return (
     BUILTIN_THEMES[name] ??
+    UGUI_THEMES[name] ??
     $userThemes.get()[name] ??
     $backendThemes.get()[name] ??
     contributedThemes().find(theme => theme.name === name)
@@ -186,6 +194,7 @@ export function listAllThemes(): DesktopTheme[] {
 
   return [
     ...Object.values(BUILTIN_THEMES),
+    ...Object.values(UGUI_THEMES),
     ...contributedThemes().filter(theme => !shadows(theme)),
     ...Object.values(backend).filter(theme => !user[theme.name]),
     ...Object.values(user)

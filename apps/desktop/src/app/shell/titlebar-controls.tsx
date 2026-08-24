@@ -23,7 +23,7 @@ import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { deriveLucidMcpStatus, lucidMcpGestalt } from '@/lib/lucid-mcp-status'
 import type { McpUguiDocument as McpUguiDocumentValue } from '@/lib/tool-presentation'
-import { projectLucidGestalt } from '@/lib/ugui-engine'
+import { projectLucidGestaltDetailed } from '@/lib/ugui-engine'
 import { cn } from '@/lib/utils'
 import { $hapticsMuted, toggleHapticsMuted } from '@/store/haptics'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
@@ -153,7 +153,8 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
   const lucidGestalt = lucidMcpGestalt(lucidStatus)
   const [lucidModalOpen, setLucidModalOpen] = useState(false)
   const [lucidDocument, setLucidDocument] = useState<McpUguiDocumentValue | null>(null)
-  const [lucidProjectionFailed, setLucidProjectionFailed] = useState(false)
+  const [lucidProjectionError, setLucidProjectionError] = useState<string | null>(null)
+  const [lucidProjectionAttempt, setLucidProjectionAttempt] = useState(0)
   const [restartModalOpen, setRestartModalOpen] = useState(false)
   const [restartDecisionPending, setRestartDecisionPending] = useState(false)
   const [restartDecisionError, setRestartDecisionError] = useState<string | null>(null)
@@ -205,24 +206,24 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
 
     if (!lucidModalOpen) {
       setLucidDocument(null)
-      setLucidProjectionFailed(false)
+      setLucidProjectionError(null)
       return () => {
         cancelled = true
       }
     }
 
-    setLucidProjectionFailed(false)
-    void projectLucidGestalt(lucidGestalt).then(document => {
+    setLucidProjectionError(null)
+    void projectLucidGestaltDetailed(lucidGestalt).then(result => {
       if (!cancelled) {
-        setLucidDocument(document)
-        setLucidProjectionFailed(document === null)
+        setLucidDocument(result.document)
+        setLucidProjectionError(result.error)
       }
     })
 
     return () => {
       cancelled = true
     }
-  }, [lucidGestalt, lucidModalOpen])
+  }, [lucidGestalt, lucidModalOpen, lucidProjectionAttempt])
 
   const toggleHaptics = () => {
     if (!hapticsMuted) {
@@ -429,27 +430,34 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
           <DialogHeader>
             <DialogTitle>LUCID</DialogTitle>
             <DialogDescription>
-              Canonical GESTALT projected through the resident UGUI engine.
+              Canonical GESTALT, projected through the resident UGUI engine when available.
             </DialogDescription>
           </DialogHeader>
           {lucidDocument ? (
             <McpUguiDocument document={lucidDocument} />
           ) : (
-            <p className={lucidProjectionFailed ? 'text-sm text-(--ui-danger)' : 'text-sm text-(--ui-text-secondary)'}>
-              {lucidProjectionFailed ? 'Resident UGUI projector unavailable.' : 'Projecting through UGUI…'}
-            </p>
+            <div className="space-y-3">
+              <pre className="max-h-[min(28rem,60vh)] max-w-[min(42rem,82vw)] overflow-auto whitespace-pre-wrap rounded-md bg-(--ui-bg-quinary) p-3 font-mono text-xs text-(--ui-text-secondary)">
+                {lucidGestalt}
+              </pre>
+              {lucidProjectionError ? (
+                <div className="space-y-2">
+                  <p className="break-all text-sm text-(--ui-danger)">
+                    {`Resident UGUI projection failed: ${lucidProjectionError}`}
+                  </p>
+                  <Button
+                    onClick={() => setLucidProjectionAttempt(attempt => attempt + 1)}
+                    type="button"
+                    variant="outline"
+                  >
+                    Retry projection
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-(--ui-text-secondary)">Projecting through UGUI…</p>
+              )}
+            </div>
           )}
-          <DialogFooter>
-            <Button
-              onClick={() => {
-                setLucidModalOpen(false)
-                navigate(`${SKILLS_ROUTE}?tab=mcp`)
-              }}
-              type="button"
-            >
-              Open LUCID capabilities
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
       <div
