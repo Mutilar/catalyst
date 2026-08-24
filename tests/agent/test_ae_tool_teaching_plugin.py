@@ -78,7 +78,7 @@ def test_generated_universe_joins_every_closed_verb(workspace):
         "cancel",
     }
     assert universe["authority"] == "none"
-    assert universe["policy_owner"] == "HARNESS"
+    assert universe["policy_owner"] == "CATALYST"
 
 
 def test_registered_area_binding_normalizes_focused_package_path(plugin, workspace):
@@ -227,7 +227,7 @@ def test_closed_recursive_resolver_rejects_unknown_transform(plugin, workspace):
         plugin._resolve_binding({"$eval": "args"}, {}, {}, workspace)
 
 
-def test_harness_owns_all_four_policy_dispositions(plugin):
+def test_catalyst_owns_all_four_policy_dispositions(plugin):
     intents = {
         "workspace": {"focused": False, "release": False},
         "focused": {"focused": True, "release": False},
@@ -243,7 +243,7 @@ def test_harness_owns_all_four_policy_dispositions(plugin):
     assert plugin._policy_disposition(intents["workspace"], target) == "hold"
 
 
-def test_interpretation_environment_cannot_disable_harness(plugin, workspace, monkeypatch):
+def test_interpretation_environment_cannot_disable_catalyst_policy(plugin, workspace, monkeypatch):
     monkeypatch.setenv("AE_PENGUIN_TOOL_INTERPRETATION", "off")
     receipt = _receipt(
         plugin._on_pre_tool_call(
@@ -493,7 +493,7 @@ def test_git_family_is_categorically_refused(plugin, workspace, command):
     assert receipt["schema"] == "penguin-tool-refusal/1"
     assert receipt["state"] == "refused"
     assert receipt["reason"] == "git-prohibited"
-    assert receipt["policy_owner"] == "HARNESS"
+    assert receipt["policy_owner"] == "CATALYST"
     assert receipt["authority"] == "none"
     assert receipt["executed"] is False
     assert receipt["auto_replay"] is False

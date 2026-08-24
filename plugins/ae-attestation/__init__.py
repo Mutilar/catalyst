@@ -19,6 +19,7 @@ from typing import Any, Optional
 
 _ROLE_DECISION = Path("run/state/runtime/lucid-host-role.json")
 _ROLE_REGISTRY = Path("quine/canon/roles.json")
+_WITNESS_REGISTRY = Path("quine/author-glyphs.json")
 _HARNESS = Path("envelope/HARNESS.json")
 _ONBOARDING_INDEX = Path("quine/mcp/onboarding/index.json")
 _ONBOARDING_DIRECTORY = Path("quine/mcp/onboarding")
@@ -47,14 +48,15 @@ def _read_regular_json(path: Path, maximum_bytes: int) -> Optional[dict[str, Any
 
 def _role_attestation(
     workspace_root: str | os.PathLike[str],
-) -> Optional[tuple[Path, str, str]]:
+) -> Optional[tuple[Path, str, str, str, str, str]]:
     try:
         root = Path(workspace_root).expanduser().resolve(strict=True)
     except (OSError, RuntimeError, TypeError, ValueError):
         return None
     decision = _read_regular_json(root / _ROLE_DECISION, _MAX_DECISION_BYTES)
     registry = _read_regular_json(root / _ROLE_REGISTRY, _MAX_REGISTRY_BYTES)
-    if not decision or not registry:
+    witnesses = _read_regular_json(root / _WITNESS_REGISTRY, _MAX_REGISTRY_BYTES)
+    if not decision or not registry or not witnesses:
         return None
     if decision.get("schema") != "lucid-host-role-decision/1":
         return None
@@ -65,23 +67,48 @@ def _role_attestation(
     if not isinstance(role, str) or not isinstance(roles, dict):
         return None
     definition = roles.get(role)
-    if not isinstance(definition, dict):
-        return None
-    glyph = definition.get("glyph")
+    authors = witnesses.get("authors")
     if (
-        not isinstance(glyph, str)
-        or not glyph
-        or len(glyph) > 16
-        or not glyph.endswith("🐧")
-        or any(character.isspace() for character in glyph)
+        not isinstance(definition, dict)
+        or witnesses.get("schema") != "ae-author-glyphs/1"
+        or not isinstance(authors, dict)
+        or not authors
     ):
         return None
-    return root, role, glyph
+    role_hat = definition.get("hat")
+    role_hats = [candidate.get("hat") for candidate in roles.values() if isinstance(candidate, dict)]
+    if (
+        not isinstance(role_hat, str)
+        or not role_hat
+        or len(role_hat) > 16
+        or any(character.isspace() or character.isascii() for character in role_hat)
+        or role_hats.count(role_hat) != 1
+    ):
+        return None
+    witness_alias = decision.get("witness_alias")
+    if witness_alias is None and len(authors) == 1:
+        witness_alias = next(iter(authors))
+    witness_glyph = authors.get(witness_alias) if isinstance(witness_alias, str) else None
+    if (
+        not isinstance(witness_alias, str)
+        or not isinstance(witness_glyph, str)
+        or not witness_glyph
+        or len(witness_glyph) > 16
+        or any(character.isspace() or character.isascii() for character in witness_glyph)
+        or decision.get("witness_glyph") not in (None, witness_glyph)
+    ):
+        return None
+    suffix = f"{role_hat}{witness_glyph}"
+    # The committed glyph is a convenience/default projection. Runtime attestation composes the
+    # permanent role hat with the active WITNESS, which may differ from that default.
+    if not any(definition.get("glyph") == f"{role_hat}{glyph}" for glyph in authors.values()):
+        return None
+    return root, role, role_hat, witness_alias, witness_glyph, suffix
 
 
 def required_terminal_suffix(workspace_root: str | os.PathLike[str]) -> Optional[str]:
     attestation = _role_attestation(workspace_root)
-    return attestation[2] if attestation is not None else None
+    return attestation[5] if attestation is not None else None
 
 
 def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
@@ -90,9 +117,23 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
     if (
         not isinstance(finalization, dict)
         or finalization.get("schema") != "ae-harness-finalization/1"
-        or finalization.get("policy_owner") != "HARNESS"
+        or finalization.get("policy_owner") != "CATALYST"
         or finalization.get("modality") != "gestalt"
         or finalization.get("grammar") != "lucid-gestalt/1"
+    ):
+        return None
+    attestation = finalization.get("attestation")
+    signals = attestation.get("canonical_signals") if isinstance(attestation, dict) else None
+    if (
+        not isinstance(attestation, dict)
+        or attestation.get("schema") != "ae-final-attestation/1"
+        or attestation.get("persistent_role_hats") != "quine/canon/roles.json#/roles/*/hat"
+        or attestation.get("engineer_hats") != "quine/canon/hats.json#/hats"
+        or attestation.get("engineer_max_hats") != 10
+        or attestation.get("witness_registry") != "quine/author-glyphs.json"
+        or attestation.get("minimum_signals") != 1
+        or not isinstance(signals, list)
+        or signals != ["🟢", "⏳", "⚠️", "🔴", "🔎", "◆", "➡️"]
     ):
         return None
     attempts = finalization.get("attempts")
@@ -159,6 +200,7 @@ def _render_attempt(
     root: Path,
     role: str,
     suffix: str,
+    cause: str,
     attempt: dict[str, Any],
 ) -> Optional[str]:
     gestalt = attempt.get("gestalt")
@@ -171,6 +213,7 @@ def _render_attempt(
         role=role,
         role_lower=role.lower(),
         suffix=suffix,
+        cause=cause,
         signout_arguments=signout_arguments,
     )
     if attempt.get("action") == "reinject-onboarding":
@@ -179,6 +222,33 @@ def _render_attempt(
             return None
         rendered = f"{rendered}\n\n{onboarding}"
     return rendered
+
+
+def _attestation_failure(
+    final_response: str,
+    identity: tuple[Path, str, str, str, str, str],
+    finalization: dict[str, Any],
+) -> Optional[str]:
+    _, _, role_hat, _, witness_glyph, suffix = identity
+    terminal = final_response.rstrip("\r\n")
+    terminal_line = terminal.rsplit("\n", 1)[-1]
+    if terminal_line != suffix:
+        witness_registry = _read_regular_json(identity[0] / _WITNESS_REGISTRY, _MAX_REGISTRY_BYTES)
+        authors = witness_registry.get("authors") if isinstance(witness_registry, dict) else None
+        witness_glyphs = tuple(
+            glyph for glyph in (authors or {}).values() if isinstance(glyph, str) and glyph
+        )
+        if witness_glyphs and terminal_line.endswith(witness_glyphs) and not terminal_line.endswith(witness_glyph):
+            return "witness-glyph-mismatch"
+        if terminal_line.endswith(witness_glyph) and terminal_line != f"{role_hat}{witness_glyph}":
+            return "role-hat-mismatch"
+        return "terminal-attestation-missing"
+    body = terminal[: -len(suffix)]
+    policy = finalization["attestation"]
+    signals = policy["canonical_signals"]
+    if sum(body.count(signal) for signal in signals) < policy["minimum_signals"]:
+        return "canonical-gestalt-signal-missing"
+    return None
 
 
 def _pre_final(
@@ -194,29 +264,30 @@ def _pre_final(
     attestation = _role_attestation(workspace_root)
     if attestation is None:
         return None
-    root, role, suffix = attestation
+    root, role, _, _, _, suffix = attestation
     finalization = _finalization_contract(root)
     if finalization is None:
         return None
+    cause = _attestation_failure(final_response, attestation, finalization)
     attempts = finalization["attempts"]
     if attempt >= len(attempts):
         with _STATE_LOCK:
             signed_out = bool(session_id) and session_id in _SIGNED_OUT_SESSIONS
         if not signed_out:
             selected = attempts[1]
-            message = _render_attempt(root, role, suffix, selected)
+            message = _render_attempt(root, role, suffix, "repeated-role-protocol-drift", selected)
             return {"action": "continue", "message": message} if message is not None else None
         terminal = finalization["terminal"]
         message = terminal.get("gestalt")
         if not isinstance(message, str) or not message:
             return None
         return {"action": "block", "message": message}
-    if final_response.rstrip().endswith(suffix):
+    if cause is None:
         return None
     selected = attempts[attempt]
     if not isinstance(selected, dict):
         return None
-    message = _render_attempt(root, role, suffix, selected)
+    message = _render_attempt(root, role, suffix, cause, selected)
     if message is None:
         return None
     return {
@@ -357,8 +428,9 @@ def _post_final(
     attestation = _role_attestation(workspace_root)
     if attestation is None:
         return None
-    root, role, suffix = attestation
-    if _finalization_contract(root) is None or not final_response.rstrip().endswith(suffix):
+    root, role, _, _, _, suffix = attestation
+    finalization = _finalization_contract(root)
+    if finalization is None or _attestation_failure(final_response, attestation, finalization) is not None:
         return None
     encoded = final_response.encode("utf-8")
     if len(encoded) > _MAX_FINAL_SPEECH_BYTES:

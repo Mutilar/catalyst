@@ -1,7 +1,7 @@
 """AE PENGUIN authority-none tool-call teaching.
 
 The generated LUCID KX universe classifies source calls and binds one exact
-canonical candidate. HARNESS alone owns allow/whisper/hold/enforce policy;
+canonical candidate. CATALYST alone owns allow/whisper/hold/enforce policy;
 this plugin never executes or replays either call.
 """
 
@@ -126,7 +126,7 @@ def _registry(root: Path) -> Optional[dict[str, Any]]:
         not isinstance(registry, dict)
         or registry.get("schema") != "lucid-kx-tool-teaching/1"
         or registry.get("authority") != "none"
-        or registry.get("policy_owner") != "HARNESS"
+        or registry.get("policy_owner") != "CATALYST"
         or registry.get("verbs") != ["show", "get", "set", "morph", "dispatch", "steer", "cancel"]
     ):
         return None
@@ -206,7 +206,7 @@ def _unregistered_executable_refusal(
         "state": "refused",
         "reason": "unregistered-executable" if policy is not None else "executable-policy-unavailable",
         "authority": "none",
-        "policy_owner": "HARNESS",
+        "policy_owner": "CATALYST",
         "executed": False,
         "original_executed": False,
         "executable": executable[:96],
@@ -217,7 +217,7 @@ def _unregistered_executable_refusal(
     return {
         "action": "block",
         "message": (
-            "HARNESS refused an unregistered terminal executable before execution. "
+            "CATALYST refused an unregistered terminal executable before execution. "
             "Use a registered source command or one canonical direct executable (run or lucid).\n"
             + encoded
         ),
@@ -677,7 +677,7 @@ def _refusal(
         "state": "refused",
         "reason": declaration.get("reason"),
         "authority": "none",
-        "policy_owner": "HARNESS",
+        "policy_owner": "CATALYST",
         "executed": False,
         "auto_replay": False,
         "original_executed": False,
@@ -913,7 +913,7 @@ def _on_pre_tool_call(
         encoded = json.dumps(receipt, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
         return {
             "action": "block",
-            "message": "HARNESS refused this prohibited source call before execution.\n" + encoded,
+            "message": "CATALYST refused this prohibited source call before execution.\n" + encoded,
         }
     if disposition == "hold" and not _hold_once(intent, session_id):
         return None
@@ -936,7 +936,7 @@ def _on_pre_tool_call(
     return {
         "action": "block",
         "message": (
-            "HARNESS held this noncanonical tool call before execution. "
+            "CATALYST held this noncanonical tool call before execution. "
             "The generated PENGUIN suggestion is authority-none and has not executed or replayed either call. "
             "Issue the exact suggested LUCID tool and complete arguments only if they match the intent.\n"
             + encoded

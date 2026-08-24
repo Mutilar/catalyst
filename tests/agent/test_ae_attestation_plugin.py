@@ -15,14 +15,31 @@ def plugin():
     return module
 
 
-def _workspace(root: Path, role: str = "EM", glyph: str = "🎼🐧") -> Path:
+def _workspace(
+    root: Path,
+    role: str = "EM",
+    hat: str = "🎼",
+    witness_alias: str = "brianhu",
+    witness_glyph: str = "🐧",
+) -> Path:
     repository = Path(__file__).parents[3]
     (root / "quine" / "canon").mkdir(parents=True)
     (root / "quine" / "mcp" / "onboarding").mkdir(parents=True)
     (root / "run" / "state" / "runtime").mkdir(parents=True)
     (root / "envelope").mkdir(parents=True)
     (root / "quine" / "canon" / "roles.json").write_text(
-        json.dumps({"$schema": "ae-roles/1", "roles": {role: {"glyph": glyph}}}),
+        json.dumps(
+            {
+                "$schema": "ae-roles/1",
+                "roles": {
+                    role: {"glyph": f"{hat}{witness_glyph}", "hat": hat},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (root / "quine" / "author-glyphs.json").write_text(
+        json.dumps({"schema": "ae-author-glyphs/1", "authors": {witness_alias: witness_glyph}}),
         encoding="utf-8",
     )
     (root / "run" / "state" / "runtime" / "lucid-host-role.json").write_text(
@@ -57,7 +74,97 @@ def _accepted_submission() -> dict:
 def test_exact_canonical_suffix_passes_without_synthetic_turn(plugin, tmp_path):
     root = _workspace(tmp_path)
     assert plugin.required_terminal_suffix(root) == "🎼🐧"
-    assert plugin._pre_final(final_response="Done.\n\n🎼🐧", workspace_root=str(root)) is None
+    assert plugin._pre_final(final_response="🟢 Done.\n\n🎼🐧", workspace_root=str(root)) is None
+
+
+def test_final_requires_one_canonical_gestalt_signal(plugin, tmp_path):
+    root = _workspace(tmp_path)
+    result = plugin._pre_final(
+        final_response="Done without semantic signal.\n\n🎼🐧",
+        workspace_root=str(root),
+    )
+
+    assert result["action"] == "continue"
+    assert "CAUSE canonical-gestalt-signal-missing" in result["message"]
+    assert "include at least one canonical GESTALT signal" in result["message"]
+
+
+def test_wrong_permanent_role_hat_is_diagnosed(plugin, tmp_path):
+    root = _workspace(tmp_path)
+    result = plugin._pre_final(
+        final_response="🟢 Done.\n\n🧭🐧",
+        workspace_root=str(root),
+    )
+
+    assert "CAUSE role-hat-mismatch" in result["message"]
+    assert "terminate with exactly 🎼🐧" in result["message"]
+
+
+def test_wrong_witness_glyph_is_diagnosed_from_active_witness_binding(plugin, tmp_path):
+    root = _workspace(tmp_path, witness_alias="brian", witness_glyph="🐧")
+    authors = root / "quine" / "author-glyphs.json"
+    authors.write_text(
+        json.dumps({"schema": "ae-author-glyphs/1", "authors": {"brian": "🐧", "alex": "🦊"}}),
+        encoding="utf-8",
+    )
+    decision = root / "run" / "state" / "runtime" / "lucid-host-role.json"
+    decision.write_text(
+        json.dumps(
+            {
+                "schema": "lucid-host-role-decision/1",
+                "role": "EM",
+                "witness_alias": "brian",
+                "witness_glyph": "🐧",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = plugin._pre_final(
+        final_response="🟢 Done.\n\n🎼🦊",
+        workspace_root=str(root),
+    )
+
+    assert "CAUSE witness-glyph-mismatch" in result["message"]
+    assert plugin.required_terminal_suffix(root) == "🎼🐧"
+
+
+def test_multiple_witnesses_require_an_explicit_host_binding(plugin, tmp_path):
+    root = _workspace(tmp_path)
+    (root / "quine" / "author-glyphs.json").write_text(
+        json.dumps({"schema": "ae-author-glyphs/1", "authors": {"brian": "🐧", "alex": "🦊"}}),
+        encoding="utf-8",
+    )
+
+    assert plugin.required_terminal_suffix(root) is None
+
+
+def test_explicit_non_penguin_witness_changes_the_exact_terminal_identity(plugin, tmp_path):
+    root = _workspace(tmp_path)
+    (root / "quine" / "author-glyphs.json").write_text(
+        json.dumps({"schema": "ae-author-glyphs/1", "authors": {"brianhu": "🐧", "alex": "🦊"}}),
+        encoding="utf-8",
+    )
+    (root / "run" / "state" / "runtime" / "lucid-host-role.json").write_text(
+        json.dumps(
+            {
+                "schema": "lucid-host-role-decision/1",
+                "role": "EM",
+                "witness_alias": "alex",
+                "witness_glyph": "🦊",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert plugin.required_terminal_suffix(root) == "🎼🦊"
+    assert (
+        plugin._pre_final(
+            final_response="◆ Exact non-penguin witness.\n\n🎼🦊",
+            workspace_root=str(root),
+        )
+        is None
+    )
 
 
 def test_attested_final_submits_once_to_current_role_effigy(plugin, tmp_path, monkeypatch):
@@ -69,7 +176,7 @@ def test_attested_final_submits_once_to_current_role_effigy(plugin, tmp_path, mo
         return _accepted_submission()
 
     monkeypatch.setattr(plugin, "_submit_effigy_speech", submit)
-    response = "The exact final statement.\n\n🎼🐧"
+    response = "🟢 The exact final statement.\n\n🎼🐧"
     receipt = plugin._post_final(
         final_response=response,
         workspace_root=str(root),
@@ -106,7 +213,7 @@ def test_attested_final_without_session_id_still_submits(plugin, tmp_path, monke
     )
 
     receipt = plugin._post_final(
-        final_response="Desktop final without an agent session id.\n\n🎼🐧",
+        final_response="🟢 Desktop final without an agent session id.\n\n🎼🐧",
         workspace_root=str(root),
         session_id="",
     )
@@ -121,7 +228,7 @@ def test_failed_effigy_submission_releases_exact_once_claim(plugin, tmp_path, mo
         [{"error": "speech unavailable"}, _accepted_submission()]
     )
     monkeypatch.setattr(plugin, "_submit_effigy_speech", lambda _arguments: next(responses))
-    final = "Retry this final after transient speech failure.\n\n🎼🐧"
+    final = "⚠️ Retry this final after transient speech failure.\n\n🎼🐧"
 
     assert plugin._post_final(
         final_response=final, workspace_root=str(root), session_id="session-retry"
@@ -182,7 +289,7 @@ def test_post_final_returns_the_exact_typed_effigy_failure(plugin, tmp_path, mon
     monkeypatch.setattr(plugin, "_submit_effigy_speech", lambda _arguments: refusal)
 
     receipt = plugin._post_final(
-        final_response="Bounded final.\n\n🎼🐧",
+        final_response="🟢 Bounded final.\n\n🎼🐧",
         workspace_root=str(root),
         session_id="typed-effigy-failure",
     )
@@ -255,7 +362,7 @@ def test_missing_suffix_reinjects_canonical_onboarding_then_requires_signout(plu
 
 
 def test_role_and_suffix_come_from_canon_not_prompt_or_model_claim(plugin, tmp_path):
-    root = _workspace(tmp_path, role="SIDEKICK", glyph="🧭🐧")
+    root = _workspace(tmp_path, role="SIDEKICK", hat="🧭")
     result = plugin._pre_final(
         final_response="I claim I am EM. 🎼🐧",
         workspace_root=str(root),

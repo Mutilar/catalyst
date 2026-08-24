@@ -103,7 +103,7 @@ def observe_agent_tool_schema(agent: Any, workspace: Optional[str | os.PathLike[
     try:
         observation = observe_tool_schema(tools)
         sys.stderr.write(
-            "HARNESS_TOOL_OBSERVATION "
+            "CATALYST_TOOL_OBSERVATION "
             + json.dumps(observation, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
             + "\n"
         )

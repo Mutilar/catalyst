@@ -56,8 +56,8 @@ def test_agent_observation_emits_content_free_transport_without_writing_run_stat
     monkeypatch.chdir(tmp_path)
     module.observe_agent_tool_schema(Agent())
     line = capsys.readouterr().err.strip()
-    assert line.startswith("HARNESS_TOOL_OBSERVATION ")
-    observation = json.loads(line.removeprefix("HARNESS_TOOL_OBSERVATION "))
+    assert line.startswith("CATALYST_TOOL_OBSERVATION ")
+    observation = json.loads(line.removeprefix("CATALYST_TOOL_OBSERVATION "))
     assert observation["schema"] == "ae-catalyst-harness-tool-observation/1"
     assert observation["content_included"] is False
     assert not (tmp_path / "run").exists()
