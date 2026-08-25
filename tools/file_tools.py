@@ -8,6 +8,8 @@ import os
 import posixpath
 import sys
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path, PurePosixPath
 
 from agent.file_safety import get_read_block_error
@@ -24,6 +26,40 @@ logger = logging.getLogger(__name__)
 
 
 _EXPECTED_WRITE_ERRNOS = {errno.EACCES, errno.EPERM, errno.EROFS}
+_PRE_TOOL_CHECKED: ContextVar[str | None] = ContextVar("file_pre_tool_checked", default=None)
+
+
+@contextmanager
+def pre_tool_call_checked(tool_name: str):
+    """Mark one in-process file-tool dispatch as already plugin-preflighted."""
+    token = _PRE_TOOL_CHECKED.set(tool_name)
+    try:
+        yield
+    finally:
+        _PRE_TOOL_CHECKED.reset(token)
+
+
+def _direct_pre_tool_block(
+    tool_name: str,
+    args: dict,
+    *,
+    task_id: str,
+    session_id: str | None,
+) -> str | None:
+    if _PRE_TOOL_CHECKED.get() == tool_name:
+        return None
+    try:
+        from hermes_cli.plugins import resolve_pre_tool_block
+
+        return resolve_pre_tool_block(
+            tool_name,
+            args,
+            task_id=task_id,
+            session_id=session_id or "",
+        )
+    except Exception:
+        logger.debug("direct file pre_tool_call hook error", exc_info=True)
+        return None
 
 
 def _expand_tilde(path: str) -> str:
@@ -1580,6 +1616,14 @@ def write_file_tool(path: str, content: str, task_id: str = "default",
     Pass ``True`` after explicit user direction — same shape as ``force``
     on the terminal tool.
     """
+    block = _direct_pre_tool_block(
+        "write_file",
+        {"path": path, "content": content, "cross_profile": cross_profile},
+        task_id=task_id,
+        session_id=session_id,
+    )
+    if block is not None:
+        return tool_error(block)
     sensitive_err = _check_sensitive_path(path, task_id)
     if sensitive_err:
         return tool_error(sensitive_err)
@@ -1662,6 +1706,23 @@ def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
     targets under another profile's skills/plugins/cron/memories
     directory. Same shape as ``write_file``'s flag.
     """
+    source_args = {
+        "mode": mode,
+        "path": path,
+        "old_string": old_string,
+        "new_string": new_string,
+        "replace_all": replace_all,
+        "patch": patch,
+        "cross_profile": cross_profile,
+    }
+    block = _direct_pre_tool_block(
+        "patch",
+        {key: value for key, value in source_args.items() if value is not None},
+        task_id=task_id,
+        session_id=session_id,
+    )
+    if block is not None:
+        return tool_error(block)
     # Check sensitive paths for both replace (explicit path) and V4A patch (extract paths)
     _paths_to_check = []
     if path:

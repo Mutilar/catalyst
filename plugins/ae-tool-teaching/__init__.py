@@ -36,6 +36,7 @@ _TRANSFORMS = {
     "path-parent",
     "focused-path",
     "registered-area",
+    "repository-expected-hash",
     "search-mode",
 }
 _HELD_CALLS: OrderedDict[tuple[str, str], int] = OrderedDict()
@@ -480,6 +481,21 @@ def _transform_value(name: str, value: Any, root: Path) -> Any:
         return _repository_relative(value, root)
     if name == "repo-relative-list":
         return [_repository_relative(value, root)]
+    if name == "repository-expected-hash":
+        relative = _repository_relative(value, root)
+        path = root / relative
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            return "absent"
+        except OSError as error:
+            raise ValueError("repository-path-unavailable") from error
+        if path.is_symlink() or not path.is_file() or metadata.st_size > 1_048_576:
+            raise ValueError("repository-path-unsafe")
+        try:
+            return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError as error:
+            raise ValueError("repository-path-unavailable") from error
     if name == "path-parent":
         relative = _repository_relative(value, root)
         return _area_from(relative, "path-parent") or "workspace"
@@ -861,6 +877,7 @@ def _reset_state_for_tests() -> None:
 
 
 def _classify(tool_name: str, args: Any):
+    tool_name = tool_name.removeprefix("functions.")
     root = _ae_root(args) if isinstance(args, dict) else None
     if not isinstance(args, dict) or root is None:
         return None
@@ -884,19 +901,20 @@ def _on_pre_tool_call(
     session_id: str = "",
     **_: Any,
 ):
-    classified = _classify(tool_name, args)
+    source_tool = tool_name.removeprefix("functions.")
+    classified = _classify(source_tool, args)
     root = _ae_root(args) if isinstance(args, dict) else None
     registry = _registry(root) if root is not None else None
     if isinstance(args, dict):
         known_source = isinstance(registry, dict) and any(
             isinstance(target, dict)
             and isinstance(target.get("source"), dict)
-            and target["source"].get("tool") == tool_name
+            and target["source"].get("tool") == source_tool
             for target in registry.get("targets", [])
         )
         if known_source:
-            _emit_intent_event(tool_name, args, classified)
-    if tool_name == "terminal" and isinstance(args, dict) and root is not None:
+            _emit_intent_event(source_tool, args, classified)
+    if source_tool == "terminal" and isinstance(args, dict) and root is not None:
         policy = _terminal_executable_policy(registry) if isinstance(registry, dict) else None
         if classified is None:
             if policy is not None and _direct_terminal_executable_allowed(args, policy):

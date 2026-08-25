@@ -67,6 +67,33 @@ class TestReadFileHandler:
 
 class TestWriteFileHandler:
     @patch("tools.file_tools._get_file_ops")
+    @patch("tools.file_tools._direct_pre_tool_block", return_value="CATALYST held write")
+    def test_direct_entry_honors_pre_tool_block(self, mock_block, mock_get):
+        from tools.file_tools import write_file_tool
+
+        result = json.loads(write_file_tool("/tmp/out.txt", "data"))
+
+        assert "CATALYST held write" in result["error"]
+        mock_block.assert_called_once()
+        mock_get.assert_not_called()
+
+    @patch("hermes_cli.plugins.resolve_pre_tool_block")
+    def test_prechecked_dispatch_does_not_fire_hook_twice(self, mock_resolve):
+        from tools.file_tools import _direct_pre_tool_block, pre_tool_call_checked
+
+        with pre_tool_call_checked("write_file"):
+            assert (
+                _direct_pre_tool_block(
+                    "write_file",
+                    {"path": "a.txt", "content": "a"},
+                    task_id="task",
+                    session_id="session",
+                )
+                is None
+            )
+        mock_resolve.assert_not_called()
+
+    @patch("tools.file_tools._get_file_ops")
     def test_writes_content(self, mock_get):
         mock_ops = MagicMock()
         result_obj = MagicMock()

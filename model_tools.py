@@ -1314,6 +1314,16 @@ def handle_function_call(
                     )
             else:
                 def _dispatch(next_args: Dict[str, Any]) -> Any:
+                    if function_name in {"write_file", "patch"}:
+                        from tools.file_tools import pre_tool_call_checked
+
+                        with pre_tool_call_checked(function_name):
+                            return registry.dispatch(
+                                function_name, next_args,
+                                task_id=task_id,
+                                session_id=session_id,
+                                user_task=user_task,
+                            )
                     return registry.dispatch(
                         function_name, next_args,
                         task_id=task_id,

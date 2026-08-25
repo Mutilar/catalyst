@@ -238,7 +238,7 @@ def test_failed_effigy_submission_releases_exact_once_claim(plugin, tmp_path, mo
     ) == {"state": "submitted", "code": "effigy-response-final-submitted"}
 
 
-def test_typed_lucid_speech_refusal_is_visible_with_stage_and_code(plugin, capsys):
+def test_typed_lucid_speech_refusal_is_visible_with_code_and_reason(plugin, capsys):
     refusal = {
         "model": "\n".join(
             [
@@ -255,8 +255,42 @@ def test_typed_lucid_speech_refusal_is_visible_with_stage_and_code(plugin, capsy
     assert plugin._effigy_submission_accepted(refusal) is False
     plugin._emit_effigy_warning("EM", "🎼🐧", refusal)
     assert capsys.readouterr().err == (
-        "⚠️ 🎼🐧 · 🔎 effigy-transfer-protected-identity-refused · "
-        "effigy-transfer: protected identity was present in transfer input\n"
+        "⚠️ 🎼🐧 · 🔎 effigy-transfer-protected-identity-refused: "
+        "protected identity was present in transfer input\n"
+    )
+
+
+def test_nested_lucid_refusal_preserves_typed_code_and_reason(plugin, capsys):
+    refusal = {
+        "presentation": {
+            "structuredContent": {
+                "schema": "lucid-domain-result/1",
+                "refusal": {
+                    "code": "penguin-model-connect-failed",
+                    "reason": "local effigy transfer worker is unavailable",
+                },
+            }
+        }
+    }
+
+    plugin._emit_effigy_warning("EM", "🎼🐧", refusal)
+    assert capsys.readouterr().err == "⚠️ 🎼🐧 · 🔎 penguin-model-connect-failed\n"
+
+
+def test_distinct_effigy_failure_detail_is_not_deduplicated(plugin, capsys):
+    refusal = {
+        "structuredContent": {
+            "refusal": {
+                "code": "penguin-transfer-timeout",
+                "reason": "registered model exceeded its 2000ms response deadline",
+            }
+        }
+    }
+
+    plugin._emit_effigy_warning("EM", "🎼🐧", refusal)
+    assert capsys.readouterr().err == (
+        "⚠️ 🎼🐧 · 🔎 penguin-transfer-timeout: "
+        "registered model exceeded its 2000ms response deadline\n"
     )
 
 
@@ -269,7 +303,7 @@ def test_effigy_exception_warning_preserves_cause_and_redacts_secrets(plugin, ca
     )
 
     assert capsys.readouterr().err == (
-        "⚠️ 🎼🐧 · 🔎 effigy-submission-failed · submission: "
+        "⚠️ 🎼🐧 · 🔎 effigy-submission-failed: "
         "RuntimeError: speech worker refused token=[redacted] after queue closure\n"
     )
 
@@ -296,8 +330,8 @@ def test_post_final_returns_the_exact_typed_effigy_failure(plugin, tmp_path, mon
 
     assert receipt == {"state": "degraded", "code": "effigy-transfer-timeout"}
     assert capsys.readouterr().err == (
-        "⚠️ 🎼🐧 · 🔎 effigy-transfer-timeout · "
-        "effigy-transfer: local transfer exceeded its 2000ms deadline\n"
+        "⚠️ 🎼🐧 · 🔎 effigy-transfer-timeout: "
+        "local transfer exceeded its 2000ms deadline\n"
     )
 
 

@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -189,12 +190,52 @@ def test_write_file_maps_to_set_repository_file_with_full_arguments(plugin, work
         "id": "repository-authored-file",
     }
     assert candidate["arguments"] == {
+        "expected_hash": "absent",
         "path": "repository/file",
         "value": {"path": "catalyst/new.py", "content": "print('bounded')\n"},
     }
     assert candidate["syntax"] == {
         "tool": candidate["tool"],
         "arguments": candidate["arguments"],
+    }
+
+
+def test_write_file_derives_existing_content_hash_without_changing_source_args(
+    plugin, workspace, monkeypatch
+):
+    monkeypatch.chdir(workspace)
+    path = workspace / "existing.py"
+    path.write_text("before\n", encoding="utf-8")
+    args = {"path": "existing.py", "content": "after\n"}
+
+    suggestion = _receipt(
+        plugin._on_pre_tool_call(tool_name="write_file", args=args, session_id="replace")
+    )
+
+    assert suggestion["candidate"]["arguments"] == {
+        "expected_hash": "sha256:" + hashlib.sha256(b"before\n").hexdigest(),
+        "path": "repository/file",
+        "value": {"path": "existing.py", "content": "after\n"},
+    }
+    assert args == {"path": "existing.py", "content": "after\n"}
+
+
+def test_namespaced_write_file_uses_the_same_closed_source_classifier(
+    plugin, workspace, monkeypatch
+):
+    monkeypatch.chdir(workspace)
+    suggestion = _receipt(
+        plugin._on_pre_tool_call(
+            tool_name="functions.write_file",
+            args={"path": "new.py", "content": "value = 1\n"},
+            session_id="namespaced-write",
+        )
+    )
+    assert suggestion["intent"]["tool"] == "write_file"
+    assert suggestion["candidate"]["arguments"] == {
+        "expected_hash": "absent",
+        "path": "repository/file",
+        "value": {"path": "new.py", "content": "value = 1\n"},
     }
 
 

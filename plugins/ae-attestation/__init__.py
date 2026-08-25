@@ -99,10 +99,6 @@ def _role_attestation(
     ):
         return None
     suffix = f"{role_hat}{witness_glyph}"
-    # The committed glyph is a convenience/default projection. Runtime attestation composes the
-    # permanent role hat with the active WITNESS, which may differ from that default.
-    if not any(definition.get("glyph") == f"{role_hat}{glyph}" for glyph in authors.values()):
-        return None
     return root, role, role_hat, witness_alias, witness_glyph, suffix
 
 
@@ -347,6 +343,28 @@ def _bounded_effigy_detail(value: Any) -> Optional[str]:
     return detail[:256]
 
 
+def _effigy_display_detail(code: str, detail: str) -> Optional[str]:
+    ignored = {
+        "a",
+        "an",
+        "effigy",
+        "is",
+        "local",
+        "model",
+        "penguin",
+        "the",
+        "transfer",
+        "was",
+        "worker",
+    }
+    words = {word for word in re.split(r"[^a-z0-9]+", detail.lower()) if word not in ignored}
+    generic = {"failed", "failure", "refused", "unavailable"}
+    if words and words <= generic:
+        return None
+    code_words = set(re.split(r"[^a-z0-9]+", code.lower())) - ignored
+    return None if words and words <= code_words else detail
+
+
 def _effigy_failure_fields(
     result: Any,
     cause: Optional[BaseException] = None,
@@ -358,20 +376,36 @@ def _effigy_failure_fields(
         return stage, code, f"{type(cause).__name__}: {detail}"
     if not isinstance(result, dict):
         return stage, code, "LUCID returned no typed submission result"
-    candidates = [result.get("model"), result.get("result")]
-    presentation = result.get("presentation")
-    containers = [result]
-    if isinstance(presentation, dict):
-        containers.append(presentation)
-        candidates.extend(
-            [
-                presentation.get("__hermes_model_visible_result"),
-                presentation.get("result"),
-            ]
-        )
-    structured = result.get("structuredContent")
-    if isinstance(structured, dict):
-        containers.append(structured)
+    containers = []
+    pending = [result]
+    while pending and len(containers) < 8:
+        container = pending.pop(0)
+        if not isinstance(container, dict) or any(container is seen for seen in containers):
+            continue
+        containers.append(container)
+        for key in ("presentation", "structuredContent", "result"):
+            nested = container.get(key)
+            if isinstance(nested, dict):
+                pending.append(nested)
+    candidates = [
+        candidate
+        for container in containers
+        for key in ("model", "result", "__hermes_model_visible_result")
+        if isinstance((candidate := container.get(key)), str)
+    ]
+    for container in containers:
+        refusal = container.get("refusal")
+        if not isinstance(refusal, dict):
+            continue
+        typed_code = refusal.get("code")
+        if isinstance(typed_code, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,95}", typed_code):
+            code = typed_code
+            if code.startswith("effigy-transfer-"):
+                stage = "effigy-transfer"
+        for key in ("reason", "detail", "message"):
+            typed_detail = _bounded_effigy_detail(refusal.get(key))
+            if typed_detail is not None:
+                return stage, code, typed_detail
     detail = next(
         (
             bounded
@@ -406,8 +440,10 @@ def _emit_effigy_warning(
     cause: Optional[BaseException] = None,
 ) -> tuple[str, str, str]:
     stage, code, detail = _effigy_failure_fields(result, cause)
+    display_detail = _effigy_display_detail(code, detail)
+    rca = code if display_detail is None else f"{code}: {display_detail}"
     print(
-        f"⚠️ {role_glyph} · 🔎 {code} · {stage}: {detail}",
+        f"⚠️ {role_glyph} · 🔎 {rca}",
         file=sys.stderr,
         flush=True,
     )

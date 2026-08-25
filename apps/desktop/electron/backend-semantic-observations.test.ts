@@ -8,15 +8,19 @@ test('forwards only complete bounded semantic observation lines across chunk bou
   const forwarded: string[] = []
   const push = createSemanticObservationForwarder(line => forwarded.push(line))
 
-  push('ordinary backend log\nHARNESS_TOOL_OBSER')
+  push('ordinary backend log\nCATALYST_TOOL_OBSER')
   push('VATION {"schema":"ae-catalyst-harness-tool-observation/1"}\n')
   push('PENGUIN_TEACHING_EVENT {"schema":"penguin-tool-intent-observed/1"}\n')
-  push('⚠️ 🎼🐧 · 🔎 effigy-transfer-protected-identity-refused · effigy-transfer: protected identity reached transfer\n')
+  push('⚠️ 🎼🐧 · 🔎 effigy-transfer-protected-identity-refused: protected identity reached transfer\n')
+  push('⚠️ 🎼🐧 · 🔎 penguin-model-connect-failed\n')
+  push('⚠️ 🎼🐱 · 🔎 penguin-model-connect-failed\n')
 
   assert.deepEqual(forwarded, [
     'CATALYST_TOOL_OBSERVATION {"schema":"ae-catalyst-harness-tool-observation/1"}\n',
     'PENGUIN_TEACHING_EVENT {"schema":"penguin-tool-intent-observed/1"}\n',
-    '⚠️ 🎼🐧 · 🔎 effigy-transfer-protected-identity-refused · effigy-transfer: protected identity reached transfer\n'
+    '⚠️ 🎼🐧 · 🔎 effigy-transfer-protected-identity-refused: protected identity reached transfer\n',
+    '⚠️ 🎼🐧 · 🔎 penguin-model-connect-failed\n',
+    '⚠️ 🎼🐱 · 🔎 penguin-model-connect-failed\n'
   ])
 })
 

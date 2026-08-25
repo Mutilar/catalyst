@@ -1,8 +1,5 @@
-const SEMANTIC_OBSERVATION_PREFIXES = [
-  'CATALYST_TOOL_OBSERVATION ',
-  'PENGUIN_TEACHING_EVENT '
-] as const
-const EFFIGY_WARNING = /^⚠️ \S{1,15}🐧 · 🔎 effigy-[a-z0-9-]+ · \S/u
+const SEMANTIC_OBSERVATION_PREFIXES = ['CATALYST_TOOL_OBSERVATION ', 'PENGUIN_TEACHING_EVENT '] as const
+const EFFIGY_WARNING = /^⚠️ [^\s·]{1,16} · 🔎 [a-z0-9][a-z0-9-]{0,95}(?:: \S.{0,256})?$/u
 
 const MAX_SEMANTIC_OBSERVATION_BYTES = 8 * 1024
 
@@ -24,8 +21,7 @@ export function createSemanticObservationForwarder(write: SemanticObservationWri
       pending = pending.slice(newline + 1)
       if (
         Buffer.byteLength(line, 'utf8') <= MAX_SEMANTIC_OBSERVATION_BYTES &&
-        (SEMANTIC_OBSERVATION_PREFIXES.some(prefix => line.startsWith(prefix)) ||
-          EFFIGY_WARNING.test(line))
+        (SEMANTIC_OBSERVATION_PREFIXES.some(prefix => line.startsWith(prefix)) || EFFIGY_WARNING.test(line))
       ) {
         write(`${line}\n`)
       }
