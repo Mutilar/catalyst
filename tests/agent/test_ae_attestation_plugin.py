@@ -139,21 +139,36 @@ def test_multiple_witnesses_require_an_explicit_host_binding(plugin, tmp_path):
     assert plugin.required_terminal_suffix(root) is None
 
 
-def test_missing_live_role_binding_blocks_in_ae_workspace(plugin, tmp_path):
+def test_missing_live_role_binding_allows_one_bounded_recovery_turn(plugin, tmp_path):
     root = _workspace(tmp_path)
     (root / "run" / "state" / "runtime" / "lucid-host-role.json").unlink()
 
-    result = plugin._pre_final(final_response="hello", workspace_root=str(root))
+    result = plugin._pre_final(
+        final_response="hello",
+        workspace_root=str(root),
+        attempt=0,
+        session_id="offline-bootstrap",
+    )
 
-    assert result == {
-        "action": "block",
-        "message": (
-            "🔴 LUCID · role-attestation · offline\n"
-            "🔎 CATALYST refused finalization because the exact live role/witness "
-            "binding is unavailable.\n"
-            "➡️ recover one exact live role-session binding before finalizing"
-        ),
-    }
+    assert result["action"] == "continue"
+    assert result["message"].startswith(
+        "⚠️ LUCID · role-session · bootstrap-decision-required"
+    )
+    assert "blocks finalization only" in result["message"]
+    assert "run/state/runtime/lucid-host-role.json" in result["message"]
+    assert "OWNER WITNESS" in result["message"]
+    assert "mcp__LUCID__get" in result["message"]
+    assert '"action":"recover"' in result["message"]
+    assert "RUN WITNESS sign-in" in result["message"]
+
+    repeated = plugin._pre_final(
+        final_response="ignored recovery",
+        workspace_root=str(root),
+        attempt=1,
+        session_id="offline-bootstrap",
+    )
+    assert repeated["action"] == "block"
+    assert repeated["message"].startswith("🔴 LUCID · role-attestation · offline")
 
 
 def test_pre_final_remains_inert_outside_ae_workspace(plugin, tmp_path):
@@ -414,6 +429,27 @@ def test_missing_suffix_reinjects_canonical_onboarding_then_requires_signout(plu
     assert offline["action"] == "block"
     assert offline["message"].startswith("🔴 LUCID · role-session · offline")
     assert "OWNER WITNESS" in offline["message"]
+
+
+def test_successful_role_session_recovery_clears_signed_out_state(plugin):
+    plugin._SIGNED_OUT_SESSIONS.add("recovered-session")
+    plugin._transform_tool_result(
+        tool_name="mcp__LUCID__set",
+        args={"path": "role-session", "scope": "this", "value": {"action": "recover"}},
+        result=json.dumps(
+            {
+                "structuredContent": {
+                    "state": "recovered",
+                    "action": "recover",
+                    "role": "EM",
+                }
+            }
+        ),
+        session_id="recovered-session",
+        status="success",
+    )
+
+    assert "recovered-session" not in plugin._SIGNED_OUT_SESSIONS
 
 
 def test_role_and_suffix_come_from_canon_not_prompt_or_model_claim(plugin, tmp_path):

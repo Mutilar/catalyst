@@ -122,11 +122,43 @@ def _ae_workspace_root(workspace_root: str | os.PathLike[str]) -> Optional[Path]
     return None
 
 
+def _role_binding_is_absent(root: Path) -> bool:
+    path = root / _ROLE_DECISION
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
 def _offline_attestation_message(cause: str) -> str:
     return (
         "🔴 LUCID · role-attestation · offline\n"
         f"🔎 CATALYST refused finalization because {cause}.\n"
         "➡️ recover one exact live role-session binding before finalizing"
+    )
+
+
+def _offline_recovery_message(projection: dict[str, Any], cause: str) -> str:
+    inspect = projection["inspect"]
+    recover = projection["recover"]
+    inspect_arguments = json.dumps(
+        inspect["arguments"], ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
+    recover_arguments = json.dumps(
+        recover["arguments"], ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
+    return (
+        f"{projection['signal']} LUCID · {projection['subject']} · {projection['state']}\n"
+        f"🔎 {cause}.\n"
+        f"◆ {projection['evidence']} · OWNER {projection['owner']} · "
+        f"SETTLES {projection['settles']}\n"
+        "◆ This guard blocks finalization only; continue the current turn to establish authority.\n"
+        f"➡️ Inspect: {inspect['tool']} {inspect_arguments}\n"
+        f"➡️ Recover: {recover['tool']} {recover_arguments}\n"
+        f"➡️ {projection['next']}"
     )
 
 
@@ -157,6 +189,20 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
         return None
     attempts = finalization.get("attempts")
     terminal = finalization.get("terminal")
+    refusals = finalization.get("refusals")
+    bootstrap = refusals.get("bootstrap-decision-required") if isinstance(refusals, dict) else None
+    expected_inspect = {
+        "tool": "mcp__LUCID__get",
+        "arguments": {"path": "role-session", "scope": "this"},
+    }
+    expected_recover = {
+        "tool": "mcp__LUCID__set",
+        "arguments": {
+            "path": "role-session",
+            "scope": "this",
+            "value": {"action": "recover"},
+        },
+    }
     if (
         not isinstance(attempts, list)
         or len(attempts) != 2
@@ -168,6 +214,23 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
         or terminal.get("resume_authority") != "WITNESS"
         or terminal.get("automatic_signin") is not False
         or terminal.get("automatic_recover") is not False
+        or not isinstance(bootstrap, dict)
+        or bootstrap.get("schema") != "ae-harness-refusal-projection/1"
+        or bootstrap.get("signal") != "⚠️"
+        or bootstrap.get("subject") != "role-session"
+        or bootstrap.get("state") != "bootstrap-decision-required"
+        or bootstrap.get("owner") != "WITNESS"
+        or bootstrap.get("evidence") != "run/state/runtime/lucid-host-role.json"
+        or bootstrap.get("settles") != "exact-local-bootstrap-decision"
+        or bootstrap.get("inspect") != expected_inspect
+        or bootstrap.get("recover") != expected_recover
+        or bootstrap.get("constraints")
+        != [
+            "finalization-only-gate",
+            "one-recovery-turn",
+            "no-automatic-signin",
+            "no-final-before-binding",
+        ]
     ):
         return None
     return finalization
@@ -285,11 +348,25 @@ def _pre_final(
         return None
     attestation = _role_attestation(workspace_root)
     if attestation is None:
+        cause = "the exact live role/witness binding is unavailable"
+        finalization = _finalization_contract(ae_root)
+        if finalization is None:
+            return {
+                "action": "block",
+                "message": _offline_attestation_message(
+                    "the CATALYST finalization contract is unavailable or malformed"
+                ),
+            }
+        if attempt == 0 and _role_binding_is_absent(ae_root):
+            return {
+                "action": "continue",
+                "message": _offline_recovery_message(
+                    finalization["refusals"]["bootstrap-decision-required"], cause
+                ),
+            }
         return {
             "action": "block",
-            "message": _offline_attestation_message(
-                "the exact live role/witness binding is unavailable"
-            ),
+            "message": _offline_attestation_message(cause),
         }
     root, role, _, _, _, suffix = attestation
     finalization = _finalization_contract(root)
@@ -550,15 +627,15 @@ def _post_final(
     return {"state": "submitted", "code": "effigy-response-final-submitted"}
 
 
-def _contains_signout(value: Any, depth: int = 0) -> bool:
+def _contains_role_action(value: Any, actions: set[str], depth: int = 0) -> bool:
     if depth > 10:
         return False
     if isinstance(value, dict):
-        if value.get("state") == "signout" or value.get("action") == "signout":
+        if value.get("state") in actions or value.get("action") in actions:
             return True
-        return any(_contains_signout(child, depth + 1) for child in value.values())
+        return any(_contains_role_action(child, actions, depth + 1) for child in value.values())
     if isinstance(value, list):
-        return any(_contains_signout(child, depth + 1) for child in value)
+        return any(_contains_role_action(child, actions, depth + 1) for child in value)
     return False
 
 
@@ -571,14 +648,14 @@ def _transform_tool_result(
     status: str = "",
     **_: Any,
 ) -> None:
+    value_args = args.get("value") if isinstance(args, dict) else None
+    requested_action = value_args.get("action") if isinstance(value_args, dict) else None
     if (
         tool_name != "mcp__LUCID__set"
-        or args
-        != {
-            "path": "role-session",
-            "scope": "this",
-            "value": {"action": "signout"},
-        }
+        or not isinstance(args, dict)
+        or args.get("path") != "role-session"
+        or args.get("scope") != "this"
+        or requested_action not in {"signin", "register-signin", "recover", "signout"}
         or status not in {"ok", "success"}
         or not isinstance(result, str)
         or not session_id
@@ -589,9 +666,12 @@ def _transform_tool_result(
     except (TypeError, ValueError):
         return None
     if isinstance(value, dict) and not value.get("error") and not value.get("refusal"):
-        if _contains_signout(value):
+        if _contains_role_action(value, {requested_action}):
             with _STATE_LOCK:
-                _SIGNED_OUT_SESSIONS.add(session_id)
+                if requested_action == "signout":
+                    _SIGNED_OUT_SESSIONS.add(session_id)
+                else:
+                    _SIGNED_OUT_SESSIONS.discard(session_id)
     return None
 
 

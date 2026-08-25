@@ -33,6 +33,8 @@
  */
 
 import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
 
 const PROBE_TIMEOUT_MS = 5000
 
@@ -44,7 +46,38 @@ const PROBE_TIMEOUT_MS = 5000
  * @returns {string}
  */
 function hermesRuntimeImportProbe() {
-  return 'import yaml; import dotenv; import hermes_cli.config'
+  return [
+    'import yaml',
+    'import dotenv',
+    'import hermes_cli.config as hc',
+    'from pathlib import Path',
+    'r=Path(hc.__file__).resolve().parents[1]',
+    'assert (r/"plugins"/"ae-attestation"/"__init__.py").is_file()',
+    'assert b"get_pre_final_decision" in (r/"agent"/"conversation_loop.py").read_bytes()'
+  ].join('; ')
+}
+
+function catalystRuntimeRootForCommand(command: string): string | null {
+  if (!command) return null
+  let current: string
+  try {
+    current = fs.realpathSync(command)
+  } catch {
+    return null
+  }
+  current = path.dirname(current)
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (
+      fs.existsSync(path.join(current, 'plugins', 'ae-attestation', '__init__.py')) &&
+      fs.existsSync(path.join(current, 'agent', 'conversation_loop.py'))
+    ) {
+      return current
+    }
+    const parent = path.dirname(current)
+    if (parent === current) break
+    current = parent
+  }
+  return null
 }
 
 /**
@@ -114,7 +147,10 @@ function shouldTrustHermesOverride(hermesOverride?: string) {
   return typeof hermesOverride === 'string' && hermesOverride.trim().length > 0
 }
 
-function verifyHermesCli(hermesCommand: string, opts?: { shell?: boolean }) {
+function verifyHermesCli(
+  hermesCommand: string,
+  opts?: { shell?: boolean; requireCatalystFinalization?: boolean }
+) {
   if (!hermesCommand) {
     return false
   }
@@ -127,10 +163,23 @@ function verifyHermesCli(hermesCommand: string, opts?: { shell?: boolean }) {
       windowsHide: true
     })
 
+    if (opts?.requireCatalystFinalization) {
+      const root = catalystRuntimeRootForCommand(hermesCommand)
+      if (!root) return false
+      const loop = fs.readFileSync(path.join(root, 'agent', 'conversation_loop.py'))
+      if (!loop.includes(Buffer.from('get_pre_final_decision'))) return false
+    }
     return true
   } catch {
     return false
   }
 }
 
-export { canImportHermesCli, hermesRuntimeImportProbe, PROBE_TIMEOUT_MS, shouldTrustHermesOverride, verifyHermesCli }
+export {
+  canImportHermesCli,
+  catalystRuntimeRootForCommand,
+  hermesRuntimeImportProbe,
+  PROBE_TIMEOUT_MS,
+  shouldTrustHermesOverride,
+  verifyHermesCli
+}

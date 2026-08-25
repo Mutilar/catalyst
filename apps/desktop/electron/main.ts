@@ -3629,7 +3629,13 @@ function resolveHermesBackend(backendArgs) {
       // the Nix wrapper), not a discovered PATH candidate. It must not fall
       // through to the install-script bootstrap if the optional probe times
       // out under load; the pinned backend is the only valid runtime there.
-      if (shouldTrustHermesOverride(hermesOverride) || verifyHermesCli(hermesCommand, { shell: shellForProbe })) {
+      if (
+        shouldTrustHermesOverride(hermesOverride) ||
+        verifyHermesCli(hermesCommand, {
+          shell: shellForProbe,
+          requireCatalystFinalization: true
+        })
+      ) {
         return (
           unwrapWindowsVenvHermesCommand(hermesCommand, backendArgs) || {
             label: `existing Hermes CLI at ${hermesCommand}`,

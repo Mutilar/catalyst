@@ -14,6 +14,7 @@ import { test } from 'vitest'
 
 import {
   canImportHermesCli,
+  catalystRuntimeRootForCommand,
   hermesRuntimeImportProbe,
   shouldTrustHermesOverride,
   verifyHermesCli
@@ -54,6 +55,13 @@ test('hermes runtime import probe checks config dependencies', () => {
   // passed the old probe and produced an unrecoverable boot loop.
   assert.match(probe, /\bimport dotenv\b/)
   assert.match(probe, /\bimport hermes_cli\.config\b/)
+  assert.match(probe, /plugins.*ae-attestation/)
+  assert.match(probe, /get_pre_final_decision/)
+})
+
+test('Catalyst finalization admission rejects an ordinary executable', () => {
+  assert.equal(catalystRuntimeRootForCommand(NODE_BIN), null)
+  assert.equal(verifyHermesCli(NODE_BIN, { requireCatalystFinalization: true }), false)
 })
 
 test('explicit Hermes override is authoritative', () => {
