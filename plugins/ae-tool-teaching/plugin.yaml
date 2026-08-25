@@ -6,3 +6,4 @@ kind: backend
 hooks:
   - pre_tool_call
   - transform_tool_result
+  - on_session_end

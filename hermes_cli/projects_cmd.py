@@ -308,28 +308,6 @@ def _cmd_bind_board(args, conn, proj) -> int:
     pdb.update_project(conn, proj.id, board_slug=args.board)
     if args.board.strip():
         print(f"Bound {proj.slug} -> board {args.board}")
-        _sync_board_default_workdir(proj, args.board)
     else:
         print(f"Unbound board from {proj.slug}")
     return 0
-
-
-def _sync_board_default_workdir(proj, board_slug: str) -> None:
-    """Best-effort: point the bound board's default_workdir at the primary repo.
-
-    Keeps kanban task worktrees anchored to the project's repo. Failures here
-    are non-fatal — the binding itself already succeeded.
-    """
-    if not proj.primary_path:
-        return
-    try:
-        from hermes_cli import kanban_db as kb
-
-        slug = kb._normalize_board_slug(board_slug)
-        if not slug:
-            return
-        if slug != kb.DEFAULT_BOARD and not kb.board_exists(slug):
-            return
-        kb.write_board_metadata(slug, default_workdir=proj.primary_path)
-    except Exception:
-        pass

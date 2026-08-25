@@ -107,6 +107,29 @@ def required_terminal_suffix(workspace_root: str | os.PathLike[str]) -> Optional
     return attestation[5] if attestation is not None else None
 
 
+def _ae_workspace_root(workspace_root: str | os.PathLike[str]) -> Optional[Path]:
+    """Return one recognizable AE root without treating prompt prose as authority."""
+    try:
+        root = Path(workspace_root).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return None
+    required = (root / _HARNESS, root / _ROLE_REGISTRY, root / _WITNESS_REGISTRY)
+    try:
+        if all(path.is_file() and not path.is_symlink() for path in required):
+            return root
+    except OSError:
+        return None
+    return None
+
+
+def _offline_attestation_message(cause: str) -> str:
+    return (
+        "🔴 LUCID · role-attestation · offline\n"
+        f"🔎 CATALYST refused finalization because {cause}.\n"
+        "➡️ recover one exact live role-session binding before finalizing"
+    )
+
+
 def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
     harness = _read_regular_json(root / _HARNESS, _MAX_HARNESS_BYTES)
     finalization = harness.get("finalization") if isinstance(harness, dict) else None
@@ -257,13 +280,26 @@ def _pre_final(
 ) -> Optional[dict[str, str]]:
     if attempt < 0 or not isinstance(final_response, str) or not final_response.strip():
         return None
+    ae_root = _ae_workspace_root(workspace_root)
+    if ae_root is None:
+        return None
     attestation = _role_attestation(workspace_root)
     if attestation is None:
-        return None
+        return {
+            "action": "block",
+            "message": _offline_attestation_message(
+                "the exact live role/witness binding is unavailable"
+            ),
+        }
     root, role, _, _, _, suffix = attestation
     finalization = _finalization_contract(root)
     if finalization is None:
-        return None
+        return {
+            "action": "block",
+            "message": _offline_attestation_message(
+                "the CATALYST finalization contract is unavailable or malformed"
+            ),
+        }
     cause = _attestation_failure(final_response, attestation, finalization)
     attempts = finalization["attempts"]
     if attempt >= len(attempts):

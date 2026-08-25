@@ -139,6 +139,27 @@ def test_multiple_witnesses_require_an_explicit_host_binding(plugin, tmp_path):
     assert plugin.required_terminal_suffix(root) is None
 
 
+def test_missing_live_role_binding_blocks_in_ae_workspace(plugin, tmp_path):
+    root = _workspace(tmp_path)
+    (root / "run" / "state" / "runtime" / "lucid-host-role.json").unlink()
+
+    result = plugin._pre_final(final_response="hello", workspace_root=str(root))
+
+    assert result == {
+        "action": "block",
+        "message": (
+            "🔴 LUCID · role-attestation · offline\n"
+            "🔎 CATALYST refused finalization because the exact live role/witness "
+            "binding is unavailable.\n"
+            "➡️ recover one exact live role-session binding before finalizing"
+        ),
+    }
+
+
+def test_pre_final_remains_inert_outside_ae_workspace(plugin, tmp_path):
+    assert plugin._pre_final(final_response="hello", workspace_root=str(tmp_path)) is None
+
+
 def test_explicit_non_penguin_witness_changes_the_exact_terminal_identity(plugin, tmp_path):
     root = _workspace(tmp_path)
     (root / "quine" / "author-glyphs.json").write_text(
@@ -404,14 +425,16 @@ def test_role_and_suffix_come_from_canon_not_prompt_or_model_claim(plugin, tmp_p
     assert "terminate with exactly 🧭🐧" in result["message"]
 
 
-def test_missing_malformed_or_symlinked_canon_is_inert(plugin, tmp_path):
+def test_missing_or_symlinked_binding_is_inert_outside_ae_and_blocked_inside(plugin, tmp_path):
     assert plugin._pre_final(final_response="Done.", workspace_root=str(tmp_path)) is None
     root = _workspace(tmp_path)
     decision = root / "run" / "state" / "runtime" / "lucid-host-role.json"
     decision.unlink()
     decision.symlink_to(root / "quine" / "canon" / "roles.json")
     assert plugin.required_terminal_suffix(root) is None
-    assert plugin._pre_final(final_response="Done.", workspace_root=str(root)) is None
+    result = plugin._pre_final(final_response="Done.", workspace_root=str(root))
+    assert result["action"] == "block"
+    assert "exact live role/witness binding is unavailable" in result["message"]
 
 
 def test_registers_attestation_lifecycle_hooks(plugin):

@@ -330,7 +330,6 @@ def get_tool_definitions(
             frozenset(disabled_toolsets) if disabled_toolsets else None,
             registry._generation,
             cfg_fp,
-            bool(os.environ.get("HERMES_KANBAN_TASK")),
             bool(skip_tool_search_assembly),
             _is_delegated_child_context(),
         )
@@ -376,17 +375,6 @@ def _compute_tool_definitions(
 
     if enabled_toolsets is not None:
         effective_enabled_toolsets = list(enabled_toolsets)
-        if (
-            os.environ.get("HERMES_KANBAN_TASK")
-            and not _is_delegated_child_context()
-            and "kanban" not in effective_enabled_toolsets
-        ):
-            # Dispatcher-spawned workers are scoped by HERMES_KANBAN_TASK and
-            # must always receive the lifecycle handoff tools. Assignee
-            # profiles may intentionally restrict their normal chat toolsets
-            # (for token/cost reasons), but that should not strip the kanban
-            # worker's completion/block/heartbeat surface.
-            effective_enabled_toolsets.append("kanban")
         for toolset_name in effective_enabled_toolsets:
             if validate_toolset(toolset_name):
                 resolved = resolve_toolset(toolset_name)

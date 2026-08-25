@@ -2027,7 +2027,6 @@ from gateway.session import (
 from gateway.delivery import DeliveryRouter, looks_like_telegram_private_chat_id
 from gateway.turn_lease import SessionTurnLeaseRegistry
 from gateway.authz_mixin import GatewayAuthorizationMixin
-from gateway.kanban_watchers import GatewayKanbanWatchersMixin
 from gateway.slash_commands import GatewaySlashCommandsMixin
 from gateway.platforms.base import (
     BasePlatformAdapter,
@@ -3162,7 +3161,7 @@ def _reconnect_backoff(attempt: int) -> int:
     return min(30 * (2 ** (attempt - 1)), _RECONNECT_BACKOFF_CAP)
 
 
-class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, GatewaySlashCommandsMixin):
+class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
     """
     Main gateway controller.
 
@@ -3422,7 +3421,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         # Last voice-channel context delivered per session — the VC note is
         # injected only when the live state differs from this value.
         self._session_vc_last: Dict[str, str] = {}
-        self._kanban_notifier_profile = self._active_profile_name()
+
         # Teams meeting pipeline runtime (bound later when msgraph_webhook adapter exists).
         self._teams_pipeline_runtime = None
         self._teams_pipeline_runtime_error: Optional[str] = None
@@ -8292,16 +8291,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         # Start background session expiry watcher to finalize expired sessions
         self._spawn_supervised(self._session_expiry_watcher, "session_expiry_watcher")
 
-        # Start background kanban notifier — delivers `completed`, `blocked`,
-        # `spawn_auto_blocked`, and `crashed` events to gateway subscribers
-        # so human-in-the-loop workflows hear back without polling.
-        self._spawn_supervised(self._kanban_notifier_watcher, "kanban_notifier_watcher")
-
-        # Start background kanban dispatcher — spawns workers for ready
-        # tasks. Gated by `kanban.dispatch_in_gateway` (default True).
-        # When false, users run `hermes kanban daemon` externally or
-        # simply don't use kanban; this loop becomes a no-op.
-        self._spawn_supervised(self._kanban_dispatcher_watcher, "kanban_dispatcher_watcher")
 
         # Start background reconnection watcher for platforms that failed at startup
         if self._failed_platforms:
@@ -8860,11 +8849,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         except Exception:
             return "default"
 
-    # ── Kanban board watchers ───────────────────────────────────────────
-    # The kanban notifier/dispatcher watcher loops + their helpers live in
-    # GatewayKanbanWatchersMixin (gateway/kanban_watchers.py). They use only
-    # self state, so inheriting the mixin keeps every self._kanban_* call site
-    # working unchanged while lifting ~1,000 LOC out of this file.
 
     async def _platform_reconnect_watcher(self) -> None:
         """Background task that periodically retries connecting failed platforms.
@@ -11017,13 +11001,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             if _cmd_def_inner and _cmd_def_inner.name == "background":
                 return await self._handle_background_command(event)
 
-            # /kanban must bypass the guard. It writes to a profile-agnostic
-            # DB (kanban.db), not to the running agent's state. In fact
-            # /kanban unblock is often the only way to free a worker that
-            # has blocked waiting for a peer — letting that be dispatched
-            # mid-run is the whole point of the board.
-            if _cmd_def_inner and _cmd_def_inner.name == "kanban":
-                return await self._handle_kanban_command(event)
 
             # /goal is safe mid-run for status/pause/clear/wait (inspection
             # and control-plane only — doesn't interrupt the running turn).
@@ -11471,8 +11448,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         if canonical == "personality":
             return await self._handle_personality_command(event)
 
-        if canonical == "kanban":
-            return await self._handle_kanban_command(event)
 
         if canonical == "suggestions":
             return await self._handle_suggestions_command(event)

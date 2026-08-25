@@ -262,13 +262,6 @@ TOOLSETS = {
         "includes": []
     },
 
-    # Compatibility tombstone for profiles written before AE consolidated work
-    # orchestration under LUCID. It intentionally admits no tools.
-    "kanban": {
-        "description": "Retired in AE; LUCID owns work orchestration",
-        "tools": [],
-        "includes": [],
-    },
 
     "discord": {
         "description": "Discord read and participate tools (fetch messages, search members, create threads)",
