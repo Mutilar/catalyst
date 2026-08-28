@@ -15,6 +15,7 @@ _REVIVAL = _REPO / "run/state/runtime/mcp-revival.json"
 _MAX_REGISTRY = 64 * 1024
 _MAX_REVIVAL = 4 * 1024
 _MAX_ARGUMENTS = 65_536
+_CANONICAL_SIGNALS = ("🟢", "⏳", "⚠️", "🔴")
 
 
 def _read_json(path: Path, maximum: int) -> dict[str, Any] | None:
@@ -137,6 +138,19 @@ def project_lucid_failure(
 ) -> dict[str, Any]:
     """Project every LUCID failure without inventing RUN-owned outage evidence."""
 
+    lines = detail.splitlines()
+    legacy_canonical = (
+        len(lines) >= 2
+        and any(lines[0].startswith(f"{signal} LUCID · ") for signal in _CANONICAL_SIGNALS)
+        and lines[1].startswith("🔎 ")
+    )
+    semantic_canonical = (
+        len(lines) == 1
+        and any(detail.startswith(f"{signal} 🧠 · ") for signal in _CANONICAL_SIGNALS)
+        and " · 🔎 " in detail
+    )
+    if legacy_canonical or semantic_canonical:
+        return {"error": detail}
     outage = project_lucid_transport_outage(tool, arguments)
     if outage is not None:
         return outage
@@ -146,15 +160,20 @@ def project_lucid_failure(
     if not isinstance(line_bytes, int) or not 1 <= line_bytes <= 4096:
         line_bytes = 1024
     bounded = " ".join(detail.split())[:line_bytes] or "isError response omitted content and structuredContent"
-    action = json.dumps(
-        {"label": "?", "verb": tool, "arguments": {}},
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
+    noun_key = {
+        "show": "view",
+        "get": "path",
+        "set": "path",
+        "morph": "codebook",
+        "dispatch": "task",
+        "steer": "action",
+        "cancel": "action",
+    }.get(tool)
+    noun = arguments.get(noun_key) if noun_key else None
+    segments = ["🔴 🧠", f"⚡ {tool.upper()}"]
+    if isinstance(noun, str) and noun:
+        segments.append(f"🎯 {noun.upper()}")
+    segments.extend([f"🎛️ {code.upper()}", f"🔎 {bounded}"])
     return {
-        "error": (
-            f"🔴 LUCID · {tool} · transport · {code}\n"
-            f"🔎 Code={code} · Detail={bounded}\n➡️ {action}"
-        )
+        "error": " · ".join(segments)
     }

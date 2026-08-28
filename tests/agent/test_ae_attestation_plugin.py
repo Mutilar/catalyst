@@ -154,7 +154,7 @@ def test_missing_live_role_binding_allows_one_bounded_recovery_turn(plugin, tmp_
     assert result["message"].startswith(
         "⚠️ LUCID · role-session · bootstrap-decision-required"
     )
-    assert "blocks finalization only" in result["message"]
+    assert "preserves the candidate final" in result["message"]
     assert "run/state/runtime/lucid-host-role.json" in result["message"]
     assert "OWNER WITNESS" in result["message"]
     assert "mcp__LUCID__get" in result["message"]
@@ -167,8 +167,7 @@ def test_missing_live_role_binding_allows_one_bounded_recovery_turn(plugin, tmp_
         attempt=1,
         session_id="offline-bootstrap",
     )
-    assert repeated["action"] == "block"
-    assert repeated["message"].startswith("🔴 LUCID · role-attestation · offline")
+    assert repeated is None
 
 
 def test_pre_final_remains_inert_outside_ae_workspace(plugin, tmp_path):
@@ -406,7 +405,8 @@ def test_missing_suffix_reinjects_canonical_onboarding_then_requires_signout(plu
     )
     assert signout["action"] == "continue"
     assert signout["message"].startswith("🔴 LUCID · role-session · signout-required")
-    assert "NEXT Sign out immediately:" in signout["message"]
+    assert "NEXT Preserve the candidate final" in signout["message"]
+    assert "before beginning another work turn" in signout["message"]
     assert '"action":"signout"' in signout["message"]
     assert "mcp__LUCID__set" in signout["message"]
 
@@ -423,12 +423,10 @@ def test_missing_suffix_reinjects_canonical_onboarding_then_requires_signout(plu
         session_id="drift",
         status="success",
     )
-    offline = plugin._pre_final(
+    released = plugin._pre_final(
         final_response="Signed out.", workspace_root=str(root), attempt=2, session_id="drift"
     )
-    assert offline["action"] == "block"
-    assert offline["message"].startswith("🔴 LUCID · role-session · offline")
-    assert "OWNER WITNESS" in offline["message"]
+    assert released is None
 
 
 def test_successful_role_session_recovery_clears_signed_out_state(plugin):
@@ -450,6 +448,92 @@ def test_successful_role_session_recovery_clears_signed_out_state(plugin):
     )
 
     assert "recovered-session" not in plugin._SIGNED_OUT_SESSIONS
+    assert "recovered-session" in plugin._LIVE_LIFECYCLE_SESSIONS
+
+
+def test_confirmed_capability_bound_witness_preserves_substantive_final(plugin, tmp_path):
+    root = _workspace(tmp_path)
+    (root / "run" / "state" / "runtime" / "lucid-host-role.json").write_text(
+        json.dumps(
+            {
+                "schema": "lucid-host-role-decision/1",
+                "role": "WITNESS",
+                "witness_alias": "brianhu",
+                "witness_glyph": "🐧",
+            }
+        ),
+        encoding="utf-8",
+    )
+    plugin._transform_tool_result(
+        tool_name="mcp__LUCID__set",
+        args={"path": "role-session", "scope": "this", "value": {"action": "recover"}},
+        result=json.dumps(
+            {"structuredContent": {"state": "bound", "role": "WITNESS"}}
+        ),
+        session_id="capability-bound-witness",
+        status="success",
+    )
+
+    assert (
+        plugin._pre_final(
+            final_response="Substantive EM result without an injected replacement.",
+            workspace_root=str(root),
+            attempt=1,
+            session_id="capability-bound-witness",
+        )
+        is None
+    )
+
+
+def test_unconfirmed_or_noncanonical_witness_preserves_finalization(plugin, tmp_path):
+    root = _workspace(tmp_path)
+    decision = root / "run" / "state" / "runtime" / "lucid-host-role.json"
+    decision.write_text(
+        json.dumps(
+            {
+                "schema": "lucid-host-role-decision/1",
+                "role": "WITNESS",
+                "witness_alias": "brianhu",
+                "witness_glyph": "🐧",
+            }
+        ),
+        encoding="utf-8",
+    )
+    unconfirmed = plugin._pre_final(
+        final_response="Unconfirmed.",
+        workspace_root=str(root),
+        attempt=1,
+        session_id="unconfirmed-witness",
+    )
+    assert unconfirmed is None
+
+    plugin._LIVE_LIFECYCLE_SESSIONS.add("noncanonical-witness")
+    decision.write_text(
+        json.dumps(
+            {
+                "schema": "lucid-host-role-decision/1",
+                "role": "WITNESS",
+                "witness_alias": "brianhu",
+                "witness_glyph": "🦊",
+            }
+        ),
+        encoding="utf-8",
+    )
+    noncanonical = plugin._pre_final(
+        final_response="Noncanonical.",
+        workspace_root=str(root),
+        attempt=1,
+        session_id="noncanonical-witness",
+    )
+    assert noncanonical is None
+
+
+def test_role_lifecycle_terminal_states_are_action_specific(plugin):
+    assert plugin._role_action_settled({"state": "signed-in"}, "recover")
+    assert plugin._role_action_settled({"state": "bound"}, "signin")
+    assert plugin._role_action_settled({"state": "unbound"}, "signout")
+    assert not plugin._role_action_settled({"state": "unbound"}, "recover")
+    assert not plugin._role_action_settled({"state": "signed-in"}, "signout")
 
 
 def test_role_and_suffix_come_from_canon_not_prompt_or_model_claim(plugin, tmp_path):
@@ -461,7 +545,7 @@ def test_role_and_suffix_come_from_canon_not_prompt_or_model_claim(plugin, tmp_p
     assert "terminate with exactly 🧭🐧" in result["message"]
 
 
-def test_missing_or_symlinked_binding_is_inert_outside_ae_and_blocked_inside(plugin, tmp_path):
+def test_missing_or_symlinked_binding_never_replaces_the_final(plugin, tmp_path):
     assert plugin._pre_final(final_response="Done.", workspace_root=str(tmp_path)) is None
     root = _workspace(tmp_path)
     decision = root / "run" / "state" / "runtime" / "lucid-host-role.json"
@@ -469,8 +553,7 @@ def test_missing_or_symlinked_binding_is_inert_outside_ae_and_blocked_inside(plu
     decision.symlink_to(root / "quine" / "canon" / "roles.json")
     assert plugin.required_terminal_suffix(root) is None
     result = plugin._pre_final(final_response="Done.", workspace_root=str(root))
-    assert result["action"] == "block"
-    assert "exact live role/witness binding is unavailable" in result["message"]
+    assert result is None
 
 
 def test_registers_attestation_lifecycle_hooks(plugin):

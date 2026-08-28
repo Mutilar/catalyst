@@ -541,6 +541,36 @@ def test_git_family_is_categorically_refused(plugin, workspace, command):
     assert receipt["alternative"]["tool"] == "mcp__LUCID__get"
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "jq '.enabled = true' config.json",
+        "/usr/bin/jq '.enabled = true' config.json",
+        "env jq '.enabled = true' config.json",
+        "command jq '.enabled = true' config.json",
+    ],
+)
+def test_jq_family_is_refused_with_set_json_alternative(plugin, workspace, command):
+    receipt = _receipt(
+        plugin._on_pre_tool_call(
+            tool_name="terminal",
+            args={"command": command, "workdir": str(workspace / "butler")},
+            session_id="jq",
+        )
+    )
+    assert receipt["schema"] == "penguin-tool-refusal/1"
+    assert receipt["state"] == "refused"
+    assert receipt["reason"] == "jq-prohibited"
+    assert receipt["executed"] is False
+    assert receipt["auto_replay"] is False
+    assert receipt["alternative"] == {
+        "tool": "mcp__LUCID__set",
+        "target": {"registry": "set-target", "id": "repository-json"},
+        "arguments": {"path": "json"},
+        "syntax": {"tool": "mcp__LUCID__set", "arguments": {"path": "json"}},
+    }
+
+
 def test_unregistered_or_compound_calls_are_refused(plugin, workspace):
     for command in ["cargo test && rm -rf nowhere", "make test"]:
         refusal = plugin._on_pre_tool_call(
@@ -634,6 +664,21 @@ def test_receipts_validate_against_canonical_schema(plugin, workspace):
         )
     )
     jsonschema.validate(refusal, _schema())
+    jq_refusal = _receipt(
+        plugin._on_pre_tool_call(
+            tool_name="terminal",
+            args={
+                "command": "jq '.enabled = true' config.json",
+                "workdir": str(workspace / "butler"),
+            },
+            session_id="schema-jq-refusal",
+        )
+    )
+    jsonschema.validate(jq_refusal, _schema())
+    mixed_refusal = dict(jq_refusal)
+    mixed_refusal["reason"] = "git-prohibited"
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(mixed_refusal, _schema())
     executable_refusal = plugin._on_pre_tool_call(
         tool_name="terminal",
         args={"command": "butler --help", "workdir": str(workspace / "butler")},

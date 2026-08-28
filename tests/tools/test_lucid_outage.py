@@ -124,10 +124,11 @@ def test_unattested_empty_error_uses_canonical_outcome_code(monkeypatch, tmp_pat
 
     assert set(result) == {"error"}
     assert result["error"].startswith(
-        "🔴 LUCID · dispatch · transport · outcome-envelope-invalid"
+        "🔴 🧠 · ⚡ DISPATCH · 🎛️ OUTCOME-ENVELOPE-INVALID"
     )
     assert "MCP tool returned an error" not in result["error"]
-    assert '➡️ {"arguments":{},"label":"?","verb":"dispatch"}' in result["error"]
+    assert "➡️" not in result["error"]
+    assert "?" not in result["error"]
 
 
 def test_failure_gestalt_is_stable_for_the_same_evidence(monkeypatch, tmp_path):
@@ -139,6 +140,25 @@ def test_failure_gestalt_is_stable_for_the_same_evidence(monkeypatch, tmp_path):
 
     assert first == second
     assert "structuredContent" not in first
+
+
+def test_canonical_semantic_refusal_is_transparent_passthrough(monkeypatch, tmp_path):
+    monkeypatch.setattr(lucid_outage, "_OFFLINE", tmp_path / "absent-offline.json")
+    monkeypatch.setattr(lucid_outage, "_REVIVAL", tmp_path / "absent-revival.json")
+    refusal = (
+        "🔴 🧠 · ⚡ SET · 🎯 ROLE-SESSION · 🎛️ RECOVER · "
+        "🔎 ROLE-SUPERSEDED: role binding settlement outcome unknown · "
+        "➡️ 🧠 · ⚡ GET · 🎯 ROLE-SESSION · 🔎 Inspect settlement before retrying"
+    )
+
+    result = lucid_outage.project_lucid_failure(
+        "set",
+        {"path": "role-session", "value": {"action": "recover"}},
+        refusal,
+        code="outcome-envelope-invalid",
+    )
+
+    assert result == {"error": refusal}
 
 
 def test_server_supplied_ugui_error_is_not_forwarded_through_model_context():
@@ -153,5 +173,5 @@ def test_server_supplied_ugui_error_is_not_forwarded_through_model_context():
     assert set(result) == {"error"}
     assert "structuredContent" not in result
     assert result["error"].startswith(
-        "🔴 LUCID · dispatch · transport · outcome-envelope-invalid"
+        "🔴 🧠 · ⚡ DISPATCH · 🎛️ OUTCOME-ENVELOPE-INVALID"
     )

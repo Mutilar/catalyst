@@ -686,12 +686,52 @@ def _refusal(
     declaration = target.get("compiled")
     if not isinstance(declaration, dict) or declaration.get("kind") != "refusal":
         raise ValueError("unregistered-refusal-shape")
+    reason = declaration.get("reason")
     alternative = declaration["alternative"]
+    if not isinstance(alternative, dict):
+        raise ValueError("unregistered-refusal-alternative")
     arguments = _resolve_binding(alternative["arguments"], intent, source_args, root)
+    tool = alternative.get("tool")
+    verb = alternative.get("verb")
+    target_identity = alternative.get("target")
+    family = (reason, tool, verb, target_identity, arguments)
+    if family == (
+        "git-prohibited",
+        "mcp__LUCID__get",
+        "get",
+        {"registry": "get-target", "id": "search"},
+        {"path": "search"},
+    ):
+        projected_alternative = {
+            "kind": "lucid-search",
+            "tool": tool,
+            "verb": verb,
+            "target": target_identity,
+            "arguments": arguments,
+            "constraint": (
+                "explicit search terms are required; "
+                "Git repository/history access remains prohibited"
+            ),
+        }
+    elif family == (
+        "jq-prohibited",
+        "mcp__LUCID__set",
+        "set",
+        {"registry": "set-target", "id": "repository-json"},
+        {"path": "json"},
+    ):
+        projected_alternative = {
+            "tool": tool,
+            "target": target_identity,
+            "arguments": arguments,
+            "syntax": {"tool": tool, "arguments": arguments},
+        }
+    else:
+        raise ValueError("unregistered-refusal-family")
     return {
         "schema": "penguin-tool-refusal/1",
         "state": "refused",
-        "reason": declaration.get("reason"),
+        "reason": reason,
         "authority": "none",
         "policy_owner": "CATALYST",
         "executed": False,
@@ -699,14 +739,7 @@ def _refusal(
         "original_executed": False,
         "registry_hash": _registry_hash(registry),
         "intent": intent,
-        "alternative": {
-            "kind": "lucid-search",
-            "tool": alternative["tool"],
-            "verb": alternative["verb"],
-            "target": alternative["target"],
-            "arguments": arguments,
-            "constraint": "explicit search terms are required; Git repository/history access remains prohibited",
-        },
+        "alternative": projected_alternative,
     }
 
 

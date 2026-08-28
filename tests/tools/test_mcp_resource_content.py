@@ -223,7 +223,11 @@ class TestErrorPathResourceText:
         from tools import mcp_tool
 
         fake_session = MagicMock()
-        fake_server = SimpleNamespace(session=fake_session, _rpc_lock=None)
+        fake_server = SimpleNamespace(
+            session=fake_session,
+            _rpc_lock=None,
+            _is_http=lambda: False,
+        )
 
         def _fake_run_on_mcp_loop(coro_or_factory, timeout=30):
             coro = coro_or_factory() if callable(coro_or_factory) else coro_or_factory
@@ -242,7 +246,8 @@ class TestErrorPathResourceText:
         mcp_tool._reset_server_error("test-server")
         try:
             with mock_patch.dict(mcp_tool._servers, {"test-server": fake_server}), \
-                 mock_patch("tools.mcp_tool._run_on_mcp_loop", side_effect=_fake_run_on_mcp_loop):
+                 mock_patch("tools.mcp_tool._run_on_mcp_loop", side_effect=_fake_run_on_mcp_loop), \
+                 mock_patch("tools.mcp_tool._current_butler_binding", return_value=(None, None)):
                 fake_session.call_tool = AsyncMock()
                 yield fake_session, mcp_tool._make_tool_handler("test-server", "my-tool", 30.0)
         finally:
@@ -310,6 +315,42 @@ class TestErrorPathResourceText:
             mcp_tool._servers.pop("LUCID", None)
             mcp_tool._reset_server_error("LUCID")
 
-        assert data["structuredContent"]["schema"] == "lucid-ugui-response/1"
-        assert data["structuredContent"]["state"] == "outcome-envelope-invalid"
+        assert data["error"].startswith(
+            "🔴 🧠 · ⚡ DISPATCH · 🎛️ OUTCOME-ENVELOPE-INVALID"
+        )
         assert "MCP tool returned an error" not in data["error"]
+
+    def test_lucid_semantic_error_is_transparent_passthrough(
+        self, _handler, monkeypatch, tmp_path
+    ):
+        from unittest.mock import AsyncMock
+
+        from tools import lucid_outage, mcp_tool
+
+        refusal = (
+            "🔴 🧠 · ⚡ SET · 🎯 ROLE-SESSION · 🎛️ RECOVER · "
+            "🔎 ROLE-SUPERSEDED: role binding settlement outcome unknown · "
+            "➡️ 🧠 · ⚡ GET · 🎯 ROLE-SESSION · 🔎 Inspect settlement before retrying"
+        )
+        session, _ = _handler
+        monkeypatch.setattr(lucid_outage, "_OFFLINE", tmp_path / "absent-offline.json")
+        monkeypatch.setattr(lucid_outage, "_REVIVAL", tmp_path / "absent-revival.json")
+        mcp_tool._servers["LUCID"] = mcp_tool._servers["test-server"]
+        try:
+            session.call_tool = AsyncMock(
+                return_value=SimpleNamespace(
+                    content=[SimpleNamespace(type="text", text=refusal)],
+                    isError=True,
+                    structuredContent={"schema": "lucid-ugui-response/1"},
+                )
+            )
+            data = json.loads(
+                mcp_tool._make_tool_handler("LUCID", "set", 30.0)(
+                    {"path": "role-session", "value": {"action": "recover"}}
+                )
+            )
+        finally:
+            mcp_tool._servers.pop("LUCID", None)
+            mcp_tool._reset_server_error("LUCID")
+
+        assert data["error"] == refusal

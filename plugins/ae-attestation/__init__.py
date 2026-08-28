@@ -30,6 +30,7 @@ _MAX_INDEX_BYTES = 64 * 1024
 _MAX_ONBOARDING_BYTES = 512 * 1024
 _STATE_LOCK = threading.Lock()
 _SIGNED_OUT_SESSIONS: set[str] = set()
+_LIVE_LIFECYCLE_SESSIONS: set[str] = set()
 _SPOKEN_FINALS: set[tuple[str, str]] = set()
 _MAX_FINAL_SPEECH_BYTES = 65_536
 logger = logging.getLogger(__name__)
@@ -107,6 +108,29 @@ def required_terminal_suffix(workspace_root: str | os.PathLike[str]) -> Optional
     return attestation[5] if attestation is not None else None
 
 
+def _witness_lifecycle_binding(root: Path) -> bool:
+    decision = _read_regular_json(root / _ROLE_DECISION, _MAX_DECISION_BYTES)
+    witnesses = _read_regular_json(root / _WITNESS_REGISTRY, _MAX_REGISTRY_BYTES)
+    if (
+        not decision
+        or decision.get("schema") != "lucid-host-role-decision/1"
+        or decision.get("role") != "WITNESS"
+        or not witnesses
+        or witnesses.get("schema") != "ae-author-glyphs/1"
+    ):
+        return False
+    authors = witnesses.get("authors")
+    alias = decision.get("witness_alias")
+    glyph = authors.get(alias) if isinstance(authors, dict) and isinstance(alias, str) else None
+    return (
+        isinstance(glyph, str)
+        and bool(glyph)
+        and len(glyph) <= 16
+        and not any(character.isspace() or character.isascii() for character in glyph)
+        and decision.get("witness_glyph") == glyph
+    )
+
+
 def _ae_workspace_root(workspace_root: str | os.PathLike[str]) -> Optional[Path]:
     """Return one recognizable AE root without treating prompt prose as authority."""
     try:
@@ -133,14 +157,6 @@ def _role_binding_is_absent(root: Path) -> bool:
     return False
 
 
-def _offline_attestation_message(cause: str) -> str:
-    return (
-        "🔴 LUCID · role-attestation · offline\n"
-        f"🔎 CATALYST refused finalization because {cause}.\n"
-        "➡️ recover one exact live role-session binding before finalizing"
-    )
-
-
 def _offline_recovery_message(projection: dict[str, Any], cause: str) -> str:
     inspect = projection["inspect"]
     recover = projection["recover"]
@@ -155,7 +171,7 @@ def _offline_recovery_message(projection: dict[str, Any], cause: str) -> str:
         f"🔎 {cause}.\n"
         f"◆ {projection['evidence']} · OWNER {projection['owner']} · "
         f"SETTLES {projection['settles']}\n"
-        "◆ This guard blocks finalization only; continue the current turn to establish authority.\n"
+        "◆ This reminder preserves the candidate final; continue one bounded turn to establish authority.\n"
         f"➡️ Inspect: {inspect['tool']} {inspect_arguments}\n"
         f"➡️ Recover: {recover['tool']} {recover_arguments}\n"
         f"➡️ {projection['next']}"
@@ -226,10 +242,10 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
         or bootstrap.get("recover") != expected_recover
         or bootstrap.get("constraints")
         != [
-            "finalization-only-gate",
+            "finalization-reminder-only",
             "one-recovery-turn",
             "no-automatic-signin",
-            "no-final-before-binding",
+            "retain-candidate-final",
         ]
     ):
         return None
@@ -348,15 +364,25 @@ def _pre_final(
         return None
     attestation = _role_attestation(workspace_root)
     if attestation is None:
+        with _STATE_LOCK:
+            lifecycle_confirmed = (
+                bool(session_id)
+                and session_id in _LIVE_LIFECYCLE_SESSIONS
+                and session_id not in _SIGNED_OUT_SESSIONS
+            )
+        if lifecycle_confirmed and _witness_lifecycle_binding(ae_root):
+            logger.warning(
+                "preserving final for session-confirmed WITNESS lifecycle binding; "
+                "canonical finalization role is unavailable"
+            )
+            return None
         cause = "the exact live role/witness binding is unavailable"
         finalization = _finalization_contract(ae_root)
         if finalization is None:
-            return {
-                "action": "block",
-                "message": _offline_attestation_message(
-                    "the CATALYST finalization contract is unavailable or malformed"
-                ),
-            }
+            logger.warning(
+                "preserving final because the CATALYST finalization contract is unavailable or malformed"
+            )
+            return None
         if attempt == 0 and _role_binding_is_absent(ae_root):
             return {
                 "action": "continue",
@@ -364,19 +390,15 @@ def _pre_final(
                     finalization["refusals"]["bootstrap-decision-required"], cause
                 ),
             }
-        return {
-            "action": "block",
-            "message": _offline_attestation_message(cause),
-        }
+        logger.warning("preserving final without exact live role/witness attestation")
+        return None
     root, role, _, _, _, suffix = attestation
     finalization = _finalization_contract(root)
     if finalization is None:
-        return {
-            "action": "block",
-            "message": _offline_attestation_message(
-                "the CATALYST finalization contract is unavailable or malformed"
-            ),
-        }
+        logger.warning(
+            "preserving final because the CATALYST finalization contract is unavailable or malformed"
+        )
+        return None
     cause = _attestation_failure(final_response, attestation, finalization)
     attempts = finalization["attempts"]
     if attempt >= len(attempts):
@@ -386,11 +408,7 @@ def _pre_final(
             selected = attempts[1]
             message = _render_attempt(root, role, suffix, "repeated-role-protocol-drift", selected)
             return {"action": "continue", "message": message} if message is not None else None
-        terminal = finalization["terminal"]
-        message = terminal.get("gestalt")
-        if not isinstance(message, str) or not message:
-            return None
-        return {"action": "block", "message": message}
+        return None
     if cause is None:
         return None
     selected = attempts[attempt]
@@ -639,6 +657,16 @@ def _contains_role_action(value: Any, actions: set[str], depth: int = 0) -> bool
     return False
 
 
+def _role_action_settled(value: Any, action: str) -> bool:
+    terminal_states = {
+        "signin": {"signin", "signed-in", "bound"},
+        "register-signin": {"register-signin", "signed-in", "bound"},
+        "recover": {"recover", "recovered", "signed-in", "bound"},
+        "signout": {"signout", "signed-out", "unbound"},
+    }
+    return _contains_role_action(value, terminal_states.get(action, {action}))
+
+
 def _transform_tool_result(
     *,
     tool_name: str = "",
@@ -666,12 +694,14 @@ def _transform_tool_result(
     except (TypeError, ValueError):
         return None
     if isinstance(value, dict) and not value.get("error") and not value.get("refusal"):
-        if _contains_role_action(value, {requested_action}):
+        if _role_action_settled(value, requested_action):
             with _STATE_LOCK:
                 if requested_action == "signout":
                     _SIGNED_OUT_SESSIONS.add(session_id)
+                    _LIVE_LIFECYCLE_SESSIONS.discard(session_id)
                 else:
                     _SIGNED_OUT_SESSIONS.discard(session_id)
+                    _LIVE_LIFECYCLE_SESSIONS.add(session_id)
     return None
 
 
@@ -679,6 +709,7 @@ def _on_session_end(*, session_id: str = "", **_: Any) -> None:
     if session_id:
         with _STATE_LOCK:
             _SIGNED_OUT_SESSIONS.discard(session_id)
+            _LIVE_LIFECYCLE_SESSIONS.discard(session_id)
             stale = {
                 identity for identity in _SPOKEN_FINALS if identity[0] == session_id
             }
