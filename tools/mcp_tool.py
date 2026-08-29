@@ -3616,6 +3616,9 @@ _server_last_call_errors: Dict[str, str] = {}
 _CIRCUIT_BREAKER_THRESHOLD = 3
 _CIRCUIT_BREAKER_COOLDOWN_SEC = 60.0
 _RESPONSE_MODALITY_EXTENSION = "com.asg.lucid/response-modality"
+_HOST_CONTEXT_EXTENSION = "com.asg.lucid/host-context"
+_HOST_BOOTSTRAP_SCHEMA = "hermes-lucid-bootstrap-decision/1"
+_AGENT_ROLES = {"EM", "SIDEKICK", "BUTLER", "ENGINEER"}
 
 
 def _bump_server_error(server_name: str) -> None:
@@ -3643,8 +3646,12 @@ def _reset_server_error(server_name: str) -> None:
     _server_last_call_errors.pop(server_name, None)
 
 
-def _preferred_tool_call_meta(server: Any) -> Optional[dict]:
-    """Prefer UGUI only when the MCP server advertises that shared extension."""
+def _preferred_tool_call_meta(
+    server: Any,
+    tool_name: str = "",
+    arguments: Optional[dict] = None,
+) -> Optional[dict]:
+    """Project only negotiated presentation and host-owned session metadata."""
     initialize_result = getattr(server, "initialize_result", None)
     capabilities = getattr(initialize_result, "capabilities", None)
     if isinstance(capabilities, dict):
@@ -3653,13 +3660,49 @@ def _preferred_tool_call_meta(server: Any) -> Optional[dict]:
         experimental = getattr(capabilities, "experimental", None)
     if not isinstance(experimental, dict):
         return None
+    meta: dict[str, Any] = {}
     advertisement = experimental.get(_RESPONSE_MODALITY_EXTENSION)
-    if not isinstance(advertisement, dict):
-        return None
-    modes = advertisement.get("modes")
-    if not isinstance(modes, list) or "ugui" not in modes:
-        return None
-    return {_RESPONSE_MODALITY_EXTENSION: {"mode": "ugui"}}
+    if isinstance(advertisement, dict):
+        modes = advertisement.get("modes")
+        if isinstance(modes, list) and "ugui" in modes:
+            meta[_RESPONSE_MODALITY_EXTENSION] = {"mode": "ugui"}
+
+    host_advertisement = experimental.get(_HOST_CONTEXT_EXTENSION)
+    if isinstance(host_advertisement, dict):
+        try:
+            from gateway.session_context import get_agent_role, get_session_env
+
+            session_id = get_session_env("HERMES_SESSION_ID").strip()
+            role = get_agent_role().strip().upper()
+        except Exception:
+            session_id = ""
+            role = ""
+        if (
+            role in _AGENT_ROLES
+            and 0 < len(session_id) <= 192
+            and all(
+                character.isalnum() or (index > 0 and character in "._:-")
+                for index, character in enumerate(session_id)
+            )
+        ):
+            host_context: dict[str, Any] = {
+                "session_id": session_id,
+                "authority": "none",
+            }
+            value = arguments.get("value") if isinstance(arguments, dict) else None
+            action = value.get("action") if isinstance(value, dict) else None
+            if tool_name == "set" and arguments.get("path") == "role" and action in {
+                "signin",
+                "recover",
+            }:
+                host_context["bootstrap"] = {
+                    "schema": _HOST_BOOTSTRAP_SCHEMA,
+                    "action": action,
+                    "role": role,
+                    "role_session_id": session_id,
+                }
+            meta[_HOST_CONTEXT_EXTENSION] = host_context
+    return meta or None
 
 
 def _signal_reconnect(server: Any) -> bool:
@@ -4713,6 +4756,8 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                     f"MCP server '{server_name}' is not connected",
                 )
 
+        preferred_meta = _preferred_tool_call_meta(server, tool_name, args)
+
         async def _call():
             _mark_server_call_started(server)
             async with server._rpc_lock:
@@ -4725,11 +4770,14 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                 # it and detect the gateway platform / session for routing.
                 server._pending_call_context = contextvars.copy_context()
                 try:
-                    meta = _preferred_tool_call_meta(server)
-                    if meta is None:
+                    if preferred_meta is None:
                         result = await session.call_tool(tool_name, arguments=args)
                     else:
-                        result = await session.call_tool(tool_name, arguments=args, meta=meta)
+                        result = await session.call_tool(
+                            tool_name,
+                            arguments=args,
+                            meta=preferred_meta,
+                        )
                 finally:
                     server._pending_call_context = None
             # The RPC round-trip completed — the session is demonstrably

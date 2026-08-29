@@ -9,8 +9,8 @@ import {
   mcpToolTitle,
   MODEL_VISIBLE_TOOL_RESULT_KEY,
   modelVisibleToolResult,
-  terminalRunsLucid,
-  terminalRequestsUgui
+  terminalRequestsUgui,
+  terminalRunsLucid
 } from './tool-presentation'
 
 const document = {
@@ -44,6 +44,7 @@ describe('model-visible MCP result', () => {
 describe('UGUI extraction', () => {
   it('separates full presentation UGUI from the model-visible Gestalt sidecar', () => {
     const gestalt = '🟢 LUCID · get · onboarding · ready'
+
     const result = {
       [MODEL_VISIBLE_TOOL_RESULT_KEY]: gestalt,
       result: gestalt,
@@ -56,6 +57,7 @@ describe('UGUI extraction', () => {
 
   it('extracts replacement UGUI from the exact inline-action channel envelope', () => {
     const gestalt = '🟢 LUCID · get · gates · fresh'
+
     const result = {
       schema: 'hermes-tool-result-channels/1',
       model: gestalt,
@@ -81,6 +83,7 @@ describe('UGUI extraction', () => {
 
   it('renders structured UGUI for MCP domain refusals marked isError', () => {
     const refusal = { ...document, state: 'bootstrap-decision-required' }
+
     const result = {
       [MODEL_VISIBLE_TOOL_RESULT_KEY]: {
         content: [{ type: 'text', text: 'fallback GESTALT' }],
@@ -125,6 +128,7 @@ describe('Gestalt extraction', () => {
       'Runtime logs Source=catalyst',
       'Runtime logs Freshness=stale'
     ].join('\n')
+
     const result = {
       [MODEL_VISIBLE_TOOL_RESULT_KEY]: {
         content: [{ type: 'text', text: gestalt }],

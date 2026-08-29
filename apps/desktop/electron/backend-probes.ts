@@ -58,14 +58,17 @@ function hermesRuntimeImportProbe() {
 }
 
 function catalystRuntimeRootForCommand(command: string): string | null {
-  if (!command) return null
+  if (!command) {return null}
   let current: string
+
   try {
     current = fs.realpathSync(command)
   } catch {
     return null
   }
+
   current = path.dirname(current)
+
   for (let depth = 0; depth < 8; depth += 1) {
     if (
       fs.existsSync(path.join(current, 'plugins', 'ae-attestation', '__init__.py')) &&
@@ -73,10 +76,13 @@ function catalystRuntimeRootForCommand(command: string): string | null {
     ) {
       return current
     }
+
     const parent = path.dirname(current)
-    if (parent === current) break
+
+    if (parent === current) {break}
     current = parent
   }
+
   return null
 }
 
@@ -165,10 +171,13 @@ function verifyHermesCli(
 
     if (opts?.requireCatalystFinalization) {
       const root = catalystRuntimeRootForCommand(hermesCommand)
-      if (!root) return false
+
+      if (!root) {return false}
       const loop = fs.readFileSync(path.join(root, 'agent', 'conversation_loop.py'))
-      if (!loop.includes(Buffer.from('get_pre_final_decision'))) return false
+
+      if (!loop.includes(Buffer.from('get_pre_final_decision'))) {return false}
     }
+
     return true
   } catch {
     return false

@@ -459,6 +459,9 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
         # Continuing session — reuse the exact system prompt from the
         # previous turn so the Anthropic cache prefix matches.
         agent._cached_system_prompt = stored_prompt
+        from gateway.session_context import bind_agent_role_from_system_prompt
+
+        bind_agent_role_from_system_prompt(stored_prompt)
         return
     if stored_prompt:
         stored_state = "stale_runtime"
@@ -486,6 +489,9 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
     # First turn of a new session (or recovering from a broken stored
     # prompt) — build from scratch.
     agent._cached_system_prompt = agent._build_system_prompt(system_message)
+    from gateway.session_context import bind_agent_role_from_system_prompt
+
+    bind_agent_role_from_system_prompt(agent._cached_system_prompt or "")
 
     # Plugin hook: on_session_start — fired once when a brand-new
     # session is created (not on continuation).  Plugins can use this

@@ -26,7 +26,6 @@ import type { McpUguiDocument as McpUguiDocumentValue } from '@/lib/tool-present
 import { projectLucidGestaltDetailed } from '@/lib/ugui-engine'
 import { cn } from '@/lib/utils'
 import { $hapticsMuted, toggleHapticsMuted } from '@/store/haptics'
-import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import {
   $fileBrowserOpen,
   $sidebarOpen,
@@ -34,8 +33,9 @@ import {
   togglePanesFlipped,
   toggleSidebarOpen
 } from '@/store/layout'
+import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 
-import { appViewForPath, isOverlayView, SETTINGS_ROUTE, SKILLS_ROUTE } from '../routes'
+import { appViewForPath, isOverlayView, SETTINGS_ROUTE } from '../routes'
 
 import { titlebarButtonClass } from './titlebar'
 
@@ -140,16 +140,19 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
   const activeProfile = useStore($activeGatewayProfile)
   const fileBrowserOpen = useStore($fileBrowserOpen)
   const sidebarOpen = useStore($sidebarOpen)
+
   const lucidRuntime = useQuery({
     queryKey: ['mcp-runtime', normalizeProfileKey(activeProfile)],
     queryFn: listMcpServers,
     refetchInterval: 3_000,
     staleTime: 1_000
   })
+
   const lucidStatus = deriveLucidMcpStatus(lucidRuntime.data?.servers, {
     error: lucidRuntime.error,
     loading: lucidRuntime.isLoading
   })
+
   const lucidGestalt = lucidMcpGestalt(lucidStatus)
   const [lucidModalOpen, setLucidModalOpen] = useState(false)
   const [lucidDocument, setLucidDocument] = useState<McpUguiDocumentValue | null>(null)
@@ -158,11 +161,13 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
   const [restartModalOpen, setRestartModalOpen] = useState(false)
   const [restartDecisionPending, setRestartDecisionPending] = useState(false)
   const [restartDecisionError, setRestartDecisionError] = useState<string | null>(null)
+
   const restartConsent = (
     window.hermesDesktop as typeof window.hermesDesktop & {
       restartConsent?: RestartConsentBridge
     }
   ).restartConsent
+
   const restartIntentQuery = useQuery({
     enabled: Boolean(restartConsent),
     queryKey: ['catalyst-restart-intent'],
@@ -170,6 +175,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
     refetchInterval: 3_000,
     staleTime: 1_000
   })
+
   const restartIntent = restartIntentQuery.data ?? null
 
   const decideRestart = async (action: 'accept' | 'defer') => {
@@ -207,6 +213,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
     if (!lucidModalOpen) {
       setLucidDocument(null)
       setLucidProjectionError(null)
+
       return () => {
         cancelled = true
       }

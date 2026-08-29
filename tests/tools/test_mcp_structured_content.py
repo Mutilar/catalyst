@@ -193,6 +193,98 @@ class TestStructuredContentPreservation:
             "com.asg.lucid/response-modality": {"mode": "ugui"}
         }
 
+    def test_advertised_host_context_binds_exact_agent_session_role(self, _patch_mcp_server):
+        from gateway.session_context import bind_agent_role_from_system_prompt, set_session_vars
+
+        session = _patch_mcp_server
+        session.call_tool = AsyncMock(
+            return_value=_FakeCallToolResult(content=[_FakeContentBlock("ok")])
+        )
+        mcp_tool._servers["test-server"].initialize_result = SimpleNamespace(
+            capabilities=SimpleNamespace(
+                experimental={
+                    "com.asg.lucid/response-modality": {
+                        "revision": 1,
+                        "default": "gestalt",
+                        "modes": ["gestalt", "envelope", "ugui"],
+                    },
+                    "com.asg.lucid/host-context": {
+                        "revision": 3,
+                        "identity_authority": "none",
+                    }
+                }
+            )
+        )
+        set_session_vars(session_id="hermes-session-42")
+        bind_agent_role_from_system_prompt("| **🎼🐧 PROTOCOL** | **RULE** |")
+
+        handler = mcp_tool._make_tool_handler("test-server", "set", 30.0)
+        assert json.loads(handler({"path": "role", "value": {"action": "signin"}})) == {
+            "result": "ok"
+        }
+        call = session.call_tool.await_args
+        assert call.kwargs["meta"] == {
+            "com.asg.lucid/response-modality": {"mode": "ugui"},
+            "com.asg.lucid/host-context": {
+                "session_id": "hermes-session-42",
+                "authority": "none",
+                "bootstrap": {
+                    "schema": "hermes-lucid-bootstrap-decision/1",
+                    "action": "signin",
+                    "role": "EM",
+                    "role_session_id": "hermes-session-42",
+                },
+            }
+        }
+
+        session.call_tool.reset_mock()
+        assert json.loads(mcp_tool._make_tool_handler("test-server", "get", 30.0)({
+            "path": "role"
+        })) == {"result": "ok"}
+        ordinary = session.call_tool.await_args.kwargs["meta"][
+            "com.asg.lucid/host-context"
+        ]
+        assert ordinary == {
+            "session_id": "hermes-session-42",
+            "authority": "none",
+        }
+
+    @pytest.mark.parametrize(
+        ("header", "role"),
+        [
+            ("| **🎼🐧 PROTOCOL** | **RULE** |", "EM"),
+            ("| **🧭🐧 PROTOCOL** | **RULE** |", "SIDEKICK"),
+            ("| **🎩🐧 PROTOCOL** | **RULE** |", "BUTLER"),
+            ("| **🦾🐧 PROTOCOL** | **RULE** |", "ENGINEER"),
+        ],
+    )
+    def test_host_context_bootstrap_preserves_each_closed_agent_role(
+        self, _patch_mcp_server, header, role
+    ):
+        from gateway.session_context import bind_agent_role_from_system_prompt, set_session_vars
+
+        server = mcp_tool._servers["test-server"]
+        server.initialize_result = SimpleNamespace(
+            capabilities=SimpleNamespace(
+                experimental={
+                    "com.asg.lucid/host-context": {
+                        "revision": 3,
+                        "identity_authority": "none",
+                    }
+                }
+            )
+        )
+        set_session_vars(session_id="hermes-role-session")
+        bind_agent_role_from_system_prompt(header)
+
+        meta = mcp_tool._preferred_tool_call_meta(
+            server,
+            "set",
+            {"path": "role", "value": {"action": "signin"}},
+        )
+
+        assert meta["com.asg.lucid/host-context"]["bootstrap"]["role"] == role
+
     def test_legacy_server_receives_no_unadvertised_metadata(self, _patch_mcp_server):
         session = _patch_mcp_server
         session.call_tool = AsyncMock(

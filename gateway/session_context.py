@@ -92,6 +92,14 @@ _SESSION_UI_SESSION_ID: ContextVar = ContextVar("HERMES_UI_SESSION_ID", default=
 _SESSION_MESSAGE_ID: ContextVar = ContextVar("HERMES_SESSION_MESSAGE_ID", default=_UNSET)
 
 _SESSION_PROFILE: ContextVar = ContextVar("HERMES_SESSION_PROFILE", default=_UNSET)
+_AGENT_ROLE: ContextVar = ContextVar("HERMES_AGENT_ROLE", default=_UNSET)
+
+_AGENT_ROLE_PROTOCOL_PREFIXES = {
+    "| **🎼": "EM",
+    "| **🧭": "SIDEKICK",
+    "| **🎩": "BUTLER",
+    "| **🦾": "ENGINEER",
+}
 
 # Whether the current session's delivery channel can route an ASYNC completion
 # back to the agent AFTER the current turn ends (i.e. wake a fresh turn).
@@ -153,6 +161,32 @@ def set_current_session_id(session_id: str) -> None:
     _SESSION_ID.set(session_id)
 
 
+def bind_agent_role_from_system_prompt(system_prompt: str) -> str:
+    """Bind one closed operational role from an exact generated protocol header.
+
+    The universal WITNESS header begins with ``| **🐧`` and therefore never
+    selects an agent role. Missing or ambiguous role headers bind no role.
+    User messages and tool arguments are never inspected.
+    """
+    matches = {
+        role
+        for prefix, role in _AGENT_ROLE_PROTOCOL_PREFIXES.items()
+        if any(
+            line.startswith(prefix) and line.endswith(" PROTOCOL** | **RULE** |")
+            for line in system_prompt.splitlines()
+        )
+    }
+    role = next(iter(matches)) if len(matches) == 1 else ""
+    _AGENT_ROLE.set(role)
+    return role
+
+
+def get_agent_role() -> str:
+    """Return only the task-local role attested from the cached system prompt."""
+    value = _AGENT_ROLE.get()
+    return value if isinstance(value, str) else ""
+
+
 def set_session_vars(
     platform: str = "",
     source: str = "",
@@ -189,6 +223,7 @@ def set_session_vars(
     # "ContextVar-authoritative, strip on _UNSET" — see session_context_engaged.
     global _session_context_engaged
     _session_context_engaged = True
+    _AGENT_ROLE.set(_UNSET)
     tokens = [
         _SESSION_PLATFORM.set(platform),
         _SESSION_SOURCE.set(source),
@@ -237,6 +272,7 @@ def clear_session_vars(tokens: list) -> None:
         _SESSION_UI_SESSION_ID,
         _SESSION_MESSAGE_ID,
         _SESSION_PROFILE,
+        _AGENT_ROLE,
     ):
         var.set("")
     # Reset async-delivery capability to the "never set" sentinel rather than a
@@ -288,6 +324,7 @@ def reset_session_vars() -> None:
     """
     for var in _VAR_MAP.values():
         var.set(_UNSET)
+    _AGENT_ROLE.set(_UNSET)
     # Reset the async-delivery capability to "never bound here" (_UNSET) for the
     # same inheritance-leak reason as the mapped vars above — see clear_session_vars,
     # which resets this var on the handler-exit path for the symmetric concern.

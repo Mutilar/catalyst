@@ -32,10 +32,12 @@ import pytest
 
 import gateway.session_context as sc
 from gateway.session_context import (
+    _AGENT_ROLE,
     _SESSION_ASYNC_DELIVERY,
     _UNSET,
     _VAR_MAP,
     async_delivery_supported,
+    bind_agent_role_from_system_prompt,
     reset_session_vars,
     set_session_vars,
 )
@@ -71,6 +73,7 @@ def _isolate_session_context():
     saved_env = {k: os.environ.get(k) for k in SESSION_VARS}
     saved_ctx = {name: var.get() for name, var in _VAR_MAP.items()}
     saved_async = _SESSION_ASYNC_DELIVERY.get()
+    saved_agent_role = _AGENT_ROLE.get()
     saved_engaged = sc._session_context_engaged
     for var in _VAR_MAP.values():
         var.set(_UNSET)
@@ -82,6 +85,7 @@ def _isolate_session_context():
         for var, val in zip(_VAR_MAP.values(), saved_ctx.values()):
             var.set(val)
         _SESSION_ASYNC_DELIVERY.set(saved_async)
+        _AGENT_ROLE.set(saved_agent_role)
         sc._session_context_engaged = saved_engaged
         for k, v in saved_env.items():
             if v is None:
@@ -176,6 +180,36 @@ def test_reset_session_vars_restores_unset_not_empty():
     reset_session_vars()
     for name, var in _VAR_MAP.items():
         assert var.get() is _UNSET, f"{name} is {var.get()!r}, expected _UNSET"
+
+
+@pytest.mark.parametrize(
+    ("header", "role"),
+    [
+        ("| **🎼🐧 PROTOCOL** | **RULE** |", "EM"),
+        ("| **🧭🐧 PROTOCOL** | **RULE** |", "SIDEKICK"),
+        ("| **🎩🐧 PROTOCOL** | **RULE** |", "BUTLER"),
+        ("| **🦾🐧 PROTOCOL** | **RULE** |", "ENGINEER"),
+    ],
+)
+def test_exact_generated_protocol_header_binds_one_agent_role(header, role):
+    assert bind_agent_role_from_system_prompt(f"{header}\n| role | FINAL |") == role
+    assert _AGENT_ROLE.get() == role
+
+
+def test_universal_or_ambiguous_protocol_headers_bind_no_agent_role():
+    assert bind_agent_role_from_system_prompt("| **🐧 PROTOCOL** | **RULE** |") == ""
+    assert bind_agent_role_from_system_prompt(
+        "| **🎼🐧 PROTOCOL** | **RULE** |\n| **🧭🐧 PROTOCOL** | **RULE** |"
+    ) == ""
+
+
+def test_new_session_bind_clears_inherited_agent_role_until_prompt_attestation():
+    bind_agent_role_from_system_prompt("| **🎼🐧 PROTOCOL** | **RULE** |")
+    assert _AGENT_ROLE.get() == "EM"
+
+    set_session_vars(session_id="new-session")
+
+    assert _AGENT_ROLE.get() is _UNSET
 
 
 # ---------------------------------------------------------------------------

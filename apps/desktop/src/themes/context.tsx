@@ -201,8 +201,10 @@ function applySkinBinding(root: HTMLElement, binding: UgUiSkinBinding | undefine
       root.style.removeProperty(property)
     }
   }
+
   delete root.dataset.hermesBorderModel
   delete root.dataset.hermesMotion
+
   for (const property of [
     '--radius-scalar',
     '--dt-spacing-mul',
@@ -222,7 +224,9 @@ function applySkinBinding(root: HTMLElement, binding: UgUiSkinBinding | undefine
       root.style.setProperty(`--skin-${slot}-${token}`, value)
     }
   }
+
   const desktopBackground = binding.chrome['desktop-background']
+
   if (desktopBackground?.startsWith('url("/png/backgrounds/')) {
     root.style.setProperty(
       '--skin-chrome-desktop-background',
@@ -233,81 +237,114 @@ function applySkinBinding(root: HTMLElement, binding: UgUiSkinBinding | undefine
   const radii = binding.geometry['radius-scale']?.split('/').map(value => value.trim()) ?? []
   const radius = radii[Math.min(1, radii.length - 1)]
   const radiusPx = Number.parseFloat(radius ?? '')
+
   if (Number.isFinite(radiusPx)) {
     root.style.setProperty('--radius-scalar', String(radiusPx / 12))
   }
+
   if (radius) {
     root.style.setProperty('--skin-radius', radius)
   }
+
   const strokeWidth = binding.geometry['stroke-width']?.split('/')[0]?.trim()
+
   if (strokeWidth) {
     root.style.setProperty('--skin-stroke-width', strokeWidth)
   }
+
   const gridPx = Number.parseFloat(binding.geometry['grid-unit'] ?? '')
+
   if (Number.isFinite(gridPx)) {
     root.style.setProperty('--dt-spacing-mul', String(gridPx / 8))
   }
+
   const spacing = binding.density['spacing-scale']?.split('/')[0]?.trim()
+
   if (spacing) {
     root.style.setProperty('--skin-spacing', spacing)
   }
+
   const typeScale = binding.typography['scale-ramp']?.split('/').map(value => value.trim()) ?? []
+
   if (typeScale[0]) {
     root.style.setProperty('--conversation-caption-font-size', typeScale[0])
   }
+
   if (typeScale[1]) {
     root.style.setProperty('--conversation-text-font-size', typeScale[1])
   }
+
   if (binding.typography.tracking) {
     root.style.setProperty('--skin-letter-spacing', binding.typography.tracking.split('/')[0].trim())
   }
+
   if (binding.typography.case) {
     root.style.setProperty('--skin-text-transform', binding.typography.case)
   }
+
   for (const [token, property] of [
     ['control-height', '--skin-control-height'],
     ['hit-target', '--skin-hit-target']
   ] as const) {
     const value = binding.density[token]
+
     if (value) {
       root.style.setProperty(property, value)
     }
   }
+
   const titlebarHeight = descriptorValue(binding.chrome['title-bar'], 'height')
+
   if (titlebarHeight) {
     root.style.setProperty('--titlebar-height', titlebarHeight)
   }
+
   const scrollbarWidth = descriptorValue(binding.chrome.scrollbar, 'width')
+
   if (scrollbarWidth) {
     root.style.setProperty('--skin-scrollbar-width', scrollbarWidth)
   }
+
   const duration = binding.motion.none ?? binding.motion['duration-ramp']?.split('/')[0]?.trim()
+
   if (duration) {
     root.style.setProperty('--skin-motion-duration', duration)
   }
+
   const easing = binding.motion['easing-set']?.split(';')[0]?.split(':').at(-1)?.trim()
+
   if (easing) {
     root.style.setProperty('--skin-motion-easing', easing)
   }
+
   const raisedColors = binding['border-model']['raised-delta']?.match(/#[0-9a-f]{6,8}/gi) ?? []
   const sunkenColors = binding['border-model']['sunken-delta']?.match(/#[0-9a-f]{6,8}/gi) ?? []
-  if (raisedColors[0]) root.style.setProperty('--skin-raised-light', raisedColors[0])
-  if (raisedColors[1]) root.style.setProperty('--skin-raised-dark', raisedColors[1])
-  if (sunkenColors[0]) root.style.setProperty('--skin-sunken-dark', sunkenColors[0])
-  if (sunkenColors[1]) root.style.setProperty('--skin-sunken-light', sunkenColors[1])
+
+  if (raisedColors[0]) {root.style.setProperty('--skin-raised-light', raisedColors[0])}
+
+  if (raisedColors[1]) {root.style.setProperty('--skin-raised-dark', raisedColors[1])}
+
+  if (sunkenColors[0]) {root.style.setProperty('--skin-sunken-dark', sunkenColors[0])}
+
+  if (sunkenColors[1]) {root.style.setProperty('--skin-sunken-light', sunkenColors[1])}
   const shadow = binding.elevation['dual-shadow']
+
   if (shadow) {
     root.style.setProperty('--skin-elevation-shadow', shadow)
   }
+
   const outline = binding['border-model'].outline
+
   if (outline) {
     root.style.setProperty('--skin-outline', outline)
   }
+
   if (binding['border-model'].bevel) {
     root.dataset.hermesBorderModel = 'bevel'
   } else if (binding['border-model'].outline || binding['border-model'].flat) {
     root.dataset.hermesBorderModel = 'flat'
   }
+
   root.dataset.hermesMotion = binding.motion.none !== undefined ? 'none' : 'animated'
 }
 
@@ -370,10 +407,12 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
   }
 
   const authoredTitlebar = normalizeHex(theme.skinBinding?.palette.titlebar, c.background)
+
   const authoredTitlebarText = normalizeHex(
     descriptorValue(theme.skinBinding?.chrome['title-bar'], 'color'),
     authoredTitlebar ?? c.background
   )
+
   const chromeBg = authoredTitlebar ?? chromeBackground(c.background, isDark)
 
   window.hermesDesktop?.setTitleBarTheme?.({
