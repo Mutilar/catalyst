@@ -118,9 +118,21 @@ def penguin_role_document() -> str:
     )
     if len(verb_names) != 7:
         raise ValueError("LUCID vocabulary contains an invalid verb identity")
+    get_targets = lucid.get("get_registry", {}).get("targets")
+    if not isinstance(get_targets, list):
+        raise ValueError("LUCID GET registry is unavailable")
+    get_ids = {
+        target.get("id")
+        for target in get_targets
+        if isinstance(target, dict) and isinstance(target.get("id"), str)
+    }
+    if not {"role", "pulse"}.issubset(get_ids) or "identity" in get_ids:
+        raise ValueError("LUCID role/pulse GET vocabulary is invalid")
     vocabulary = (
         f"LUCID has exactly {len(verb_names)} verbs: {' · '.join(verb_names)}. "
-        "MCP prompts and resources are discovery surfaces, not verbs."
+        "MCP prompts and resources are discovery surfaces, not verbs. "
+        "After sign-in, GET role verifies the binding and GET pulse reads current state; "
+        "GET identity is not registered."
     )
     return f"{text.rstrip()}\n\n{vocabulary}\n"
 

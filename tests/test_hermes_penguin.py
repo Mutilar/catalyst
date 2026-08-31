@@ -75,6 +75,9 @@ def test_exact_penguin_selection_maps_to_loopback_chat_completions() -> None:
     assert "LUCID SHOW/GET ONLY" in doctrine
     assert "LUCID has exactly 7 verbs:" in doctrine
     assert "MCP prompts and resources are discovery surfaces, not verbs." in doctrine
+    assert "GET role verifies the binding" in doctrine
+    assert "GET pulse reads current state" in doctrine
+    assert "GET identity is not registered" in doctrine
 
 
 @pytest.mark.parametrize(
