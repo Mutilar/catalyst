@@ -77,6 +77,42 @@ def test_exact_canonical_suffix_passes_without_synthetic_turn(plugin, tmp_path):
     assert plugin._pre_final(final_response="🟢 Done.\n\n🎼🐧", workspace_root=str(root)) is None
 
 
+def test_penguin_session_uses_canonical_double_penguin_not_host_role(plugin, tmp_path):
+    root = _workspace(tmp_path, role="EM", hat="🎼")
+    registry_path = root / "quine" / "canon" / "roles.json"
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    registry["roles"]["PENGUIN"] = {
+        "automation": "host",
+        "behavior_tag": "penguin_only",
+        "hat": "🐧",
+        "lease": "PENGUIN.md",
+    }
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    repository = Path(__file__).parents[3]
+    (root / "quine" / "mcp" / "onboarding" / "penguin.md").write_text(
+        (repository / "quine" / "mcp" / "onboarding" / "penguin.md").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        plugin._pre_final(
+            final_response="🟢 Local observation.\n\n🐧🐧",
+            workspace_root=str(root),
+            agent_role="PENGUIN",
+        )
+        is None
+    )
+    result = plugin._pre_final(
+        final_response="🟢 Local observation.\n\n🐧🐧 COMPLETE",
+        workspace_root=str(root),
+        agent_role="PENGUIN",
+    )
+    assert result["action"] == "continue"
+    assert "terminate with exactly 🐧🐧" in result["message"]
+
+
 def test_final_requires_one_canonical_gestalt_signal(plugin, tmp_path):
     root = _workspace(tmp_path)
     result = plugin._pre_final(
@@ -451,6 +487,20 @@ def test_successful_role_session_recovery_clears_signed_out_state(plugin):
 
     assert "recovered-session" not in plugin._SIGNED_OUT_SESSIONS
     assert "recovered-session" in plugin._LIVE_LIFECYCLE_SESSIONS
+
+
+def test_canonical_penguin_role_signin_tracks_live_session(plugin):
+    plugin._transform_tool_result(
+        tool_name="mcp__LUCID__set",
+        args={"path": "role", "value": {"action": "signin"}},
+        result=json.dumps(
+            {"structuredContent": {"state": "signed-in", "role": "PENGUIN"}}
+        ),
+        session_id="penguin-session",
+        status="success",
+    )
+
+    assert "penguin-session" in plugin._LIVE_LIFECYCLE_SESSIONS
 
 
 def test_confirmed_capability_bound_witness_preserves_substantive_final(plugin, tmp_path):

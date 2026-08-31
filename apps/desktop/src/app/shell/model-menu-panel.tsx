@@ -278,7 +278,7 @@ export function ModelMenuPanel({ gateway, onSelectModel, profile = 'default', re
                         : null
 
                     const isCurrent = activeId !== null
-                    const name = modelDisplayParts(family.id).name
+                    const name = group.provider.model_labels?.[family.id] ?? modelDisplayParts(family.id).name
                     // Capabilities are looked up against the active/base id; the
                     // -fast variant carries the same param support as its base.
                     const caps = group.provider.capabilities?.[family.id]
@@ -324,6 +324,7 @@ export function ModelMenuPanel({ gateway, onSelectModel, profile = 'default', re
                     return (
                       <DropdownMenuSub key={`${group.provider.slug}:${family.id}`}>
                         <DropdownMenuSubTrigger
+                          aria-label={name === family.id ? undefined : family.id}
                           className={dropdownMenuRow}
                           hideChevron
                           onClick={activate}
@@ -342,6 +343,7 @@ export function ModelMenuPanel({ gateway, onSelectModel, profile = 'default', re
                           ) : null}
                         </DropdownMenuSubTrigger>
                         <ModelEditSubmenu
+                          annotations={group.provider.model_annotations?.[family.id] ?? []}
                           effort={effEffort}
                           fastControl={fastControl}
                           isActive={isCurrent}

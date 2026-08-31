@@ -188,6 +188,33 @@ def test_flush_persist_override_replaces_api_local_multimodal_note(agent):
     assert api_content[0]["text"] == "[MODEL SWITCH NOTE]\n\nDescribe this screenshot"
 
 
+def test_flush_persists_structured_api_content_sidecar(agent):
+    clean_content = [
+        {"type": "text", "text": "Use this screenshot."},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+    ]
+    wire_content = [
+        {"type": "text", "text": "Continue the original request."},
+        *clean_content,
+    ]
+    agent._session_db = MagicMock()
+    agent._session_db_created = True
+    agent.session_id = "session-structured-sidecar"
+    agent._last_flushed_db_idx = 0
+    agent._persist_user_message_idx = None
+    agent._persist_user_message_override = None
+    agent._persist_user_message_timestamp = None
+
+    agent._flush_messages_to_session_db(
+        [{"role": "user", "content": clean_content, "api_content": wire_content}],
+        [],
+    )
+
+    db_write = agent._session_db.append_message.call_args.kwargs
+    assert db_write["content"] == "Use this screenshot.\n[screenshot]"
+    assert db_write["api_content"] == wire_content
+
+
 def test_direct_session_db_flushes_share_marker_claim(agent):
     """A direct flush cannot interleave its marker check with `_persist_session`."""
     class _BarrierDB:
@@ -4894,15 +4921,57 @@ class TestRunConversation:
         ]
         checkpoint = replay[-2]["content"]
         assert "interrupted by a user correction" in checkpoint
+        assert "original user request remains active" in checkpoint
         assert "I should implement this with SQLite." in checkpoint
-        assert replay[-1]["content"] == "No, use Postgres instead."
+        correction = replay[-1]["content"]
+        assert "continue fulfilling the original user request" in correction
+        assert correction.endswith("No, use Postgres instead.")
+        assert replay[-3]["content"] == "Choose a database and implement it."
         assert agent._pending_redirect is None
         assert any(
-            snapshot[-1].get("content") == "No, use Postgres instead."
+            snapshot[-1].get("content", "").endswith("No, use Postgres instead.")
             and snapshot[-2].get("role") == "assistant"
             for snapshot in persisted
             if len(snapshot) >= 2
         )
+
+    def test_redirect_with_image_reaches_wire_with_continuation_context(self, agent):
+        self._setup_agent(agent)
+        final = _mock_response(content="Continued comparison.", finish_reason="stop")
+        requests = []
+        correction_parts = [
+            {"type": "text", "text": "Use this diagram as the correction."},
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/png;base64,aW1hZ2U="},
+            },
+        ]
+
+        def _fake_api_call(api_kwargs):
+            requests.append(api_kwargs)
+            if len(requests) == 1:
+                assert agent.redirect(correction_parts) is True
+                raise InterruptedError("redirect cancelled the first request")
+            return final
+
+        with (
+            patch.object(agent, "_model_supports_vision", return_value=True),
+            patch.object(agent, "_interruptible_api_call", side_effect=_fake_api_call),
+            patch.object(agent, "_persist_session"),
+            patch.object(agent, "_save_trajectory"),
+            patch.object(agent, "_cleanup_task_resources"),
+        ):
+            result = agent.run_conversation("Compare our architecture to Codex.")
+
+        assert result["completed"] is True
+        assert len(requests) == 2
+        replay = requests[1]["messages"]
+        assert replay[-3]["content"] == "Compare our architecture to Codex."
+        wire_correction = replay[-1]["content"]
+        assert isinstance(wire_correction, list)
+        assert "continue fulfilling the original user request" in wire_correction[0]["text"]
+        assert "Use this diagram as the correction." in wire_correction[1]["text"]
+        assert wire_correction[2] == correction_parts[1]
 
     def test_redirect_wins_race_with_response_completion(self, agent):
         """If the provider returns as redirect lands, discard the stale answer."""

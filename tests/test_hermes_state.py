@@ -7165,6 +7165,15 @@ class TestLoneSurrogatePersistence:
         db.append_message("s1", "user", "clean", api_content=self.DIRTY)
         assert db.get_messages("s1")[0]["api_content"] == "scraped \ufffd price"
 
+    def test_structured_api_content_round_trips(self, db):
+        db.create_session("s1", source="cli")
+        wire = [
+            {"type": "text", "text": "Continue the original request."},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        ]
+        db.append_message("s1", "user", "clean", api_content=wire)
+        assert db.get_messages_as_conversation("s1")[0]["api_content"] == wire
+
     def test_append_message_survives_lone_surrogate_tool_name(self, db):
         db.create_session("s1", source="cli")
         db.append_message("s1", "tool", "ok", tool_name="web\ud835search")

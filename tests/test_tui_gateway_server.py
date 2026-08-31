@@ -109,6 +109,50 @@ def test_session_context_uses_session_cwd(monkeypatch, tmp_path):
         server._sessions.pop(sid, None)
 
 
+def test_session_context_derives_penguin_role_from_exact_model_selection():
+    from gateway.session_context import get_agent_role, get_session_env
+
+    sid = "penguin-live-session"
+    session_key = "penguin-stored-session"
+    server._sessions[sid] = {
+        "session_key": session_key,
+        "cwd": "",
+        "model_override": {"model": "PENGUIN", "provider": "penguin"},
+    }
+
+    tokens = server._set_session_context(session_key)
+    try:
+        assert get_session_env("HERMES_SESSION_ID") == sid
+        assert get_agent_role() == "PENGUIN"
+    finally:
+        server._clear_session_context(tokens)
+        server._sessions.pop(sid, None)
+
+
+def test_session_create_persists_exact_penguin_runtime_override(monkeypatch):
+    monkeypatch.setattr(server, "_completion_cwd", lambda _params=None: "")
+    monkeypatch.setattr(server, "_schedule_session_cap_enforcement", lambda: None)
+    monkeypatch.setattr(server, "_claim_active_session_slot", lambda *_args, **_kwargs: (None, None))
+
+    response = server._methods["session.create"](
+        "penguin-create",
+        {"cols": 80, "model": "PENGUIN", "provider": "penguin"},
+    )
+    sid = response["result"]["session_id"]
+    try:
+        assert response["result"]["info"]["model"] == "PENGUIN"
+        assert response["result"]["info"]["provider"] == "penguin"
+        assert server._sessions[sid]["model_override"] == {
+            "model": "PENGUIN",
+            "provider": "penguin",
+            "base_url": "http://127.0.0.1:8080/v1",
+            "api_key": "local-penguin",
+            "api_mode": "chat_completions",
+        }
+    finally:
+        server._sessions.pop(sid, None)
+
+
 def test_handoff_fail_marks_only_inflight_rows(monkeypatch):
     class DbContext:
         def __init__(self, db):
@@ -5750,6 +5794,8 @@ def test_config_set_model_once_keeps_env_and_records_restore(monkeypatch):
         base_url = "https://openrouter.ai/api/v1"
         api_key = "sk-old"
         api_mode = "chat_completions"
+        ephemeral_system_prompt = "EM prompt"
+        _cached_system_prompt = "EM prompt"
 
         def switch_model(self, **kwargs):
             self.model = kwargs["new_model"]
@@ -7259,6 +7305,28 @@ def test_session_info_includes_session_title(monkeypatch):
     )
 
     assert info["title"] == "Dashboard title"
+
+
+def test_session_info_preserves_penguin_picker_identity():
+    agent = types.SimpleNamespace(
+        tools=[],
+        model="PENGUIN",
+        provider="custom",
+        base_url="http://127.0.0.1:8080/v1",
+        reasoning_config=None,
+        service_tier=None,
+    )
+    session = {
+        "session_key": "penguin-session",
+        "history": [],
+        "model_override": {"model": "PENGUIN", "provider": "penguin"},
+        "_compute_host_active": True,
+    }
+
+    info = server._session_info(agent, session)
+
+    assert info["model"] == "PENGUIN"
+    assert info["provider"] == "penguin"
 
 
 # ---------------------------------------------------------------------------
@@ -8857,6 +8925,7 @@ def test_model_options_preserves_canonical_custom_row_after_agent_init(monkeypat
     assert "result" in resp, resp
     assert resp["result"]["provider"] == "custom:local-ollama"
     assert [row["slug"] for row in resp["result"]["providers"]] == [
+        "penguin",
         "custom:local-ollama"
     ]
     canonical.assert_called_once_with(
@@ -10518,6 +10587,183 @@ def test_make_agent_uses_session_runtime_overrides(monkeypatch):
     assert mock_agent.call_args.kwargs["provider"] == "openai-codex"
     assert mock_agent.call_args.kwargs["reasoning_config"] == {"enabled": True, "effort": "high"}
     assert mock_agent.call_args.kwargs["service_tier"] == "priority"
+
+
+def test_make_agent_routes_exact_penguin_selection_to_local_mlx(monkeypatch):
+    _setup_make_agent_mocks(monkeypatch, {})
+    monkeypatch.setattr(
+        server,
+        "_resolve_runtime_with_fallback",
+        lambda *_args, **_kwargs: pytest.fail("PENGUIN must bypass provider discovery"),
+    )
+
+    with patch("run_agent.AIAgent") as mock_agent:
+        server._make_agent(
+            "sid1",
+            "key1",
+            model_override={"model": "PENGUIN", "provider": "penguin"},
+        )
+
+    runtime = mock_agent.call_args.kwargs
+    assert runtime["model"] == "PENGUIN"
+    assert runtime["provider"] == "custom"
+    assert runtime["base_url"] == "http://127.0.0.1:8080/v1"
+    assert runtime["api_key"] == "local-penguin"
+    assert runtime["api_mode"] == "chat_completions"
+    assert mock_agent.return_value._wire_model == "mlx-community/Ornith-1.0-35B-4bit"
+    assert runtime["ephemeral_system_prompt"].startswith("<!-- GENERATED")
+    assert "| **🐧🐧 PROTOCOL** | **RULE** |" in runtime["ephemeral_system_prompt"]
+
+
+def test_live_model_switch_keeps_penguin_identity_over_custom_transport(monkeypatch):
+    class Agent:
+        model = "old-model"
+        provider = "openai"
+        base_url = ""
+        api_key = "old-key"
+        api_mode = "chat_completions"
+
+        def switch_model(self, **runtime):
+            self.model = runtime["new_model"]
+            self.provider = runtime["new_provider"]
+            self.base_url = runtime["base_url"]
+            self.api_key = runtime["api_key"]
+            self.api_mode = runtime["api_mode"]
+
+    agent = Agent()
+    session = {"agent": agent, "history": [], "model_override": None}
+    emitted = []
+    monkeypatch.setattr(server, "_restart_slash_worker", lambda *_args: None)
+    monkeypatch.setattr(server, "_persist_live_session_runtime", lambda *_args: None)
+    monkeypatch.setattr(server, "_persist_live_session_system_prompt", lambda *_args: None)
+    monkeypatch.setattr(server, "_append_model_switch_marker", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(server, "_emit", lambda event, sid, payload: emitted.append((event, sid, payload)))
+    monkeypatch.setattr(server, "_session_info", lambda _agent, current: {
+        "model": current["model_override"]["model"],
+        "provider": current["model_override"]["provider"],
+    })
+
+    result = server._apply_model_switch(
+        "penguin-live",
+        session,
+        "PENGUIN --provider penguin --session",
+    )
+
+    assert result == {
+        "value": "PENGUIN",
+        "warning": "",
+        "confirm_required": False,
+        "scope": "session",
+    }
+    assert agent.provider == "custom"
+    assert agent.base_url == "http://127.0.0.1:8080/v1"
+    assert agent._wire_model == "mlx-community/Ornith-1.0-35B-4bit"
+    assert "LUCID SHOW/GET ONLY" in agent.ephemeral_system_prompt
+    assert agent._cached_system_prompt is None
+    assert session["model_override"] == {
+        "model": "PENGUIN",
+        "provider": "penguin",
+        "base_url": "http://127.0.0.1:8080/v1",
+        "api_key": "local-penguin",
+        "api_mode": "chat_completions",
+    }
+    assert server._runtime_model_config(agent)["provider"] == "penguin"
+    assert emitted == [
+        (
+            "session.info",
+            "penguin-live",
+            {"model": "PENGUIN", "provider": "penguin"},
+        )
+    ]
+
+
+def test_live_model_switch_leaving_penguin_restores_configured_doctrine(monkeypatch):
+    class Agent:
+        model = "PENGUIN"
+        provider = "custom"
+        base_url = "http://127.0.0.1:8080/v1"
+        api_key = "local-penguin"
+        api_mode = "chat_completions"
+        ephemeral_system_prompt = "PENGUIN doctrine"
+        _cached_system_prompt = "PENGUIN doctrine"
+
+        def switch_model(self, **runtime):
+            self.model = runtime["new_model"]
+            self.provider = runtime["new_provider"]
+
+    agent = Agent()
+    session = {
+        "agent": agent,
+        "history": [],
+        "model_override": {"model": "PENGUIN", "provider": "penguin"},
+    }
+    result = types.SimpleNamespace(
+        success=True,
+        error_message="",
+        new_model="gpt-5.4",
+        target_provider="openai-codex",
+        base_url="",
+        api_key="",
+        api_mode="responses",
+        model_info=None,
+        warning_message="",
+    )
+    flags = types.SimpleNamespace(
+        model_input="gpt-5.4",
+        explicit_provider="openai-codex",
+        is_global=False,
+        is_session=True,
+        is_once=False,
+    )
+    monkeypatch.setattr("hermes_cli.model_switch.switch_model", lambda **_kwargs: result)
+    monkeypatch.setattr("hermes_cli.model_cost_guard.expensive_model_warning", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(server, "_load_cfg", lambda: {"agent": {"system_prompt": "EM prompt"}})
+    monkeypatch.setattr(server, "_restart_slash_worker", lambda *_args: None)
+    monkeypatch.setattr(server, "_persist_live_session_runtime", lambda *_args: None)
+    monkeypatch.setattr(server, "_persist_live_session_system_prompt", lambda *_args: None)
+    monkeypatch.setattr(server, "_append_model_switch_marker", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(server, "_emit", lambda *_args: None)
+
+    server._apply_model_switch(
+        "penguin-live",
+        session,
+        "gpt-5.4 --provider openai-codex --session",
+        parsed_flags=flags,
+    )
+
+    assert agent.provider == "openai-codex"
+    assert agent._wire_model is None
+    assert agent.ephemeral_system_prompt == "EM prompt"
+    assert agent._cached_system_prompt is None
+
+
+def test_penguin_runtime_round_trips_through_stored_session_overrides():
+    agent = types.SimpleNamespace(
+        model="PENGUIN",
+        provider="custom",
+        base_url="http://127.0.0.1:8080/v1",
+        api_mode="chat_completions",
+        reasoning_config={"enabled": False},
+        service_tier=None,
+    )
+
+    config = server._runtime_model_config(agent)
+    restored = server._stored_session_runtime_overrides(
+        {
+            "model": "PENGUIN",
+            "billing_provider": "custom",
+            "model_config": config,
+        }
+    )
+
+    assert config["provider"] == "penguin"
+    assert restored["model_override"] == {
+        "model": "PENGUIN",
+        "provider": "penguin",
+        "base_url": "http://127.0.0.1:8080/v1",
+        "api_mode": "chat_completions",
+    }
+    assert restored["provider_override"] == "penguin"
 
 
 def test_make_agent_handles_null_agent_config(monkeypatch):

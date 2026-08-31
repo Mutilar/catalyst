@@ -2312,6 +2312,7 @@ def get_pre_verify_continue_message(
 def get_pre_final_decision(
     *,
     session_id: str = "",
+    agent_role: str = "",
     platform: str = "",
     model: str = "",
     attempt: int = 0,
@@ -2326,6 +2327,7 @@ def get_pre_final_decision(
     hook_results = invoke_hook(
         "pre_final",
         session_id=session_id,
+        agent_role=agent_role,
         platform=platform,
         model=model,
         attempt=attempt,
@@ -2347,6 +2349,7 @@ def get_pre_final_decision(
 def get_pre_final_continue_message(
     *,
     session_id: str = "",
+    agent_role: str = "",
     platform: str = "",
     model: str = "",
     attempt: int = 0,
@@ -2356,6 +2359,7 @@ def get_pre_final_continue_message(
     """Compatibility projection of one typed pre-final decision to its message."""
     decision = get_pre_final_decision(
         session_id=session_id,
+        agent_role=agent_role,
         platform=platform,
         model=model,
         attempt=attempt,

@@ -92,6 +92,20 @@ def _make_agent(monkeypatch, provider, api_mode="chat_completions", base_url="ht
 # ── _build_api_kwargs tests ─────────────────────────────────────────────────
 
 class TestBuildApiKwargsOpenRouter:
+    def test_transport_model_override_preserves_public_agent_identity(self, monkeypatch):
+        agent = _make_agent(
+            monkeypatch,
+            "custom",
+            base_url="http://127.0.0.1:8080/v1",
+            model="PENGUIN",
+        )
+        agent._wire_model = "mlx-community/Ornith-1.0-35B-4bit"
+
+        kwargs = agent._build_api_kwargs([{"role": "user", "content": "hi"}])
+
+        assert agent.model == "PENGUIN"
+        assert kwargs["model"] == "mlx-community/Ornith-1.0-35B-4bit"
+
     def test_uses_chat_completions_format(self, monkeypatch):
         agent = _make_agent(monkeypatch, "openrouter")
         messages = [{"role": "user", "content": "hi"}]

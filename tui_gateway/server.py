@@ -2377,16 +2377,31 @@ def _set_session_context(
         # it instead of falling back to the gateway launch dir.
         resolved = cwd if cwd is not None else _cwd_for_session_key(session_key)
         source = _resolve_session_platform()
+        model = ""
+        provider = ""
+        live_session_id = ""
         with _sessions_lock:
-            for sess in list(_sessions.values()):
+            for candidate_session_id, sess in list(_sessions.items()):
                 if sess.get("session_key") == session_key:
+                    live_session_id = candidate_session_id
                     source = _session_source(sess)
+                    override = sess.get("model_override")
+                    if isinstance(override, dict):
+                        model = str(override.get("model") or "")
+                        provider = str(override.get("provider") or "")
+                    agent = sess.get("agent")
+                    if agent is not None:
+                        model = model or str(getattr(agent, "model", "") or "")
+                        provider = provider or str(getattr(agent, "provider", "") or "")
                     break
         return set_session_vars(
             session_key=session_key,
+            session_id=live_session_id,
             source=source,
             cwd=resolved,
             ui_session_id=ui_session_id,
+            model=model,
+            provider=provider,
         )
     except Exception:
         return []
@@ -2823,6 +2838,11 @@ def _runtime_model_config(agent, existing: dict | None = None) -> dict:
     api_mode = str(getattr(agent, "api_mode", "") or "").strip()
     reasoning_config = getattr(agent, "reasoning_config", None)
     service_tier = getattr(agent, "service_tier", None)
+
+    from hermes_penguin import PENGUIN_PROVIDER_ID, is_penguin_runtime
+
+    if is_penguin_runtime(model, base_url):
+        provider = PENGUIN_PROVIDER_ID
 
     if model:
         config["model"] = model
@@ -3439,7 +3459,56 @@ def _apply_model_switch(
     if not model_input:
         raise ValueError("model value required")
 
+    from hermes_penguin import (
+        clear_penguin_agent,
+        configure_penguin_agent,
+        is_penguin_selection,
+        penguin_model_override,
+        penguin_role_document,
+        penguin_runtime,
+    )
+
+    penguin_override = penguin_model_override(explicit_provider.strip(), model_input)
+    if penguin_override is not None:
+        if is_global_flag or one_turn:
+            raise ValueError("PENGUIN is a session-scoped model")
+        agent = session.get("agent")
+        runtime = penguin_runtime()
+        if agent is not None:
+            agent.switch_model(
+                new_model=penguin_override["model"],
+                new_provider=runtime["provider"],
+                api_key=runtime["api_key"],
+                base_url=runtime["base_url"],
+                api_mode=runtime["api_mode"],
+            )
+            agent._wire_model = runtime["model"]
+            agent.ephemeral_system_prompt = penguin_role_document()
+            configure_penguin_agent(agent)
+        if pin_session_override and isinstance(session, dict):
+            session["model_override"] = penguin_override
+        if agent is not None:
+            _restart_slash_worker(sid, session)
+            _persist_live_session_runtime(session)
+            _persist_live_session_system_prompt(session)
+            _append_model_switch_marker(
+                session,
+                model=penguin_override["model"],
+                provider=penguin_override["provider"],
+            )
+            _emit("session.info", sid, _session_info(agent, session))
+        return {
+            "value": penguin_override["model"],
+            "warning": "",
+            "confirm_required": False,
+            "scope": "session",
+        }
+
     agent = session.get("agent")
+    previous_override = session.get("model_override")
+    leaving_penguin = isinstance(previous_override, dict) and is_penguin_selection(
+        previous_override.get("provider"), previous_override.get("model")
+    )
     if one_turn and not agent:
         raise ValueError("/model --once requires a live session")
     if agent:
@@ -3549,6 +3618,14 @@ def _apply_model_switch(
                 base_url=result.base_url,
                 api_mode=result.api_mode,
             )
+            if leaving_penguin:
+                agent._wire_model = None
+                clear_penguin_agent(agent)
+                configured_agent = _load_cfg().get("agent") or {}
+                agent.ephemeral_system_prompt = _prompt_text(
+                    configured_agent.get("system_prompt", "")
+                ) or None
+                agent._cached_system_prompt = None
         except Exception as exc:
             # The in-place swap rolled the agent back to the old working
             # model/client and re-raised.  Abort the commit: do NOT restart the
@@ -4087,9 +4164,18 @@ def _session_info(agent, session: dict | None = None) -> dict:
         yolo = bool(_YOLO_MODE_FROZEN) or session_yolo or approval_mode == "off"
     except Exception:
         yolo = False
+    model = mirror.get("model", getattr(agent, "model", ""))
+    provider = mirror.get("provider", getattr(agent, "provider", ""))
+    override = (session or {}).get("model_override")
+    if isinstance(override, dict):
+        from hermes_penguin import is_penguin_selection
+
+        if is_penguin_selection(override.get("provider"), override.get("model")):
+            model = override["model"]
+            provider = override["provider"]
     info: dict = {
-        "model": mirror.get("model", getattr(agent, "model", "")),
-        "provider": mirror.get("provider", getattr(agent, "provider", "")),
+        "model": model,
+        "provider": provider,
         "reasoning_effort": reasoning_effort,
         "service_tier": service_tier,
         "fast": service_tier == "priority",
@@ -5318,6 +5404,7 @@ def _make_agent(
     cfg = _load_cfg()
     agent_cfg = cfg.get("agent") or {}
     system_prompt = _prompt_text(agent_cfg.get("system_prompt", ""))
+    penguin_selected = False
     startup_skills = _parse_tui_skills_env()
     if startup_skills:
         from agent.skill_commands import build_preloaded_skills_prompt
@@ -5354,8 +5441,14 @@ def _make_agent(
         override_base_url = model_override.get("base_url")
         override_api_key = model_override.get("api_key")
         override_api_mode = model_override.get("api_mode")
-        resolve_kwargs = {}
-        if str(requested_provider or "").strip().lower() == "custom":
+        from hermes_penguin import is_penguin_selection, penguin_runtime
+
+        if is_penguin_selection(requested_provider, model):
+            penguin_selected = True
+            runtime = penguin_runtime()
+        else:
+            resolve_kwargs = {}
+            if str(requested_provider or "").strip().lower() == "custom":
             # Session rows persisted before the custom-provider identity fix
             # (see _runtime_model_config) stored the resolved provider
             # "custom", which _get_named_custom_provider cannot match back to
@@ -5367,33 +5460,33 @@ def _make_agent(
             # the entry identity from the persisted base_url, falling back to
             # the configured provider when the override carries no base_url
             # (the recurring Desktop/TUI regression vector).
-            from hermes_cli.runtime_provider import canonical_custom_identity
+                from hermes_cli.runtime_provider import canonical_custom_identity
 
-            recovered = canonical_custom_identity(base_url=override_base_url or None)
-            if recovered:
-                requested_provider = recovered
-            if override_base_url:
+                recovered = canonical_custom_identity(base_url=override_base_url or None)
+                if recovered:
+                    requested_provider = recovered
+                if override_base_url:
                 # Failing identity recovery, still hand the base_url to the
                 # direct-alias branch so pool/env credentials resolve for it.
-                resolve_kwargs["explicit_base_url"] = override_base_url
-        resolve_kwargs["requested"] = requested_provider
-        resolve_kwargs["target_model"] = model or None
-        resolution = _resolve_runtime_with_fallback(resolve_kwargs)
-        runtime = resolution.runtime
-        if resolution.used_fallback:
-            if not resolution.selected_model:
-                raise RuntimeError("Auth fallback resolved without a model")
-            model = resolution.selected_model
-        else:
+                    resolve_kwargs["explicit_base_url"] = override_base_url
+            resolve_kwargs["requested"] = requested_provider
+            resolve_kwargs["target_model"] = model or None
+            resolution = _resolve_runtime_with_fallback(resolve_kwargs)
+            runtime = resolution.runtime
+            if resolution.used_fallback:
+                if not resolution.selected_model:
+                    raise RuntimeError("Auth fallback resolved without a model")
+                model = resolution.selected_model
+            else:
             # The switch already resolved concrete credentials/endpoint; honor
             # persisted overrides only while using that original runtime. They
             # must not leak into a different fallback provider/model pair.
-            if override_base_url:
-                runtime["base_url"] = override_base_url
-            if override_api_key:
-                runtime["api_key"] = override_api_key
-            if override_api_mode:
-                runtime["api_mode"] = override_api_mode
+                if override_base_url:
+                    runtime["base_url"] = override_base_url
+                if override_api_key:
+                    runtime["api_key"] = override_api_key
+                if override_api_mode:
+                    runtime["api_mode"] = override_api_mode
     else:
         model, requested_provider = _resolve_startup_runtime()
         if isinstance(model_override, str) and model_override:
@@ -5409,8 +5502,12 @@ def _make_agent(
             if not resolution.selected_model:
                 raise RuntimeError("Auth fallback resolved without a model")
             model = resolution.selected_model
+    if penguin_selected:
+        from hermes_penguin import penguin_role_document
+
+        system_prompt = penguin_role_document()
     _pr = _load_provider_routing()
-    return AIAgent(
+    agent = AIAgent(
         model=model,
         max_iterations=_cfg_max_turns(cfg, 90),
         provider=runtime.get("provider"),
@@ -5457,6 +5554,12 @@ def _make_agent(
         fallback_model=_load_fallback_model(),
         **_agent_cbs(sid),
     )
+    if penguin_selected:
+        from hermes_penguin import configure_penguin_agent
+
+        agent._wire_model = runtime["model"]
+        configure_penguin_agent(agent)
+    return agent
 
 
 def _init_session(
@@ -6257,11 +6360,12 @@ def _(rid, params: dict) -> dict:
     # for a new chat can't mutate the profile default. provider is optional
     # (resolved at build).
     create_model = str(params.get("model") or "").strip()
-    session_model_override = (
-        {"model": create_model, "provider": str(params.get("provider") or "").strip() or None}
-        if create_model
-        else None
-    )
+    create_provider = str(params.get("provider") or "").strip()
+    from hermes_penguin import penguin_model_override
+
+    session_model_override = penguin_model_override(create_provider, create_model)
+    if session_model_override is None and create_model:
+        session_model_override = {"model": create_model, "provider": create_provider or None}
     create_reasoning_override = None
     if effort := str(params.get("reasoning_effort") or "").strip():
         try:
@@ -15594,7 +15698,12 @@ def _model_picker_context(agent):
     ctx = load_picker_context()
     provider = getattr(agent, "provider", "") if agent else ""
     base_url = getattr(agent, "base_url", "") if agent else ""
-    if str(provider or "").strip().lower() == "custom":
+    model = getattr(agent, "model", "") if agent else ""
+    from hermes_penguin import PENGUIN_PROVIDER_ID, is_penguin_runtime
+
+    if is_penguin_runtime(model, base_url):
+        provider = PENGUIN_PROVIDER_ID
+    elif str(provider or "").strip().lower() == "custom":
         try:
             from hermes_cli.runtime_provider import canonical_custom_identity
 
@@ -15613,8 +15722,7 @@ def _model_picker_context(agent):
 
     return ctx.with_overrides(
         current_provider=provider,
-        current_model=(getattr(agent, "model", "") if agent else "")
-        or _resolve_model(),
+        current_model=model or _resolve_model(),
         current_base_url=base_url,
     )
 

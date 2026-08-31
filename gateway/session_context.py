@@ -93,6 +93,7 @@ _SESSION_MESSAGE_ID: ContextVar = ContextVar("HERMES_SESSION_MESSAGE_ID", defaul
 
 _SESSION_PROFILE: ContextVar = ContextVar("HERMES_SESSION_PROFILE", default=_UNSET)
 _AGENT_ROLE: ContextVar = ContextVar("HERMES_AGENT_ROLE", default=_UNSET)
+_MODEL_ROLE: ContextVar = ContextVar("HERMES_MODEL_ROLE", default=_UNSET)
 
 _AGENT_ROLE_PROTOCOL_PREFIXES = {
     "| **🎼": "EM",
@@ -182,7 +183,10 @@ def bind_agent_role_from_system_prompt(system_prompt: str) -> str:
 
 
 def get_agent_role() -> str:
-    """Return only the task-local role attested from the cached system prompt."""
+    """Return the model-derived PENGUIN role or a generated-prompt role."""
+    model_role = _MODEL_ROLE.get()
+    if model_role == "PENGUIN":
+        return model_role
     value = _AGENT_ROLE.get()
     return value if isinstance(value, str) else ""
 
@@ -202,6 +206,8 @@ def set_session_vars(
     cwd: str = "",
     async_delivery: bool = True,
     ui_session_id: str = "",
+    model: str = "",
+    provider: str = "",
 ) -> list:
     """Set all session context variables and return reset tokens.
 
@@ -224,6 +230,9 @@ def set_session_vars(
     global _session_context_engaged
     _session_context_engaged = True
     _AGENT_ROLE.set(_UNSET)
+    from hermes_penguin import is_penguin_selection
+
+    _MODEL_ROLE.set("PENGUIN" if is_penguin_selection(provider, model) else "")
     tokens = [
         _SESSION_PLATFORM.set(platform),
         _SESSION_SOURCE.set(source),
@@ -273,6 +282,7 @@ def clear_session_vars(tokens: list) -> None:
         _SESSION_MESSAGE_ID,
         _SESSION_PROFILE,
         _AGENT_ROLE,
+        _MODEL_ROLE,
     ):
         var.set("")
     # Reset async-delivery capability to the "never set" sentinel rather than a
@@ -325,6 +335,7 @@ def reset_session_vars() -> None:
     for var in _VAR_MAP.values():
         var.set(_UNSET)
     _AGENT_ROLE.set(_UNSET)
+    _MODEL_ROLE.set(_UNSET)
     # Reset the async-delivery capability to "never bound here" (_UNSET) for the
     # same inheritance-leak reason as the mapped vars above — see clear_session_vars,
     # which resets this var on the handler-exit path for the symmetric concern.

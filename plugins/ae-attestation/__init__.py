@@ -108,6 +108,41 @@ def required_terminal_suffix(workspace_root: str | os.PathLike[str]) -> Optional
     return attestation[5] if attestation is not None else None
 
 
+def _effective_attestation(
+    workspace_root: str | os.PathLike[str],
+    agent_role: str,
+) -> Optional[tuple[Path, str, str, str, str, str]]:
+    if agent_role != "PENGUIN":
+        return _role_attestation(workspace_root)
+    root = _ae_workspace_root(workspace_root)
+    if root is None:
+        return None
+    registry = _read_regular_json(root / _ROLE_REGISTRY, _MAX_REGISTRY_BYTES)
+    if not registry or registry.get("$schema") != "ae-roles/1":
+        return None
+    roles = registry.get("roles") if isinstance(registry, dict) else None
+    definition = roles.get("PENGUIN") if isinstance(roles, dict) else None
+    role_hat = definition.get("hat") if isinstance(definition, dict) else None
+    role_hats = [
+        candidate.get("hat")
+        for candidate in (roles or {}).values()
+        if isinstance(candidate, dict)
+    ]
+    if (
+        not isinstance(role_hat, str)
+        or not role_hat
+        or len(role_hat) > 16
+        or any(character.isspace() or character.isascii() for character in role_hat)
+        or role_hats.count(role_hat) != 1
+        or definition.get("automation") != "host"
+        or definition.get("behavior_tag") != "penguin_only"
+        or definition.get("lease") != "PENGUIN.md"
+    ):
+        return None
+    suffix = f"{role_hat}{role_hat}"
+    return root, "PENGUIN", role_hat, "PENGUIN", role_hat, suffix
+
+
 def _witness_lifecycle_binding(root: Path) -> bool:
     decision = _read_regular_json(root / _ROLE_DECISION, _MAX_DECISION_BYTES)
     witnesses = _read_regular_json(root / _WITNESS_REGISTRY, _MAX_REGISTRY_BYTES)
@@ -356,6 +391,7 @@ def _pre_final(
     workspace_root: str = "",
     attempt: int = 0,
     session_id: str = "",
+    agent_role: str = "",
     **_: Any,
 ) -> Optional[dict[str, str]]:
     if attempt < 0 or not isinstance(final_response, str) or not final_response.strip():
@@ -363,7 +399,7 @@ def _pre_final(
     ae_root = _ae_workspace_root(workspace_root)
     if ae_root is None:
         return None
-    attestation = _role_attestation(workspace_root)
+    attestation = _effective_attestation(workspace_root, agent_role)
     if attestation is None:
         with _STATE_LOCK:
             lifecycle_confirmed = (
@@ -587,13 +623,14 @@ def _post_final(
     final_response: str = "",
     workspace_root: str = "",
     session_id: str = "",
+    agent_role: str = "",
     **_: Any,
 ) -> Optional[dict[str, str]]:
     """Submit one attested final through the current role's EFFIGY speech profile."""
 
     if not isinstance(final_response, str) or not final_response.strip():
         return None
-    attestation = _role_attestation(workspace_root)
+    attestation = _effective_attestation(workspace_root, agent_role)
     if attestation is None:
         return None
     root, role, _, _, _, suffix = attestation
@@ -682,8 +719,8 @@ def _transform_tool_result(
     if (
         tool_name != "mcp__LUCID__set"
         or not isinstance(args, dict)
-        or args.get("path") != "role-session"
-        or args.get("scope") != "this"
+        or args.get("path") not in {"role", "role-session"}
+        or args.get("scope") not in {None, "this"}
         or requested_action not in {"signin", "register-signin", "recover", "signout"}
         or status not in {"ok", "success"}
         or not isinstance(result, str)

@@ -10,6 +10,7 @@ def _make_agent(**overrides):
     base = dict(
         load_soul_identity=False,
         skip_context_files=False,
+        enabled_toolsets=None,
         valid_tool_names=[],
         _task_completion_guidance=False,
         _tool_use_enforcement=False,
@@ -58,6 +59,80 @@ class TestContextFileCwd:
     def test_configured_dir_when_terminal_cwd_set(self, monkeypatch, tmp_path):
         monkeypatch.setenv("TERMINAL_CWD", str(tmp_path))
         assert _captured_context_cwd(_make_agent()) == tmp_path
+
+
+def test_penguin_profile_exposes_only_workspace_context() -> None:
+    agent = _make_agent(
+        _prompt_profile="penguin",
+        model="PENGUIN",
+        provider="custom",
+        valid_tool_names={"mcp__LUCID__get", "mcp__LUCID__show"},
+    )
+    with patch("run_agent.build_context_files_prompt", return_value="## AGENTS.md\n\nworkspace"):
+        parts = build_system_prompt_parts(agent)
+
+    assert parts == {
+        "stable": "",
+        "context": "## AGENTS.md\n\nworkspace",
+        "volatile": "",
+    }
+    assert "Hermes" not in "".join(parts.values())
+    assert "Nous" not in "".join(parts.values())
+    assert "hermes-agent" not in "".join(parts.values())
+
+
+def test_every_lucid_agent_uses_the_same_signal_tuned_base_prompt() -> None:
+    agent = _make_agent(
+        model="gpt-5.6-sol",
+        provider="openai-codex",
+        platform="desktop",
+        valid_tool_names={"terminal", "skill_view", "mcp__LUCID__get"},
+    )
+    with patch("run_agent.build_context_files_prompt", return_value="## AGENTS.md\n\nworkspace"):
+        parts = build_system_prompt_parts(agent)
+
+    assert parts == {
+        "stable": "",
+        "context": "## AGENTS.md\n\nworkspace",
+        "volatile": "",
+    }
+    prompt = "".join(parts.values())
+    for noise in (
+        "Hermes Agent",
+        "Nous Research",
+        "hermes-agent",
+        "Active Hermes profile",
+        "Conversation started:",
+        "Host:",
+        "Model:",
+        "Provider:",
+    ):
+        assert noise not in prompt
+
+
+def test_deferred_lucid_toolset_keeps_the_signal_tuned_base_prompt() -> None:
+    agent = _make_agent(
+        enabled_toolsets=["coding", "mcp-LUCID"],
+        model="gpt-5.6-sol",
+        provider="openai-codex",
+        valid_tool_names={"tool_search", "tool_describe", "tool_call"},
+    )
+    with patch("run_agent.build_context_files_prompt", return_value="workspace"):
+        parts = build_system_prompt_parts(agent)
+
+    assert parts == {"stable": "", "context": "workspace", "volatile": ""}
+
+
+def test_lucid_signal_tuning_preserves_explicit_system_intent() -> None:
+    agent = _make_agent(valid_tool_names={"mcp__LUCID__get"})
+    with patch("run_agent.build_context_files_prompt", return_value="workspace"):
+        parts = build_system_prompt_parts(agent, system_message="bounded task intent")
+
+    assert parts == {
+        "stable": "",
+        "context": "bounded task intent\n\nworkspace",
+        "volatile": "",
+    }
 
 
 def _stable_prompt(agent):

@@ -1090,6 +1090,7 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
 
     # ── chat_completions (default) ─────────────────────────────────────
     _ct = agent._get_transport()
+    request_model = getattr(agent, "_wire_model", None) or agent.model
 
     # Provider detection flags
     _is_qwen = agent._is_qwen_portal()
@@ -1112,7 +1113,7 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
     # sentinel (temperature omitted entirely), a numeric override, or None.
     try:
         from agent.auxiliary_client import _fixed_temperature_for_model, OMIT_TEMPERATURE
-        _ft = _fixed_temperature_for_model(agent.model, agent.base_url)
+        _ft = _fixed_temperature_for_model(request_model, agent.base_url)
         _omit_temp = _ft is OMIT_TEMPERATURE
         _fixed_temp = _ft if not _omit_temp else None
     except Exception:
@@ -1137,9 +1138,9 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
             _get_anthropic_max_output,
             _ANTHROPIC_OUTPUT_LIMITS,
         )
-        _model_norm = (agent.model or "").lower().replace(".", "-")
+        _model_norm = (request_model or "").lower().replace(".", "-")
         if any(key in _model_norm for key in _ANTHROPIC_OUTPUT_LIMITS):
-            _ant_max = _get_anthropic_max_output(agent.model)
+            _ant_max = _get_anthropic_max_output(request_model)
     except Exception:
         pass
 
@@ -1171,7 +1172,7 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
         api_messages = agent._prepare_messages_for_non_vision_model(api_messages)
 
         return _ct.build_kwargs(
-            model=agent.model,
+            model=request_model,
             messages=api_messages,
             tools=tools_for_api,
             base_url=agent.base_url,
@@ -1203,7 +1204,7 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
     _msgs_for_chat = agent._prepare_messages_for_non_vision_model(api_messages)
 
     return _ct.build_kwargs(
-        model=agent.model,
+        model=request_model,
         messages=_msgs_for_chat,
         tools=tools_for_api,
         base_url=agent.base_url,
@@ -1214,7 +1215,7 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
         reasoning_config=agent.reasoning_config,
         request_overrides=agent.request_overrides,
         session_id=getattr(agent, "session_id", None),
-        model_lower=(agent.model or "").lower(),
+        model_lower=(request_model or "").lower(),
         is_openrouter=_is_or,
         is_nous=_is_nous,
         is_qwen_portal=_is_qwen,

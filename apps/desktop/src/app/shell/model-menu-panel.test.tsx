@@ -39,7 +39,23 @@ const GOOGLE_PROVIDER = {
   slug: 'google'
 }
 
-const MOCK_PROVIDERS = [DEEPSEEK_PROVIDER, GOOGLE_PROVIDER, MOA_PROVIDER]
+const PENGUIN_PROVIDER = {
+  authenticated: true,
+  capabilities: { PENGUIN: { fast: false, reasoning: false } },
+  models: ['PENGUIN'],
+  model_annotations: {
+    PENGUIN: [
+      { label: 'Role', value: 'PENGUIN' },
+      { label: 'Runtime', value: 'Local MLX' },
+      { label: 'Grants', value: 'GET · SHOW' }
+    ]
+  },
+  model_labels: { PENGUIN: '🐧' },
+  name: 'Microsoft Applied Sciences',
+  slug: 'penguin'
+}
+
+const MOCK_PROVIDERS = [PENGUIN_PROVIDER, DEEPSEEK_PROVIDER, GOOGLE_PROVIDER, MOA_PROVIDER]
 
 beforeEach(() => {
   $activeSessionId.set('runtime-1')
@@ -76,7 +92,7 @@ describe('ModelMenuPanel MoA presets', () => {
 
     // moaOptions is async (useQuery) — wait for the preset row to mount.
     const row = await content.findByText('MoA: BeastMode')
-    fireEvent.click(row)
+    fireEvent.click(row!)
 
     // #54670: must route through the persistent model-switch path
     // i.e. onSelectModel with provider 'moa' (which session-scopes live-session
@@ -121,6 +137,22 @@ describe('ModelMenuPanel MoA presets', () => {
     // Pre-session picks are UI state shipped on the next session.create — the
     // row must not be disabled and must still route through onSelectModel.
     expect(onSelectModel).toHaveBeenCalledWith({ model: 'BeastMode', provider: 'moa', sessionId: null })
+  })
+})
+
+describe('ModelMenuPanel PENGUIN', () => {
+  it('renders and selects the local PENGUIN model for the active session', async () => {
+    const { content, onSelectModel } = renderPanel()
+
+    await content.findByText('Microsoft Applied Sciences')
+    const row = await content.findByText('🐧')
+    fireEvent.click(row)
+
+    expect(onSelectModel).toHaveBeenCalledWith({ model: 'PENGUIN', provider: 'penguin', sessionId: 'runtime-1' })
+
+    fireEvent.pointerMove(row)
+    expect(await content.findByText('Local MLX')).not.toBeNull()
+    expect(content.queryByText('GET · SHOW')).not.toBeNull()
   })
 })
 

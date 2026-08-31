@@ -464,7 +464,7 @@ def test_explicit_only_keeps_unauthenticated_current_provider_visible():
             picker_hints=True,
         )
 
-    assert [row["slug"] for row in payload["providers"]] == ["deepseek"]
+    assert [row["slug"] for row in payload["providers"]] == ["deepseek", "penguin"]
     row = payload["providers"][0]
     assert row["source"] == "configured-current"
     assert row["authenticated"] is False

@@ -89,6 +89,13 @@ from utils import base_url_host_matches, env_var_enabled
 
 logger = logging.getLogger(__name__)
 
+_INTERRUPT_SCAFFOLD_MARKER = "[This response was interrupted by a user correction.]"
+_REDIRECT_CONTINUATION_INSTRUCTION = (
+    "The original user request remains active. Apply the correction below to "
+    "that request, continue fulfilling the original user request, and do not "
+    "stop after only acknowledging this correction."
+)
+
 # Stable prefix of the local interrupt status string emitted when a turn is
 # cancelled while waiting on the provider. Surfaces (ACP, TUI) match on this
 # to treat it as cancellation metadata rather than assistant prose.
@@ -146,7 +153,10 @@ def _apply_active_turn_redirect(agent: Any, messages: List[Dict[str, Any]], text
         getattr(agent, "_current_streamed_assistant_text", "") or ""
     ).strip()
 
-    checkpoint_parts = ["[This response was interrupted by a user correction.]"]
+    checkpoint_parts = [
+        _INTERRUPT_SCAFFOLD_MARKER,
+        _REDIRECT_CONTINUATION_INSTRUCTION,
+    ]
     if reasoning:
         checkpoint_parts.extend(
             ["Reasoning shown before the interruption:", reasoning]
@@ -162,20 +172,18 @@ def _apply_active_turn_redirect(agent: Any, messages: List[Dict[str, Any]], text
     # committed an assistant item, attribute the checkpoint inside the user
     # correction instead of creating assistant→assistant.
     prefix = f"[Context from the interrupted assistant response]\n{checkpoint}"
+    if isinstance(text, list):
+        correction: Any = [{"type": "text", "text": prefix}, *text]
+    else:
+        correction = f"{prefix}\n\n{text}"
 
     if messages and messages[-1].get("role") == "assistant":
         # An assistant item is already committed, so fold the checkpoint into
-        # the correction rather than creating assistant→assistant. With a parts
-        # list the prefix becomes its own text part — string-formatting it
-        # would stringify the list and drop the images.
-        if isinstance(text, list):
-            correction: Any = [{"type": "text", "text": prefix}, *text]
-        else:
-            correction = f"{prefix}\n\n{text}"
+        # the correction rather than creating assistant→assistant.
         messages.append({"role": "user", "content": correction})
     else:
         messages.append({"role": "assistant", "content": checkpoint})
-        messages.append({"role": "user", "content": text})
+        messages.append({"role": "user", "content": correction})
 
     agent._current_streamed_assistant_text = ""
     agent._current_streamed_reasoning_text = ""
@@ -1072,6 +1080,13 @@ def run_conversation(
             # It is bookkeeping, never a provider field — pop it from EVERY
             # outgoing copy.
             _api_content = api_msg.pop("api_content", None)
+            _has_api_content = (
+                isinstance(_api_content, str) and bool(_api_content)
+            ) or (
+                msg.get("role") == "user"
+                and isinstance(_api_content, list)
+                and bool(_api_content)
+            )
 
             # Display-only timeline metadata. Never a provider field — strip
             # from every outgoing copy so strict OpenAI-compatible backends
@@ -1087,7 +1102,7 @@ def run_conversation(
             # never mutated beyond the api_content stamp, so nothing leaks
             # into the clean transcript content.
             if idx == current_turn_user_idx and msg.get("role") == "user":
-                if isinstance(_api_content, str) and _api_content:
+                if _has_api_content:
                     # Stamped by the prologue from the same composition —
                     # reuse it so the persisted sidecar and the wire cannot
                     # drift, and so every pass this turn sends identical
@@ -1103,11 +1118,7 @@ def run_conversation(
                     )
                     if _composed is not None:
                         api_msg["content"] = _composed
-            elif (
-                isinstance(_api_content, str)
-                and _api_content
-                and msg.get("role") in ("user", "assistant")
-            ):
+            elif _has_api_content and msg.get("role") in ("user", "assistant"):
                 # Historical message: replay the exact bytes sent when it was
                 # live, so the provider prompt-cache prefix stays byte-stable
                 # instead of diverging at the injection point and
@@ -6096,6 +6107,7 @@ def run_conversation(
                     messages.pop()
 
                 _workspace_root = ""
+                _agent_role = ""
                 try:
                     from agent.coding_context import project_facts_for
                     from hermes_cli.plugins import (
@@ -6106,9 +6118,16 @@ def run_conversation(
                     _attestation_attempt = getattr(agent, "_pre_final_nudges", 0)
                     _facts = project_facts_for()
                     _workspace_root = str((_facts or {}).get("root") or "")
+                    try:
+                        from gateway.session_context import get_agent_role
+
+                        _agent_role = get_agent_role()
+                    except Exception:
+                        _agent_role = ""
                     if has_hook("pre_final"):
                         _attestation_decision = get_pre_final_decision(
                             session_id=getattr(agent, "session_id", None) or "",
+                            agent_role=_agent_role,
                             platform=getattr(agent, "platform", "") or "",
                             model=getattr(agent, "model", "") or "",
                             attempt=_attestation_attempt,
@@ -6219,6 +6238,7 @@ def run_conversation(
                         invoke_hook(
                             "post_final",
                             session_id=getattr(agent, "session_id", None) or "",
+                            agent_role=_agent_role,
                             platform=getattr(agent, "platform", "") or "",
                             model=getattr(agent, "model", "") or "",
                             final_response=final_response,

@@ -256,6 +256,26 @@ def build_models_payload(
     if capabilities:
         _apply_capabilities(rows)
 
+    if picker_hints:
+        from hermes_penguin import PENGUIN_PROVIDER_ID, penguin_picker_row
+
+        rows = [
+            row
+            for row in rows
+            if str(row.get("slug", "")).lower() != PENGUIN_PROVIDER_ID
+        ]
+        insert_at = next(
+            (index for index, row in enumerate(rows) if row.get("is_user_defined")),
+            len(rows),
+        )
+        rows.insert(
+            insert_at,
+            penguin_picker_row(
+                current_provider=ctx.current_provider,
+                current_model=ctx.current_model,
+            ),
+        )
+
     return {
         "providers": rows,
         "model": ctx.current_model,

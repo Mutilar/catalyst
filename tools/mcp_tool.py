@@ -3618,7 +3618,7 @@ _CIRCUIT_BREAKER_COOLDOWN_SEC = 60.0
 _RESPONSE_MODALITY_EXTENSION = "com.asg.lucid/response-modality"
 _HOST_CONTEXT_EXTENSION = "com.asg.lucid/host-context"
 _HOST_BOOTSTRAP_SCHEMA = "hermes-lucid-bootstrap-decision/1"
-_AGENT_ROLES = {"EM", "SIDEKICK", "BUTLER", "ENGINEER"}
+_AGENT_ROLES = {"EM", "SIDEKICK", "BUTLER", "ENGINEER", "PENGUIN"}
 
 
 def _bump_server_error(server_name: str) -> None:
@@ -6310,6 +6310,13 @@ def refresh_agent_mcp_tools(
     # half-swap. ``staged_engine_names`` are the context-engine routing names
     # this rebuild actually appended (matching agent_init's dedup-aware add).
     staged_engine_names = _reinject_post_build_tools(agent, new_defs, new_names)
+    if getattr(agent, "_prompt_profile", "") == "penguin":
+        from hermes_penguin import penguin_tool_definitions
+
+        agent._penguin_full_tools = list(new_defs)
+        new_defs = penguin_tool_definitions(new_defs)
+        new_names = {tool["function"]["name"] for tool in new_defs}
+        staged_engine_names = set()
 
     # Single atomic read-diff-publish so the returned ``added`` is consistent
     # with what was actually published, even under concurrent callers, and a

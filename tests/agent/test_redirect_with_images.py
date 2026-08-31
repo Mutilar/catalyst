@@ -108,7 +108,11 @@ class TestApplyActiveTurnRedirect:
 
         correction = messages[-1]
         assert correction["role"] == "user"
-        assert correction["content"] == [TEXT_PART, IMAGE_PART]
+        content = correction["content"]
+        assert isinstance(content, list)
+        assert "original user request remains active" in content[0]["text"]
+        assert TEXT_PART in content
+        assert IMAGE_PART in content
 
     def test_checkpoint_prefix_becomes_a_text_part(self):
         """When an assistant item is already committed the checkpoint folds
@@ -131,12 +135,14 @@ class TestApplyActiveTurnRedirect:
         roles = [m["role"] for m in messages]
         assert roles == ["assistant", "user"]
 
-    def test_plain_text_behaviour_is_unchanged(self):
+    def test_plain_text_keeps_original_request_active(self):
         messages = [{"role": "user", "content": "original"}]
         _apply_active_turn_redirect(_FakeAgent(), messages, "just words")
 
         assert messages[-2]["role"] == "assistant"
-        assert messages[-1] == {"role": "user", "content": "just words"}
+        assert messages[-1]["role"] == "user"
+        assert "original user request remains active" in messages[-1]["content"]
+        assert messages[-1]["content"].endswith("just words")
 
 
 class TestAgentRedirectAcceptsParts:

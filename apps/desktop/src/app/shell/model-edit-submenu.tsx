@@ -18,6 +18,7 @@ import { setModelPreset } from '@/store/model-presets'
 import { notifyError } from '@/store/notifications'
 import { markComposerSelectionManual, setCurrentFastMode, setCurrentReasoningEffort } from '@/store/session'
 import { sessionTileDelegate } from '@/store/session-states'
+import type { ModelOptionAnnotation } from '@/types/hermes'
 
 // Hermes' real reasoning levels (see VALID_REASONING_EFFORTS); `none` is owned
 // by the Thinking toggle, not the radio.
@@ -77,6 +78,7 @@ export function resolveFastControl(
 }
 
 interface ModelEditSubmenuProps {
+  annotations?: ModelOptionAnnotation[]
   /** This row's effective reasoning effort (live for the active model, else its
    *  preset) — the submenu shows and edits from this, never the raw session. */
   effort: string
@@ -96,6 +98,7 @@ interface ModelEditSubmenuProps {
 }
 
 export function ModelEditSubmenu({
+  annotations = [],
   effort,
   fastControl,
   isActive,
@@ -213,11 +216,21 @@ export function ModelEditSubmenu({
 
   return (
     <DropdownMenuSubContent className="w-52 p-0" sideOffset={4}>
-      {!hasFast && !reasoning ? (
+      {!hasFast && !reasoning && annotations.length === 0 ? (
         <div className="px-2.5 py-3 text-xs text-(--ui-text-tertiary)">{copy.noOptions}</div>
       ) : (
         <>
           <DropdownMenuLabel className={dropdownMenuSectionLabel}>{copy.options}</DropdownMenuLabel>
+          {annotations.map(annotation => (
+            <DropdownMenuItem
+              className={dropdownMenuRow}
+              disabled
+              key={`${annotation.label}:${annotation.value}`}
+            >
+              {annotation.label}
+              <span className="ml-auto text-(--ui-text-secondary)">{annotation.value}</span>
+            </DropdownMenuItem>
+          ))}
           {reasoning ? (
             <DropdownMenuItem className={dropdownMenuRow} onSelect={event => event.preventDefault()}>
               {copy.thinking}

@@ -79,6 +79,43 @@ def test_refresh_detects_equal_size_swap(monkeypatch):
     assert "old_mcp_tool" not in agent.valid_tool_names
 
 
+def test_penguin_refresh_keeps_reads_and_narrow_signin_bootstrap(monkeypatch):
+    from hermes_penguin import configure_penguin_agent
+
+    agent = _agent(["mcp__LUCID__get", "mcp__LUCID__show", "mcp__LUCID__set"])
+    configure_penguin_agent(agent)
+    new_defs = [
+        _tool("terminal"),
+        _tool("skill_view"),
+        _tool("mcp__LUCID__get"),
+        _tool("mcp__LUCID__show"),
+        _tool("mcp__LUCID__set"),
+        _tool("mcp__LUCID__morph"),
+        _tool("mcp__LUCID__list_prompts"),
+    ]
+    import model_tools
+
+    monkeypatch.setattr(model_tools, "get_tool_definitions", lambda **_kwargs: new_defs)
+
+    mcp_tool.refresh_agent_mcp_tools(agent)
+
+    assert agent.valid_tool_names == {
+        "mcp__LUCID__get",
+        "mcp__LUCID__show",
+        "mcp__LUCID__set",
+    }
+    assert [tool["function"]["name"] for tool in agent.tools] == [
+        "mcp__LUCID__get",
+        "mcp__LUCID__show",
+        "mcp__LUCID__set",
+    ]
+    signin = agent.tools[2]["function"]
+    assert signin["parameters"]["properties"]["path"] == {"const": "role"}
+    assert signin["parameters"]["properties"]["value"]["properties"]["action"] == {
+        "const": "signin"
+    }
+
+
 def test_refresh_passes_agent_toolset_filters(monkeypatch):
     """The rebuild re-derives with the agent's OWN enabled/disabled toolsets."""
     agent = _agent(["a"], enabled=["coding", "granola"], disabled=["messaging"])

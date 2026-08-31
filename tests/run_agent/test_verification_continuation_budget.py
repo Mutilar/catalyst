@@ -95,6 +95,26 @@ def test_attested_final_does_not_add_a_turn(agent):
     correction.assert_called_once()
 
 
+def test_pre_final_receives_trusted_model_derived_penguin_role(agent):
+    from gateway.session_context import clear_session_vars, set_session_vars
+
+    agent.model = "PENGUIN"
+    agent._interruptible_api_call = lambda _kwargs: _response("done 🐧🐧")
+    tokens = set_session_vars(model="PENGUIN", provider="penguin")
+    try:
+        with (
+            patch("agent.coding_context.project_facts_for", return_value={"root": "/repo"}),
+            patch("hermes_cli.plugins.has_hook", side_effect=lambda name: name == "pre_final"),
+            patch("hermes_cli.plugins.get_pre_final_decision", return_value=None) as correction,
+            patch("hermes_cli.plugins.invoke_hook", return_value=[]),
+        ):
+            agent.run_conversation("finish")
+    finally:
+        clear_session_vars(tokens)
+
+    assert correction.call_args.kwargs["agent_role"] == "PENGUIN"
+
+
 def test_unattested_candidate_is_not_budget_fallback(agent):
     agent.max_iterations = 1
     agent.iteration_budget.max_total = 1

@@ -285,6 +285,51 @@ class TestStructuredContentPreservation:
 
         assert meta["com.asg.lucid/host-context"]["bootstrap"]["role"] == role
 
+    def test_penguin_model_session_derives_read_only_lucid_bootstrap(
+        self, _patch_mcp_server
+    ):
+        from gateway.session_context import (
+            bind_agent_role_from_system_prompt,
+            get_agent_role,
+            set_session_vars,
+        )
+
+        server = mcp_tool._servers["test-server"]
+        server.initialize_result = SimpleNamespace(
+            capabilities=SimpleNamespace(
+                experimental={
+                    "com.asg.lucid/host-context": {
+                        "revision": 3,
+                        "identity_authority": "none",
+                    }
+                }
+            )
+        )
+        set_session_vars(
+            session_id="penguin-session",
+            model="PENGUIN",
+            provider="penguin",
+        )
+        bind_agent_role_from_system_prompt("| **🎼🐧 PROTOCOL** | **RULE** |")
+
+        assert get_agent_role() == "PENGUIN"
+        meta = mcp_tool._preferred_tool_call_meta(
+            server,
+            "set",
+            {"path": "role", "value": {"action": "signin"}},
+        )
+
+        assert meta["com.asg.lucid/host-context"] == {
+            "session_id": "penguin-session",
+            "authority": "none",
+            "bootstrap": {
+                "schema": "hermes-lucid-bootstrap-decision/1",
+                "action": "signin",
+                "role": "PENGUIN",
+                "role_session_id": "penguin-session",
+            },
+        }
+
     def test_legacy_server_receives_no_unadvertised_metadata(self, _patch_mcp_server):
         session = _patch_mcp_server
         session.call_tool = AsyncMock(

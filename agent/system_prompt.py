@@ -178,6 +178,38 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         if isinstance(_cc_len, int) and _cc_len > 0:
             _ctx_len = _cc_len
 
+    enabled_toolsets = {
+        str(name).strip().lower()
+        for name in (getattr(agent, "enabled_toolsets", None) or ())
+    }
+    lucid_owned = (
+        getattr(agent, "_prompt_profile", "") == "penguin"
+        or "lucid" in enabled_toolsets
+        or "mcp-lucid" in enabled_toolsets
+        or any(
+            str(name).lower().startswith("mcp__lucid__")
+            for name in (getattr(agent, "valid_tool_names", None) or ())
+        )
+    )
+    if lucid_owned:
+        context_parts: List[str] = []
+        if system_message is not None:
+            context_parts.append(system_message)
+        if not agent.skip_context_files:
+            context_files_prompt = _r.build_context_files_prompt(
+                cwd=resolve_context_cwd(),
+                skip_soul=True,
+                context_length=_ctx_len,
+                allow_install_tree_fallback=agent.platform in ("cli", "tui"),
+            )
+            if context_files_prompt:
+                context_parts.append(context_files_prompt)
+        return {
+            "stable": "",
+            "context": "\n\n".join(context_parts),
+            "volatile": "",
+        }
+
     # ── Stable tier ────────────────────────────────────────────────
     stable_parts: List[str] = []
 

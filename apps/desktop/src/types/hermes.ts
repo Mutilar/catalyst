@@ -307,6 +307,12 @@ export interface ModelOptionProvider {
   is_current?: boolean
   models?: string[]
   name: string
+  /** Optional backend-authored labels keyed by stable model id. Presentation
+   *  may evolve without changing the provider/model identity sent on select. */
+  model_labels?: Record<string, string>
+  /** Backend-authored model facts rendered in the options submenu. This keeps
+   *  local/runtime/role semantics out of provider-specific JSX. */
+  model_annotations?: Record<string, ModelOptionAnnotation[]>
   slug: string
   total_models?: number
   warning?: string
@@ -332,6 +338,11 @@ export interface ModelOptionProvider {
   /** Per-model option support, keyed by model id (present when the picker
    *  requested capabilities). Lets the UI gate fast/reasoning controls. */
   capabilities?: Record<string, ModelCapabilities>
+}
+
+export interface ModelOptionAnnotation {
+  label: string
+  value: string
 }
 
 export interface ModelCapabilities {
