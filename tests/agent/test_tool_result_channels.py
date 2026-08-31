@@ -42,7 +42,7 @@ def test_ordinary_tool_results_pass_through_unchanged():
 
 
 def test_error_channel_remains_classifiable_without_leaking_presentation():
-    gestalt = "🔴 LUCID · set · role-session · refused"
+    gestalt = "🔴 · 🧠 · 🔎 ROLE-SESSION-REFUSED"
     encoded = encode_tool_result_channels(
         gestalt,
         {

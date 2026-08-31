@@ -122,7 +122,7 @@ def project_lucid_transport_outage(tool: str, arguments: dict[str, Any]) -> dict
     if command is None:
         return None
     text = (
-        f"⚠️ LUCID · {tool} · transport · offline-fallback\n"
+        f"⚠️ · 🧠 · ⚡ {tool.upper()} · 🎯 TRANSPORT · 🎛️ OFFLINE-FALLBACK\n"
         f"🔎 mcp-unavailable · {eta}\n"
         f"➡️ {command}"
     )
@@ -139,17 +139,12 @@ def project_lucid_failure(
     """Project every LUCID failure without inventing RUN-owned outage evidence."""
 
     lines = detail.splitlines()
-    legacy_canonical = (
-        len(lines) >= 2
-        and any(lines[0].startswith(f"{signal} LUCID · ") for signal in _CANONICAL_SIGNALS)
-        and lines[1].startswith("🔎 ")
-    )
     semantic_canonical = (
-        len(lines) == 1
-        and any(detail.startswith(f"{signal} 🧠 · ") for signal in _CANONICAL_SIGNALS)
-        and " · 🔎 " in detail
+        bool(lines)
+        and any(lines[0].startswith(f"{signal} · 🧠 · ") for signal in _CANONICAL_SIGNALS)
+        and (" · 🔎 " in lines[0] or " · ⚡ " in lines[0])
     )
-    if legacy_canonical or semantic_canonical:
+    if semantic_canonical:
         return {"error": detail}
     outage = project_lucid_transport_outage(tool, arguments)
     if outage is not None:

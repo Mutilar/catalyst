@@ -152,10 +152,10 @@ def test_missing_live_role_binding_allows_one_bounded_recovery_turn(plugin, tmp_
 
     assert result["action"] == "continue"
     assert result["message"].startswith(
-        "⚠️ LUCID · role-session · bootstrap-decision-required"
+        "⚠️ · 🧠 · ⚡ SET · 🎯 ROLE · 🎛️ BOOTSTRAP-DECISION-REQUIRED"
     )
     assert "preserves the candidate final" in result["message"]
-    assert "run/state/runtime/lucid-host-role.json" in result["message"]
+    assert "envelope/LUCID.json#/role_registry" in result["message"]
     assert "OWNER WITNESS" in result["message"]
     assert "mcp__LUCID__get" in result["message"]
     assert '"action":"recover"' in result["message"]
@@ -277,7 +277,7 @@ def test_typed_lucid_speech_refusal_is_visible_with_code_and_reason(plugin, caps
     refusal = {
         "model": "\n".join(
             [
-                "🔴 LUCID · show · text · refused",
+                "🔴 · 🧠 · ⚡ SHOW · 🎯 TEXT · 🎛️ REFUSED",
                 "Presentation Audio Accepted=false",
                 "Presentation Audio Code=effigy-transfer-protected-identity-refused",
                 "Presentation Audio Effigy Transfer Code=effigy-transfer-protected-identity-refused",
@@ -348,7 +348,7 @@ def test_post_final_returns_the_exact_typed_effigy_failure(plugin, tmp_path, mon
     refusal = {
         "model": "\n".join(
             [
-                "🔴 LUCID · show · text · refused",
+                "🔴 · 🧠 · ⚡ SHOW · 🎯 TEXT · 🎛️ REFUSED",
                 "Presentation Audio Effigy Transfer Code=effigy-transfer-timeout",
                 "Presentation Audio Stage=effigy-transfer",
                 "Presentation Audio Detail=local transfer exceeded its 2000ms deadline",
@@ -404,8 +404,10 @@ def test_missing_suffix_reinjects_canonical_onboarding_then_requires_signout(plu
         final_response="Still drifted.", workspace_root=str(root), attempt=1, session_id="drift"
     )
     assert signout["action"] == "continue"
-    assert signout["message"].startswith("🔴 LUCID · role-session · signout-required")
-    assert "NEXT Preserve the candidate final" in signout["message"]
+    assert signout["message"].startswith(
+        "🔴 · 🧠 · ⚡ SET · 🎯 ROLE · 🎛️ SIGNOUT-REQUIRED"
+    )
+    assert "➡️ Preserve the candidate final" in signout["message"]
     assert "before beginning another work turn" in signout["message"]
     assert '"action":"signout"' in signout["message"]
     assert "mcp__LUCID__set" in signout["message"]
@@ -414,7 +416,7 @@ def test_missing_suffix_reinjects_canonical_onboarding_then_requires_signout(plu
         final_response="Ignored signout.", workspace_root=str(root), attempt=2, session_id="drift"
     )
     assert repeated["action"] == "continue"
-    assert "signout-required" in repeated["message"]
+    assert "SIGNOUT-REQUIRED" in repeated["message"]
 
     plugin._transform_tool_result(
         tool_name="mcp__LUCID__set",

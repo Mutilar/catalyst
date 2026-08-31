@@ -898,7 +898,7 @@ describe('upsertToolPart', () => {
   })
 
   it('retains exact MCP model output separately from Hermes presentation metadata', () => {
-    const exact = { error: '🔴 LUCID · morph · malformed-args' }
+    const exact = { error: '🔴 · 🧠 · 🔎 MALFORMED-ARGS' }
 
     const [completed] = upsertToolPart(
       [],

@@ -45,10 +45,10 @@ describe('mcpModelTrace', () => {
         {},
         {
           duration_s: 1.789,
-          error: '🔴 LUCID · morph · malformed-args',
-          [MODEL_VISIBLE_TOOL_RESULT_KEY]: { error: '🔴 LUCID · morph · malformed-args' }
+          error: '🔴 · 🧠 · 🔎 MALFORMED-ARGS',
+          [MODEL_VISIBLE_TOOL_RESULT_KEY]: { error: '🔴 · 🧠 · 🔎 MALFORMED-ARGS' }
         }
       )
-    ).toBe('Input:\n{}\n\nOutput:\n{\n  "error": "🔴 LUCID · morph · malformed-args"\n}')
+    ).toBe('Input:\n{}\n\nOutput:\n{\n  "error": "🔴 · 🧠 · 🔎 MALFORMED-ARGS"\n}')
   })
 })

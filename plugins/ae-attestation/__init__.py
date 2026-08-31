@@ -167,7 +167,8 @@ def _offline_recovery_message(projection: dict[str, Any], cause: str) -> str:
         recover["arguments"], ensure_ascii=False, separators=(",", ":"), sort_keys=True
     )
     return (
-        f"{projection['signal']} LUCID · {projection['subject']} · {projection['state']}\n"
+        f"{projection['signal']} · 🧠 · ⚡ {projection['verb'].upper()} · "
+        f"🎯 {projection['subject'].upper()} · 🎛️ {projection['state'].upper()}\n"
         f"🔎 {cause}.\n"
         f"◆ {projection['evidence']} · OWNER {projection['owner']} · "
         f"SETTLES {projection['settles']}\n"
@@ -209,12 +210,12 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
     bootstrap = refusals.get("bootstrap-decision-required") if isinstance(refusals, dict) else None
     expected_inspect = {
         "tool": "mcp__LUCID__get",
-        "arguments": {"path": "role-session", "scope": "this"},
+        "arguments": {"path": "role", "scope": "this"},
     }
     expected_recover = {
         "tool": "mcp__LUCID__set",
         "arguments": {
-            "path": "role-session",
+            "path": "role",
             "scope": "this",
             "value": {"action": "recover"},
         },
@@ -233,10 +234,10 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
         or not isinstance(bootstrap, dict)
         or bootstrap.get("schema") != "ae-harness-refusal-projection/1"
         or bootstrap.get("signal") != "⚠️"
-        or bootstrap.get("subject") != "role-session"
+        or bootstrap.get("subject") != "role"
         or bootstrap.get("state") != "bootstrap-decision-required"
         or bootstrap.get("owner") != "WITNESS"
-        or bootstrap.get("evidence") != "run/state/runtime/lucid-host-role.json"
+        or bootstrap.get("evidence") != "envelope/LUCID.json#/role_registry"
         or bootstrap.get("settles") != "exact-local-bootstrap-decision"
         or bootstrap.get("inspect") != expected_inspect
         or bootstrap.get("recover") != expected_recover

@@ -61,8 +61,8 @@ describe('LUCID MCP titlebar status', () => {
 
     expect(tooltip).toBe(gestalt)
     expect(gestalt.split('\n')).toEqual([
-      '🔴 LUCID · show · mcp · failed',
-      'MCP Connection=Connected, unhealthy · Health=Unhealthy · Transport=STDIO · Tools=7 · Failures=3 · Startup=Automatic',
+      '🔴 · 🧠 · ⚡ SHOW · 🎯 MCP · 🎛️ FAILED',
+      '◆ MCP Connection=Connected, unhealthy · Health=Unhealthy · Transport=STDIO · Tools=7 · Failures=3 · Startup=Automatic',
       '🔎 Code=lucid-health-error · Detail=projection failed',
       '➡️ {"arguments":{},"label":"Open LUCID capabilities","verb":"get"}'
     ])

@@ -28,8 +28,8 @@ export function lucidMcpGestalt(status: LucidMcpStatus): string {
     warning: 'degraded'
   }[status.signal]
   const lines: Array<string | null> = [
-    `${status.glyph} LUCID · show · mcp · ${state}`,
-    `MCP Connection=${status.connection} · Health=${status.health} · Transport=${status.transport.toUpperCase()} · Tools=${status.tools} · Failures=${status.failures} · Startup=Automatic`
+    `${status.glyph} · 🧠 · ⚡ SHOW · 🎯 MCP · 🎛️ ${state.toUpperCase()}`,
+    `◆ MCP Connection=${status.connection} · Health=${status.health} · Transport=${status.transport.toUpperCase()} · Tools=${status.tools} · Failures=${status.failures} · Startup=Automatic`
   ]
   const error = status.error?.replace(/[\r\n\0]+/g, ' ').trim().slice(0, 512)
 

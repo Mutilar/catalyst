@@ -121,13 +121,13 @@ def test_terminal_attestation_block_replaces_candidate_without_another_model_tur
         patch("hermes_cli.plugins.has_hook", side_effect=lambda name: name == "pre_final"),
         patch(
             "hermes_cli.plugins.get_pre_final_decision",
-            return_value={"action": "block", "message": "🔴 LUCID · role-session · offline"},
+            return_value={"action": "block", "message": "🔴 · 🧠 · 🔎 ROLE-SESSION-OFFLINE"},
         ),
         patch("hermes_cli.plugins.invoke_hook", return_value=[]),
     ):
         result = agent.run_conversation("finish")
-    assert result["final_response"] == "🔴 LUCID · role-session · offline"
+    assert result["final_response"] == "🔴 · 🧠 · 🔎 ROLE-SESSION-OFFLINE"
     assert agent._interruptible_api_call.call_count == 1
-    with pytest.raises(RuntimeError, match="role-session · offline"):
+    with pytest.raises(RuntimeError, match="ROLE-SESSION-OFFLINE"):
         agent.run_conversation("try to continue")
     assert agent._interruptible_api_call.call_count == 1

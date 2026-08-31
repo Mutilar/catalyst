@@ -65,7 +65,7 @@ def test_active_outage_projects_exact_search_fallback(monkeypatch, tmp_path):
     assert result is not None
     assert set(result) == {"error"}
     assert result["error"].splitlines() == [
-        "⚠️ LUCID · get · transport · offline-fallback",
+        "⚠️ · 🧠 · ⚡ GET · 🎯 TRANSPORT · 🎛️ OFFLINE-FALLBACK",
         "🔎 mcp-unavailable · ⏳ ETA T-10s",
         "➡️ lucid get search --query '{\"terms\":[\"needle\"]}'",
     ]
@@ -146,14 +146,14 @@ def test_canonical_semantic_refusal_is_transparent_passthrough(monkeypatch, tmp_
     monkeypatch.setattr(lucid_outage, "_OFFLINE", tmp_path / "absent-offline.json")
     monkeypatch.setattr(lucid_outage, "_REVIVAL", tmp_path / "absent-revival.json")
     refusal = (
-        "🔴 🧠 · ⚡ SET · 🎯 ROLE-SESSION · 🎛️ RECOVER · "
+        "🔴 · 🧠 · ⚡ SET · 🎯 ROLE · 🎛️ RECOVER · "
         "🔎 ROLE-SUPERSEDED: role binding settlement outcome unknown · "
-        "➡️ 🧠 · ⚡ GET · 🎯 ROLE-SESSION · 🔎 Inspect settlement before retrying"
+        "➡️ 🧠 · ⚡ GET · 🎯 ROLE · 🔎 Inspect settlement before retrying"
     )
 
     result = lucid_outage.project_lucid_failure(
         "set",
-        {"path": "role-session", "value": {"action": "recover"}},
+        {"path": "role", "value": {"action": "recover"}},
         refusal,
         code="outcome-envelope-invalid",
     )
