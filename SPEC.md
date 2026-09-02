@@ -1,4 +1,4 @@
-<!-- GENERATED · SOT: SPEC.json -->
+<!-- GENERATED; SOT: SPEC.json -->
 # 🚀 CATALYST specification
 
 Human projection of the registered JSON contract.

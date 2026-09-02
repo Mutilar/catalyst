@@ -17,12 +17,15 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
+from hermes_gestalt import canonical_stream, parse_stream, semantic_action
+
 _ROLE_DECISION = Path("run/state/runtime/lucid-host-role.json")
 _ROLE_REGISTRY = Path("quine/canon/roles.json")
 _WITNESS_REGISTRY = Path("quine/author-glyphs.json")
 _HARNESS = Path("envelope/HARNESS.json")
 _ONBOARDING_INDEX = Path("quine/mcp/onboarding/index.json")
 _ONBOARDING_DIRECTORY = Path("quine/mcp/onboarding")
+_GESTALT_ROOT = Path(__file__).resolve().parents[3]
 _MAX_DECISION_BYTES = 4096
 _MAX_REGISTRY_BYTES = 64 * 1024
 _MAX_HARNESS_BYTES = 128 * 1024
@@ -192,25 +195,19 @@ def _role_binding_is_absent(root: Path) -> bool:
     return False
 
 
-def _offline_recovery_message(projection: dict[str, Any], cause: str) -> str:
+def _offline_recovery_message(root: Path, projection: dict[str, Any], cause: str) -> str:
     inspect = projection["inspect"]
     recover = projection["recover"]
-    inspect_arguments = json.dumps(
-        inspect["arguments"], ensure_ascii=False, separators=(",", ":"), sort_keys=True
-    )
-    recover_arguments = json.dumps(
-        recover["arguments"], ensure_ascii=False, separators=(",", ":"), sort_keys=True
-    )
-    return (
-        f"{projection['signal']} · 🧠 · ⚡ {projection['verb'].upper()} · "
-        f"🎯 {projection['subject'].upper()} · 🎛️ {projection['state'].upper()}\n"
-        f"🔎 {cause}.\n"
-        f"◆ {projection['evidence']} · OWNER {projection['owner']} · "
-        f"SETTLES {projection['settles']}\n"
-        "◆ This reminder preserves the candidate final; continue one bounded turn to establish authority.\n"
-        f"➡️ Inspect: {inspect['tool']} {inspect_arguments}\n"
-        f"➡️ Recover: {recover['tool']} {recover_arguments}\n"
-        f"➡️ {projection['next']}"
+    return canonical_stream(
+        root,
+        projection["signal"],
+        service="🚀",
+        evidence=(projection["state"].upper(), f"{cause}."),
+        data=(projection["owner"],),
+        actions=(
+            semantic_action(root, "get", inspect["arguments"], "Inspect"),
+            semantic_action(root, "set", recover["arguments"], "Recover"),
+        ),
     )
 
 
@@ -218,7 +215,10 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
     harness = _read_regular_json(root / _HARNESS, _MAX_HARNESS_BYTES)
     finalization = harness.get("finalization") if isinstance(harness, dict) else None
     if (
-        not isinstance(finalization, dict)
+        not isinstance(harness, dict)
+        or harness.get("$schema") != "ae-harness-contract/1"
+        or harness.get("version") != 1
+        or not isinstance(finalization, dict)
         or finalization.get("schema") != "ae-harness-finalization/1"
         or finalization.get("policy_owner") != "CATALYST"
         or finalization.get("modality") != "gestalt"
@@ -226,7 +226,7 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
     ):
         return None
     attestation = finalization.get("attestation")
-    signals = attestation.get("canonical_signals") if isinstance(attestation, dict) else None
+    signals = attestation.get("signals") if isinstance(attestation, dict) else None
     if (
         not isinstance(attestation, dict)
         or attestation.get("schema") != "ae-final-attestation/1"
@@ -236,7 +236,7 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
         or attestation.get("witness_registry") != "quine/author-glyphs.json"
         or attestation.get("minimum_signals") != 1
         or not isinstance(signals, list)
-        or signals != ["🟢", "⏳", "⚠️", "🔴", "🔎", "◆", "➡️"]
+        or signals != ["🟢", "⏳", "⚠️", "🔴"]
     ):
         return None
     attempts = finalization.get("attempts")
@@ -244,17 +244,19 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
     refusals = finalization.get("refusals")
     bootstrap = refusals.get("bootstrap-decision-required") if isinstance(refusals, dict) else None
     expected_inspect = {
-        "tool": "mcp__LUCID__get",
+        "verb": "get",
         "arguments": {"path": "role", "scope": "this"},
     }
     expected_recover = {
-        "tool": "mcp__LUCID__set",
+        "verb": "set",
         "arguments": {
             "path": "role",
             "scope": "this",
             "value": {"action": "recover"},
         },
     }
+    reinject_projection = attempts[0].get("projection") if isinstance(attempts, list) and attempts else None
+    signout_projection = attempts[1].get("projection") if isinstance(attempts, list) and len(attempts) > 1 else None
     if (
         not isinstance(attempts, list)
         or len(attempts) != 2
@@ -271,8 +273,7 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
         or bootstrap.get("signal") != "⚠️"
         or bootstrap.get("subject") != "role"
         or bootstrap.get("state") != "bootstrap-decision-required"
-        or bootstrap.get("owner") != "WITNESS"
-        or bootstrap.get("evidence") != "envelope/LUCID.json#/role_registry"
+        or bootstrap.get("owner") != "🧬"
         or bootstrap.get("settles") != "exact-local-bootstrap-decision"
         or bootstrap.get("inspect") != expected_inspect
         or bootstrap.get("recover") != expected_recover
@@ -283,9 +284,45 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
             "no-automatic-signin",
             "retain-candidate-final",
         ]
+        or not _valid_projection(
+            reinject_projection,
+            signal="⚠️",
+            evidence="ROLE-ATTESTATION-PROTOCOL-DRIFT",
+            continuation="{role_hat}",
+        )
+        or not _valid_projection(
+            signout_projection,
+            signal="🔴",
+            evidence="ROLE-ATTESTATION-PROTOCOL-DRIFT",
+        )
     ):
         return None
     return finalization
+
+
+def _valid_projection(
+    projection: Any,
+    *,
+    signal: str,
+    evidence: str,
+    continuation: Optional[str] = None,
+) -> bool:
+    if not isinstance(projection, dict):
+        return False
+    expected_keys = {"data", "evidence", "service", "signal"}
+    if continuation is not None:
+        expected_keys.add("continuations")
+    return (
+        set(projection) == expected_keys
+        and projection.get("signal") == signal
+        and projection.get("service") == "🚀"
+        and projection.get("evidence") == [evidence, "{cause}"]
+        and projection.get("data") == ["🧬"]
+        and (
+            continuation is None
+            or projection.get("continuations") == [continuation]
+        )
+    )
 
 
 def _onboarding_resources(root: Path, role: str, attempt: dict[str, Any]) -> Optional[str]:
@@ -295,20 +332,18 @@ def _onboarding_resources(root: Path, role: str, attempt: dict[str, Any]) -> Opt
     labels = attempt.get("section_labels")
     if not isinstance(rows, list) or not isinstance(requested, list) or not isinstance(labels, dict):
         return None
-    by_uri = {
-        row.get("uri"): row
+    by_role = {
+        row.get("role"): row
         for row in rows
-        if isinstance(row, dict)
-        and isinstance(row.get("uri"), str)
-        and isinstance(row.get("path"), str)
+        if isinstance(row, dict) and isinstance(row.get("role"), str) and isinstance(row.get("path"), str)
     }
     role_lower = role.lower()
     sections = []
     for index, template in enumerate(requested):
         if not isinstance(template, str):
             return None
-        uri = template.format(role_lower=role_lower)
-        row = by_uri.get(uri)
+        resource_role = template.format(role_lower=role_lower)
+        row = by_role.get(resource_role)
         if not isinstance(row, dict):
             return None
         relative = Path(row["path"])
@@ -333,23 +368,47 @@ def _onboarding_resources(root: Path, role: str, attempt: dict[str, Any]) -> Opt
 def _render_attempt(
     root: Path,
     role: str,
+    role_hat: str,
+    witness_glyph: str,
     suffix: str,
     cause: str,
     attempt: dict[str, Any],
 ) -> Optional[str]:
-    gestalt = attempt.get("gestalt")
-    if not isinstance(gestalt, str) or not gestalt:
+    projection = attempt.get("projection")
+    if not isinstance(projection, dict):
         return None
-    signout_arguments = json.dumps(
-        attempt.get("arguments"), ensure_ascii=False, separators=(",", ":"), sort_keys=True
-    )
-    rendered = gestalt.format(
-        role=role,
-        role_lower=role.lower(),
-        suffix=suffix,
-        cause=cause,
-        signout_arguments=signout_arguments,
-    )
+    values = {
+        "cause": cause,
+        "role": role,
+        "role_hat": role_hat,
+        "role_lower": role.lower(),
+        "suffix": suffix,
+        "witness_glyph": witness_glyph,
+    }
+    try:
+        evidence = tuple(value.format(**values) for value in projection["evidence"])
+        data = tuple(value.format(**values) for value in projection["data"])
+        continuations = tuple(
+            value.format(**values) for value in projection.get("continuations", [])
+        )
+        actions = ()
+        if attempt.get("action") == "signout":
+            arguments = attempt.get("arguments")
+            label = attempt.get("label")
+            if not isinstance(arguments, dict) or not isinstance(label, str):
+                return None
+            actions = (semantic_action(root, "set", arguments, label),)
+        rendered = canonical_stream(
+            root,
+            projection["signal"],
+            service=projection["service"],
+            evidence=evidence,
+            data=data,
+            continuations=continuations,
+            actions=actions,
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
     if attempt.get("action") == "reinject-onboarding":
         onboarding = _onboarding_resources(root, role, attempt)
         if onboarding is None:
@@ -379,7 +438,7 @@ def _attestation_failure(
         return "terminal-attestation-missing"
     body = terminal[: -len(suffix)]
     policy = finalization["attestation"]
-    signals = policy["canonical_signals"]
+    signals = policy["signals"]
     if sum(body.count(signal) for signal in signals) < policy["minimum_signals"]:
         return "canonical-gestalt-signal-missing"
     return None
@@ -424,12 +483,14 @@ def _pre_final(
             return {
                 "action": "continue",
                 "message": _offline_recovery_message(
-                    finalization["refusals"]["bootstrap-decision-required"], cause
+                    ae_root,
+                    finalization["refusals"]["bootstrap-decision-required"],
+                    cause,
                 ),
             }
         logger.warning("preserving final without exact live role/witness attestation")
         return None
-    root, role, _, _, _, suffix = attestation
+    root, role, role_hat, _, witness_glyph, suffix = attestation
     finalization = _finalization_contract(root)
     if finalization is None:
         logger.warning(
@@ -443,7 +504,15 @@ def _pre_final(
             signed_out = bool(session_id) and session_id in _SIGNED_OUT_SESSIONS
         if not signed_out:
             selected = attempts[1]
-            message = _render_attempt(root, role, suffix, "repeated-role-protocol-drift", selected)
+            message = _render_attempt(
+                root,
+                role,
+                role_hat,
+                witness_glyph,
+                suffix,
+                "repeated-role-protocol-drift",
+                selected,
+            )
             return {"action": "continue", "message": message} if message is not None else None
         return None
     if cause is None:
@@ -451,7 +520,15 @@ def _pre_final(
     selected = attempts[attempt]
     if not isinstance(selected, dict):
         return None
-    message = _render_attempt(root, role, suffix, cause, selected)
+    message = _render_attempt(
+        root,
+        role,
+        role_hat,
+        witness_glyph,
+        suffix,
+        cause,
+        selected,
+    )
     if message is None:
         return None
     return {
@@ -481,11 +558,21 @@ def _effigy_submission_accepted(result: Any) -> bool:
     for candidate in candidates:
         if not isinstance(candidate, str):
             continue
+        try:
+            stream = parse_stream(_GESTALT_ROOT, candidate)
+        except (OSError, ValueError):
+            continue
+        semantics = set(stream["data"]) | set(stream["evidence"])
         if (
-            candidate.startswith("🟢 LUCID · show · text · fresh")
-            and "Presentation Audio Accepted=true" in candidate
-            and "Presentation Audio Status=accepted" in candidate
-            and "Presentation Audio Code=speech-queued" in candidate
+            stream["signal"] == "🟢"
+            and stream["verb"] == "show"
+            and stream["noun"] == "text"
+            and stream["argument"] == "FRESH"
+            and {
+                "Presentation Audio Accepted=true",
+                "Presentation Audio Status=accepted",
+                "Presentation Audio Code=speech-queued",
+            }.issubset(semantics)
         ):
             return True
     structured = result.get("structuredContent")
@@ -561,6 +648,14 @@ def _effigy_failure_fields(
         for key in ("model", "result", "__hermes_model_visible_result")
         if isinstance((candidate := container.get(key)), str)
     ]
+    candidates.extend(
+        item["text"]
+        for container in containers
+        for item in container.get("content", [])
+        if isinstance(item, dict)
+        and item.get("type") == "text"
+        and isinstance(item.get("text"), str)
+    )
     for container in containers:
         refusal = container.get("refusal")
         if not isinstance(refusal, dict):
@@ -587,7 +682,26 @@ def _effigy_failure_fields(
         if not isinstance(candidate, str):
             continue
         for line in candidate.splitlines():
-            if line.startswith("Presentation Audio Effigy Transfer Code="):
+            canonical = [segment.strip() for segment in line.split(" · ")]
+            refusal_code = next(
+                (segment.removeprefix("🔎 ") for segment in canonical if segment.startswith("🔎 ")),
+                None,
+            )
+            if refusal_code is not None:
+                normalized_code = refusal_code.strip().lower().replace("_", "-")
+                if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,95}", normalized_code):
+                    code = normalized_code
+                typed_detail = next(
+                    (
+                        _bounded_effigy_detail(segment.removeprefix("◆ "))
+                        for segment in canonical
+                        if segment.startswith("◆ ")
+                    ),
+                    None,
+                )
+                if typed_detail is not None:
+                    detail = typed_detail
+            elif line.startswith("Presentation Audio Effigy Transfer Code="):
                 code = line.split("=", 1)[1].strip()[:96] or code
                 stage = "effigy-transfer"
             elif line.startswith("Presentation Audio Code=") and stage == "submission":
@@ -611,7 +725,7 @@ def _emit_effigy_warning(
     display_detail = _effigy_display_detail(code, detail)
     rca = code if display_detail is None else f"{code}: {display_detail}"
     print(
-        f"⚠️ {role_glyph} · 🔎 {rca}",
+        canonical_stream(_GESTALT_ROOT, "⚠️", evidence=(rca,), data=(role_glyph,)),
         file=sys.stderr,
         flush=True,
     )

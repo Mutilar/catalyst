@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { canonicalGestaltStream } from './lucid-gestalt'
+
 import {
   extractMcpGestalt,
   extractMcpUguiDocument,
@@ -43,7 +45,12 @@ describe('model-visible MCP result', () => {
 
 describe('UGUI extraction', () => {
   it('separates full presentation UGUI from the model-visible Gestalt sidecar', () => {
-    const gestalt = '🟢 LUCID · get · onboarding · ready'
+    const gestalt = canonicalGestaltStream({
+      signal: '🟢',
+      verb: 'get',
+      noun: 'onboarding',
+      argument: 'ready'
+    })
 
     const result = {
       [MODEL_VISIBLE_TOOL_RESULT_KEY]: gestalt,
@@ -56,7 +63,12 @@ describe('UGUI extraction', () => {
   })
 
   it('extracts replacement UGUI from the exact inline-action channel envelope', () => {
-    const gestalt = '🟢 LUCID · get · gates · fresh'
+    const gestalt = canonicalGestaltStream({
+      signal: '🟢',
+      verb: 'get',
+      noun: 'gates',
+      argument: 'fresh'
+    })
 
     const result = {
       schema: 'hermes-tool-result-channels/1',
@@ -123,11 +135,13 @@ describe('UGUI extraction', () => {
 
 describe('Gestalt extraction', () => {
   it('extracts one bounded canonical Gestalt without interpreting its fields', () => {
-    const gestalt = [
-      '⚠️ LUCID · get · logs · stale',
-      'Runtime logs Source=catalyst',
-      'Runtime logs Freshness=stale'
-    ].join('\n')
+    const gestalt = canonicalGestaltStream({
+      signal: '⚠️',
+      verb: 'get',
+      noun: 'logs',
+      argument: 'stale',
+      data: ['Runtime logs Source=catalyst', 'Runtime logs Freshness=stale']
+    })
 
     const result = {
       [MODEL_VISIBLE_TOOL_RESULT_KEY]: {
@@ -139,24 +153,23 @@ describe('Gestalt extraction', () => {
     expect(extractMcpGestalt(result)).toBe(gestalt)
   })
 
-  it('refuses arbitrary prose while leaving bounds to the shared projector', () => {
+  it('refuses prose and noncanonical multiline payloads', () => {
     expect(extractMcpGestalt({ content: [{ type: 'text', text: 'ordinary prose' }] })).toBeNull()
-    const oversized = `🟢 LUCID · get · logs · fresh\n${'x'.repeat(2_048)}`
-    expect(extractMcpGestalt(oversized)).toBe(oversized)
-  })
-
-  it('extracts the existing CLI pulse header without parsing its semantics', () => {
-    const pulse = '🔴 QUINE.md · root · current\n🟢 GREEN'
-
-    expect(extractMcpGestalt({ output: pulse, exit_code: 0 })).toBe(pulse)
+    const oversized = `${canonicalGestaltStream({
+      signal: '🟢',
+      verb: 'get',
+      noun: 'logs',
+      argument: 'fresh'
+    })}\n${'x'.repeat(2_048)}`
+    expect(extractMcpGestalt(oversized)).toBeNull()
   })
 
   it('extracts canonical CLI help nested in terminal output', () => {
-    const help = [
-      '🟢 LUCID · get · help · ready',
-      'Read exact registered evidence.',
-      'CALL lucid get [typed arguments]'
-    ].join('\n')
+    const help = canonicalGestaltStream({
+      signal: '🟢',
+      verb: 'get',
+      evidence: ['Read exact registered evidence.']
+    })
 
     expect(terminalRunsLucid({ command: 'lucid get --help' })).toBe(true)
     expect(extractMcpGestalt({ output: help, exit_code: 0 })).toBe(help)
@@ -174,9 +187,7 @@ describe('terminal UGUI selection', () => {
   })
 
   it('recognizes direct LUCID UGUI commands and stable launcher paths', () => {
-    expect(terminalRequestsUgui({ command: "LUCID show pulse --modality ugui" })).toBe(
-      true
-    )
+    expect(terminalRequestsUgui({ command: 'LUCID show pulse --modality ugui' })).toBe(true)
     expect(
       terminalRequestsUgui({
         command: '/repo/run/target/toolchains/butler/current/bin/LUCID show --help --modality=ugui'

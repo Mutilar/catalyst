@@ -14,5 +14,5 @@
   "actions": [],
   "semanticMetadata": {"schema":"envelope-semantic-document/1","id":"spec.catalyst","source":"SPEC.json","sourceSchema":"quine-root-catalog-policy/1"},
   "provenance": {"schema":"ugui-provenance/1","sourceSchema":"envelope-semantic-document/1","parentHash":"sha256:1a441db020c7d8f927ddd5711ccd4933cdaa7744d5232896c7cbe0123792667d","observedEpoch":0,"sourceField":"intent.args.document"},
-  "projectionReceipt": {"schema":"envelope-document-projection/1","semanticHash":"sha256:1a441db020c7d8f927ddd5711ccd4933cdaa7744d5232896c7cbe0123792667d","markdownHash":"sha256:bd9d76982363887030576e342d33a926e58020a560985f13ea1ba8a021d28809","sections":4,"omitted":[]}
+  "projectionReceipt": {"schema":"envelope-document-projection/1","semanticHash":"sha256:1a441db020c7d8f927ddd5711ccd4933cdaa7744d5232896c7cbe0123792667d","markdownHash":"sha256:aedff4592dee9f4f2e467a2f6fd6c98938f91e5071e0be94dd0f2df9ca440319","sections":4,"omitted":[]}
 }

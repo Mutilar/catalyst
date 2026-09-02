@@ -350,7 +350,7 @@ function Detail({ id, node, t }: { id?: string; node: SubagentNode; t: Theme }) 
         <Field
           name="subtree"
           t={t}
-          value={`${agg.descendantCount} agent${agg.descendantCount === 1 ? '' : 's'} · d${agg.maxDepthFromHere} · ⚡${agg.activeCount}`}
+          value={`${agg.descendantCount} agent${agg.descendantCount === 1 ? '' : 's'} | d${agg.maxDepthFromHere} | active ${agg.activeCount}`}
         />
         {item.durationSeconds ? <Field name="elapsed" t={t} value={fmtDur(item.durationSeconds)} /> : null}
         {item.iteration != null ? <Field name="iteration" t={t} value={String(item.iteration)} /> : null}

@@ -1,6 +1,11 @@
 import json
+from pathlib import Path
+
+import pytest
 
 from tools import lucid_outage
+
+from hermes_gestalt import canonical_stream, parse_stream, semantic_action
 
 
 def write(path, value):
@@ -64,14 +69,69 @@ def test_active_outage_projects_exact_search_fallback(monkeypatch, tmp_path):
 
     assert result is not None
     assert set(result) == {"error"}
-    assert result["error"].splitlines() == [
-        "⚠️ · 🧠 · ⚡ GET · 🎯 TRANSPORT · 🎛️ OFFLINE-FALLBACK",
-        "🔎 mcp-unavailable · ⏳ ETA T-10s",
-        "➡️ lucid get search --query '{\"terms\":[\"needle\"]}'",
-    ]
+    assert "\n" not in result["error"]
+    stream = parse_stream(Path(__file__).parents[3], result["error"])
+    assert stream["signal"] == "⚠️"
+    assert (stream["verb"], stream["noun"], stream["argument"]) == (
+        "get",
+        "transport",
+        "OFFLINE-FALLBACK",
+    )
+    assert stream["evidence"] == ["mcp-unavailable"]
+    assert stream["timing"] == ["ETA T-10s"]
+    action = stream["actions"][0]
+    assert (action["verb"], action["noun"]) == ("get", "search")
+    assert json.loads(action["argument"]) == {"query": {"terms": ["needle"]}}
     assert "--args" not in result["error"]
     assert "--scope" not in result["error"]
     assert "RETIRE" not in result["error"]
+
+
+def test_canonical_stream_is_projected_from_the_root_gestalt_contract():
+    root = Path(__file__).parents[3]
+    complete = parse_stream(root, canonical_stream(root, "🟢", "show", "app", "macos-shell"))
+    assert (complete["signal"], complete["verb"], complete["noun"], complete["argument"]) == (
+        "🟢",
+        "show",
+        "app",
+        "MACOS-SHELL",
+    )
+    root_stream = parse_stream(root, canonical_stream(root, "⚠️"))
+    assert root_stream["signal"] == "⚠️"
+    assert root_stream["service"] == "🧠"
+    verb_stream = parse_stream(root, canonical_stream(root, "🟢", "show"))
+    assert verb_stream["verb"] == "show"
+    assert verb_stream["noun"] is None
+    with pytest.raises(ValueError, match="coordinate dependencies"):
+        canonical_stream(root, "🟢", "show", argument="view")
+    stream = canonical_stream(
+        root,
+        "⏳",
+        "show",
+        "app",
+        '"macos-shell"',
+        evidence=("RUNNING",),
+        data=("Progress=98%",),
+        timing=("ETA 2s",),
+        actions=({"verb": "show", "noun": "pulse", "label": "Show pulse"},),
+    )
+    assert "\n" not in stream
+    parsed = parse_stream(root, stream)
+    assert parsed["evidence"] == ["RUNNING"]
+    assert parsed["data"] == ["Progress=98%"]
+    assert parsed["timing"] == ["ETA 2s"]
+    assert parsed["actions"] == [
+        {"verb": "show", "noun": "pulse", "argument": None, "label": "Show pulse"}
+    ]
+    timing = canonical_stream(
+        root,
+        "⏳",
+        service="🔥",
+        timing=("🔴 RTT [################] 200% T+5.0",),
+    )
+    assert parse_stream(root, timing)["timing"] == ["🔴 RTT [################] 200% T+5.0"]
+    assert "SERVICE" not in timing
+    assert "TIMING" not in timing
 
 
 def test_green_or_unregistered_noun_never_suggests_fallback(monkeypatch, tmp_path):
@@ -105,8 +165,12 @@ def test_empty_error_uses_run_attested_eta_and_offline_facade(monkeypatch, tmp_p
     )
 
     assert set(result) == {"error"}
-    assert "⏳ ETA T-10s" in result["error"]
-    assert "➡️ lucid get search --query" in result["error"]
+    stream = parse_stream(Path(__file__).parents[3], result["error"])
+    assert stream["timing"] == ["ETA T-10s"]
+    assert any(
+        action["verb"] == "get" and action["noun"] == "search"
+        for action in stream["actions"]
+    )
     assert "--args" not in result["error"]
     assert "--scope" not in result["error"]
 
@@ -123,8 +187,12 @@ def test_unattested_empty_error_uses_canonical_outcome_code(monkeypatch, tmp_pat
     )
 
     assert set(result) == {"error"}
-    assert result["error"].startswith(
-        "🔴 🧠 · ⚡ DISPATCH · 🎛️ OUTCOME-ENVELOPE-INVALID"
+    stream = parse_stream(Path(__file__).parents[3], result["error"])
+    assert (stream["signal"], stream["verb"], stream["noun"], stream["argument"]) == (
+        "🔴",
+        "dispatch",
+        "transport",
+        "OUTCOME-ENVELOPE-INVALID",
     )
     assert "MCP tool returned an error" not in result["error"]
     assert "➡️" not in result["error"]
@@ -145,10 +213,22 @@ def test_failure_gestalt_is_stable_for_the_same_evidence(monkeypatch, tmp_path):
 def test_canonical_semantic_refusal_is_transparent_passthrough(monkeypatch, tmp_path):
     monkeypatch.setattr(lucid_outage, "_OFFLINE", tmp_path / "absent-offline.json")
     monkeypatch.setattr(lucid_outage, "_REVIVAL", tmp_path / "absent-revival.json")
-    refusal = (
-        "🔴 · 🧠 · ⚡ SET · 🎯 ROLE · 🎛️ RECOVER · "
-        "🔎 ROLE-SUPERSEDED: role binding settlement outcome unknown · "
-        "➡️ 🧠 · ⚡ GET · 🎯 ROLE · 🔎 Inspect settlement before retrying"
+    root = Path(__file__).parents[3]
+    refusal = canonical_stream(
+        root,
+        "🔴",
+        "set",
+        "role",
+        "recover",
+        evidence=("ROLE-SUPERSEDED: role binding settlement outcome unknown",),
+        actions=(
+            semantic_action(
+                root,
+                "get",
+                {"path": "role"},
+                "Inspect settlement before retrying",
+            ),
+        ),
     )
 
     result = lucid_outage.project_lucid_failure(
@@ -172,6 +252,10 @@ def test_server_supplied_ugui_error_is_not_forwarded_through_model_context():
     )
     assert set(result) == {"error"}
     assert "structuredContent" not in result
-    assert result["error"].startswith(
-        "🔴 🧠 · ⚡ DISPATCH · 🎛️ OUTCOME-ENVELOPE-INVALID"
+    stream = parse_stream(Path(__file__).parents[3], result["error"])
+    assert (stream["signal"], stream["verb"], stream["noun"], stream["argument"]) == (
+        "🔴",
+        "dispatch",
+        "transport",
+        "OUTCOME-ENVELOPE-INVALID",
     )

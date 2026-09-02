@@ -1,9 +1,19 @@
+import { parseGestaltStream } from '../../shared/src/lucid-gestalt.js'
+
 const SEMANTIC_OBSERVATION_PREFIXES = ['CATALYST_TOOL_OBSERVATION ', 'PENGUIN_TEACHING_EVENT '] as const
-const EFFIGY_WARNING = /^⚠️ [^\s·]{1,16} · 🔎 [a-z0-9][a-z0-9-]{0,95}(?:: \S.{0,256})?$/u
 
 const MAX_SEMANTIC_OBSERVATION_BYTES = 8 * 1024
 
 export type SemanticObservationWriter = (line: string) => void
+
+function isEffigyWarning(line: string): boolean {
+  try {
+    const stream = parseGestaltStream(line)
+    return stream.signal === '⚠️' && stream.evidence.length > 0
+  } catch {
+    return false
+  }
+}
 
 export function createSemanticObservationForwarder(write: SemanticObservationWriter) {
   let pending = ''
@@ -21,7 +31,7 @@ export function createSemanticObservationForwarder(write: SemanticObservationWri
       pending = pending.slice(newline + 1)
       if (
         Buffer.byteLength(line, 'utf8') <= MAX_SEMANTIC_OBSERVATION_BYTES &&
-        (SEMANTIC_OBSERVATION_PREFIXES.some(prefix => line.startsWith(prefix)) || EFFIGY_WARNING.test(line))
+        (SEMANTIC_OBSERVATION_PREFIXES.some(prefix => line.startsWith(prefix)) || isEffigyWarning(line))
       ) {
         write(`${line}\n`)
       }

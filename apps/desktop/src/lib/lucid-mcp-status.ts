@@ -1,5 +1,7 @@
 import type { McpServerSummary } from '@/types/hermes'
 
+import { canonicalGestaltStream } from './lucid-gestalt'
+
 export type LucidStatusSignal = 'green' | 'hourglass' | 'red' | 'warning'
 
 export interface LucidMcpStatus {
@@ -27,22 +29,24 @@ export function lucidMcpGestalt(status: LucidMcpStatus): string {
     red: 'failed',
     warning: 'degraded'
   }[status.signal]
-  const lines: Array<string | null> = [
-    `${status.glyph} · 🧠 · ⚡ SHOW · 🎯 MCP · 🎛️ ${state.toUpperCase()}`,
-    `◆ MCP Connection=${status.connection} · Health=${status.health} · Transport=${status.transport.toUpperCase()} · Tools=${status.tools} · Failures=${status.failures} · Startup=Automatic`
-  ]
-  const error = status.error?.replace(/[\r\n\0]+/g, ' ').trim().slice(0, 512)
-
-  lines.push(
-    error
-      ? `🔎 Code=lucid-health-error · Detail=${error}`
-      : null
-  )
-  if (status.connection.startsWith('Connected') && status.tools > 0) {
-    lines.push('➡️ {"arguments":{},"label":"Open LUCID capabilities","verb":"get"}')
-  }
-
-  return lines.filter((line): line is string => Boolean(line)).join('\n')
+  const error = status.error
+    ?.replace(/[\r\n\0]+/g, ' ')
+    .trim()
+    .slice(0, 512)
+  return canonicalGestaltStream({
+    signal: status.glyph,
+    verb: 'show',
+    noun: 'mcp',
+    argument: state,
+    data: [
+      `MCP Connection=${status.connection}, Health=${status.health}, Transport=${status.transport.toUpperCase()}, Tools=${status.tools}, Failures=${status.failures}, Startup=Automatic`
+    ],
+    evidence: error ? [`Code=lucid-health-error, Detail=${error}`] : [],
+    actions:
+      status.connection.startsWith('Connected') && status.tools > 0
+        ? [{ verb: 'get', label: 'Open LUCID capabilities' }]
+        : []
+  })
 }
 
 export function lucidMcpTooltip(status: LucidMcpStatus): string {

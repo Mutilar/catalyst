@@ -194,10 +194,10 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
       })
 
       if (action === 'defer') {
-        queryClient.setQueryData<CatalystRestartIntent>(
-          ['catalyst-restart-intent'],
-          { ...restartIntent, state: 'deferred' }
-        )
+        queryClient.setQueryData<CatalystRestartIntent>(['catalyst-restart-intent'], {
+          ...restartIntent,
+          state: 'deferred'
+        })
         setRestartModalOpen(false)
       }
     } catch (error) {
@@ -298,11 +298,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
         triggerHaptic(lucidStatus.signal === 'green' ? 'tap' : 'warning')
         setLucidModalOpen(true)
       },
-      title: (
-        <span className="whitespace-pre-line font-mono font-normal">
-          {lucidGestalt}
-        </span>
-      )
+      title: <span className="whitespace-pre-line font-mono font-normal">{lucidGestalt}</span>
     },
     {
       active: restartIntent?.state === 'deferred',
@@ -321,7 +317,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
       },
       title: restartIntent ? (
         <span className="whitespace-pre-line font-mono font-normal">
-          {`${restartIntent.state === 'deferred' ? '⚠️' : '⏳'} RUN · restart · catalyst · ${restartIntent.state}\n🔎 ${restartIntent.reason} · ${restartIntent.generation_hash}`}
+          {`RUN restart: Catalyst ${restartIntent.state}\nStatus: ${restartIntent.state === 'deferred' ? 'deferred' : 'pending'}\nReason: ${restartIntent.reason}\nGeneration: ${restartIntent.generation_hash}`}
         </span>
       ) : undefined
     },
@@ -398,14 +394,12 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
           {restartIntent && (
             <div className="space-y-3">
               <pre className="max-w-[min(42rem,82vw)] overflow-auto whitespace-pre-wrap rounded-md bg-(--ui-bg-quinary) p-3 font-mono text-xs text-(--ui-text-secondary)">
-                {`${restartIntent.state === 'deferred' ? '⚠️' : '⏳'} RUN · restart · catalyst · ${restartIntent.state}\n🔎 ${restartIntent.reason}\n🔎 ${restartIntent.generation_hash}`}
+                {`RUN restart: Catalyst ${restartIntent.state}\nStatus: ${restartIntent.state === 'deferred' ? 'deferred' : 'pending'}\nReason: ${restartIntent.reason}\nGeneration: ${restartIntent.generation_hash}`}
               </pre>
               <p className="text-sm text-(--ui-text-secondary)">
                 “Later” keeps this intent in the titlebar. You can reopen it and restart when your active work is safe.
               </p>
-              {restartDecisionError && (
-                <p className="text-sm text-(--ui-danger)">{restartDecisionError}</p>
-              )}
+              {restartDecisionError && <p className="text-sm text-(--ui-danger)">{restartDecisionError}</p>}
             </div>
           )}
           <DialogFooter>
@@ -417,11 +411,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
             >
               Later
             </Button>
-            <Button
-              disabled={restartDecisionPending}
-              onClick={() => void decideRestart('accept')}
-              type="button"
-            >
+            <Button disabled={restartDecisionPending} onClick={() => void decideRestart('accept')} type="button">
               {restartDecisionPending ? 'Recording decision…' : 'Restart now'}
             </Button>
           </DialogFooter>
@@ -514,17 +504,10 @@ function TitlebarToolButton({ navigate, tool }: { navigate: ReturnType<typeof us
   // Titlebar actions never show an active background — state reads from the
   // icon itself (e.g. the mute/unmute glyph). aria-pressed still carries it
   // for a11y.
-  const className = cn(
-    titlebarButtonClass,
-    'bg-transparent select-none [-webkit-app-region:no-drag]',
-    tool.className
-  )
+  const className = cn(titlebarButtonClass, 'bg-transparent select-none [-webkit-app-region:no-drag]', tool.className)
 
   const tooltipLabel = tool.actionId ? (
-    <TipKeybindLabel
-      actionId={tool.actionId}
-      text={typeof tool.title === 'string' ? tool.title : tool.label}
-    />
+    <TipKeybindLabel actionId={tool.actionId} text={typeof tool.title === 'string' ? tool.title : tool.label} />
   ) : (
     (tool.title ?? tool.label)
   )

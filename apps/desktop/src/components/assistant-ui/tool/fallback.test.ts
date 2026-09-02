@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { MODEL_VISIBLE_TOOL_RESULT_KEY } from '@/lib/tool-presentation'
+import { canonicalGestaltStream } from '@/lib/lucid-gestalt'
 
 import { mcpModelTrace, shouldBoundToolGroup, technicalTrace, UNBOUNDABLE_TOOLS } from './fallback'
 
@@ -40,15 +41,16 @@ describe('technicalTrace', () => {
 
 describe('mcpModelTrace', () => {
   it('shows exact model-visible input and output without Hermes timing metadata', () => {
+    const error = canonicalGestaltStream({ signal: '🔴', evidence: ['MALFORMED-ARGS'] })
     expect(
       mcpModelTrace(
         {},
         {
           duration_s: 1.789,
-          error: '🔴 · 🧠 · 🔎 MALFORMED-ARGS',
-          [MODEL_VISIBLE_TOOL_RESULT_KEY]: { error: '🔴 · 🧠 · 🔎 MALFORMED-ARGS' }
+          error,
+          [MODEL_VISIBLE_TOOL_RESULT_KEY]: { error }
         }
       )
-    ).toBe('Input:\n{}\n\nOutput:\n{\n  "error": "🔴 · 🧠 · 🔎 MALFORMED-ARGS"\n}')
+    ).toBe(`Input:\n{}\n\nOutput:\n${JSON.stringify({ error }, null, 2)}`)
   })
 })

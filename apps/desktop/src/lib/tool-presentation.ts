@@ -1,3 +1,5 @@
+import { parseGestaltStream } from './lucid-gestalt'
+
 export const MODEL_VISIBLE_TOOL_RESULT_KEY = '__hermes_model_visible_result'
 
 export interface McpToolIdentity {
@@ -73,9 +75,7 @@ function terminalLucidInvocations(args: unknown): string[] {
   return command
     .split(/&&|\|\||;|\n/)
     .map(segment => segment.trim())
-    .filter(invocation =>
-      /^(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S+\/)?lucid(?=\s|$)/i.test(invocation)
-    )
+    .filter(invocation => /^(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S+\/)?lucid(?=\s|$)/i.test(invocation))
 }
 
 export function terminalRunsLucid(args: unknown): boolean {
@@ -87,11 +87,9 @@ export function isTerminalTool(name: string): boolean {
 }
 
 export function terminalRequestsUgui(args: unknown): boolean {
-  return terminalLucidInvocations(args).some(invocation =>
-    (
-      /(?:^|\s)--modality(?:=|\s+)ugui(?=\s|$)/i.test(invocation) ||
-      /(?:^|\s)--help=ugui(?=\s|$)/i.test(invocation)
-    )
+  return terminalLucidInvocations(args).some(
+    invocation =>
+      /(?:^|\s)--modality(?:=|\s+)ugui(?=\s|$)/i.test(invocation) || /(?:^|\s)--help=ugui(?=\s|$)/i.test(invocation)
   )
 }
 
@@ -104,9 +102,7 @@ function record(value: unknown): Record<string, unknown> | null {
     try {
       const parsed = JSON.parse(value)
 
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : null
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null
     } catch {
       return null
     }
@@ -132,8 +128,17 @@ export function extractMcpGestalt(result: unknown): string | null {
     presentation?.output
   ]
 
+  const canonical = (value: string): boolean => {
+    try {
+      parseGestaltStream(value)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   for (const candidate of candidates) {
-    if (typeof candidate === 'string' && /^(?:🟢|⏳|⚠️|🔴)\s+(?:LUCID(?:\/1)?|QUINE\.md)\s+·/u.test(candidate)) {
+    if (typeof candidate === 'string' && canonical(candidate)) {
       return candidate
     }
 
@@ -147,7 +152,7 @@ export function extractMcpGestalt(result: unknown): string | null {
       const row = record(item)
       const value = typeof row?.text === 'string' ? row.text : null
 
-      if (value && /^(?:🟢|⏳|⚠️|🔴)\s+(?:LUCID(?:\/1)?|QUINE\.md)\s+·/u.test(value)) {
+      if (value && canonical(value)) {
         return value
       }
     }

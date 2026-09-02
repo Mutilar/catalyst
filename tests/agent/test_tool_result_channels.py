@@ -1,5 +1,7 @@
 import json
+from pathlib import Path
 
+from hermes_gestalt import canonical_stream
 from agent.tool_result_channels import (
     SCHEMA,
     encode_tool_result_channels,
@@ -8,7 +10,14 @@ from agent.tool_result_channels import (
 
 
 def test_dual_channel_keeps_full_ugui_out_of_model_content():
-    gestalt = "🟢 LUCID · get · onboarding · ready\n# The Penguin Protocol"
+    gestalt = canonical_stream(
+        Path(__file__).parents[3],
+        "🟢",
+        "get",
+        "onboarding",
+        "ready",
+        data=("# The Penguin Protocol",),
+    )
     ugui = {
         "schema": "lucid-ugui-response/1",
         "projectionForm": "detailed",
@@ -42,7 +51,9 @@ def test_ordinary_tool_results_pass_through_unchanged():
 
 
 def test_error_channel_remains_classifiable_without_leaking_presentation():
-    gestalt = "🔴 · 🧠 · 🔎 ROLE-SESSION-REFUSED"
+    gestalt = canonical_stream(
+        Path(__file__).parents[3], "🔴", evidence=("ROLE-SESSION-REFUSED",)
+    )
     encoded = encode_tool_result_channels(
         gestalt,
         {

@@ -1,10 +1,12 @@
 """End-to-end coverage for bounded pre-final attestation correction."""
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hermes_gestalt import canonical_stream
 from run_agent import AIAgent
 
 
@@ -136,17 +138,22 @@ def test_unattested_candidate_is_not_budget_fallback(agent):
 
 def test_terminal_attestation_block_replaces_candidate_without_another_model_turn(agent):
     agent._interruptible_api_call = MagicMock(return_value=_response("drifted candidate"))
+    refusal = canonical_stream(
+        Path(__file__).parents[3],
+        "🔴",
+        evidence=("ROLE-SESSION-OFFLINE",),
+    )
     with (
         patch("agent.coding_context.project_facts_for", return_value={"root": "/repo"}),
         patch("hermes_cli.plugins.has_hook", side_effect=lambda name: name == "pre_final"),
         patch(
             "hermes_cli.plugins.get_pre_final_decision",
-            return_value={"action": "block", "message": "🔴 · 🧠 · 🔎 ROLE-SESSION-OFFLINE"},
+            return_value={"action": "block", "message": refusal},
         ),
         patch("hermes_cli.plugins.invoke_hook", return_value=[]),
     ):
         result = agent.run_conversation("finish")
-    assert result["final_response"] == "🔴 · 🧠 · 🔎 ROLE-SESSION-OFFLINE"
+    assert result["final_response"] == refusal
     assert agent._interruptible_api_call.call_count == 1
     with pytest.raises(RuntimeError, match="ROLE-SESSION-OFFLINE"):
         agent.run_conversation("try to continue")

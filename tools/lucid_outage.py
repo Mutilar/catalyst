@@ -8,6 +8,8 @@ import shlex
 
 from typing import Any
 
+from hermes_gestalt import canonical_stream, parse_stream, semantic_action
+
 _REPO = Path(__file__).resolve().parents[2]
 _OFFLINE = _REPO / "envelope/LUCID-OFFLINE.json"
 _GESTALT = _REPO / "envelope/GESTALT.json"
@@ -15,9 +17,6 @@ _REVIVAL = _REPO / "run/state/runtime/mcp-revival.json"
 _MAX_REGISTRY = 64 * 1024
 _MAX_REVIVAL = 4 * 1024
 _MAX_ARGUMENTS = 65_536
-_CANONICAL_SIGNALS = ("🟢", "⏳", "⚠️", "🔴")
-
-
 def _read_json(path: Path, maximum: int) -> dict[str, Any] | None:
     try:
         if path.is_symlink() or not path.is_file() or path.stat().st_size > maximum:
@@ -121,10 +120,15 @@ def project_lucid_transport_outage(tool: str, arguments: dict[str, Any]) -> dict
     command = _command(facade, arguments)
     if command is None:
         return None
-    text = (
-        f"⚠️ · 🧠 · ⚡ {tool.upper()} · 🎯 TRANSPORT · 🎛️ OFFLINE-FALLBACK\n"
-        f"🔎 mcp-unavailable · {eta}\n"
-        f"➡️ {command}"
+    text = canonical_stream(
+        _REPO,
+        "⚠️",
+        tool,
+        "transport",
+        "offline-fallback",
+        evidence=("mcp-unavailable",),
+        timing=(eta.removeprefix("⏳ "),),
+        actions=(semantic_action(_REPO, tool, arguments, command),),
     )
     return {"error": text}
 
@@ -138,20 +142,18 @@ def project_lucid_failure(
 ) -> dict[str, Any]:
     """Project every LUCID failure without inventing RUN-owned outage evidence."""
 
-    lines = detail.splitlines()
-    semantic_canonical = (
-        bool(lines)
-        and any(lines[0].startswith(f"{signal} · 🧠 · ") for signal in _CANONICAL_SIGNALS)
-        and (" · 🔎 " in lines[0] or " · ⚡ " in lines[0])
-    )
-    if semantic_canonical:
+    try:
+        parse_stream(_REPO, detail)
+    except (OSError, ValueError):
+        pass
+    else:
         return {"error": detail}
     outage = project_lucid_transport_outage(tool, arguments)
     if outage is not None:
         return outage
     code = code if code in {"mcp-unavailable", "outcome-envelope-invalid"} else "outcome-envelope-invalid"
     gestalt = _read_json(_GESTALT, _MAX_REGISTRY) or {}
-    line_bytes = gestalt.get("bounds", {}).get("lineBytes", 1024)
+    line_bytes = gestalt.get("bounds", {}).get("segmentBytes", 1024)
     if not isinstance(line_bytes, int) or not 1 <= line_bytes <= 4096:
         line_bytes = 1024
     bounded = " ".join(detail.split())[:line_bytes] or "isError response omitted content and structuredContent"
@@ -165,10 +167,12 @@ def project_lucid_failure(
         "cancel": "action",
     }.get(tool)
     noun = arguments.get(noun_key) if noun_key else None
-    segments = ["🔴 🧠", f"⚡ {tool.upper()}"]
-    if isinstance(noun, str) and noun:
-        segments.append(f"🎯 {noun.upper()}")
-    segments.extend([f"🎛️ {code.upper()}", f"🔎 {bounded}"])
-    return {
-        "error": " · ".join(segments)
-    }
+    projected = canonical_stream(
+        _REPO,
+        "🔴",
+        tool,
+        noun if isinstance(noun, str) and noun else "transport",
+        code,
+        evidence=(bounded,),
+    )
+    return {"error": projected}

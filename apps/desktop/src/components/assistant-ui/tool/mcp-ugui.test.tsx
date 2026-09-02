@@ -2,11 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { McpUguiDocument as Document } from '@/lib/tool-presentation'
-import {
-  $pendingModeApply,
-  $pendingSkinApply,
-  __resetBackendSkinSync
-} from '@/themes/backend-sync'
+import { canonicalGestaltStream } from '../../../lib/lucid-gestalt'
+import { $pendingModeApply, $pendingSkinApply, __resetBackendSkinSync } from '@/themes/backend-sync'
 
 import { McpUguiDocument, projectUguiAction, residentUguiActionId } from './mcp-ugui'
 
@@ -114,9 +111,7 @@ describe('McpUguiDocument', () => {
     const { container } = render(<McpUguiDocument document={mediaDocument} />)
     const image = await screen.findByRole('img', { name: 'Enrolled device screenshot' })
 
-    expect(mocks.resolveUguiMediaReference).toHaveBeenCalledWith(
-      'artifact://screen/screen-123-00-abcdef.preview.png'
-    )
+    expect(mocks.resolveUguiMediaReference).toHaveBeenCalledWith('artifact://screen/screen-123-00-abcdef.preview.png')
     expect(image.getAttribute('src')).toBe('data:image/png;base64,iVBORw0KGgo=')
     expect(container.querySelector('[data-ugui-primitive="image"]')).toBeTruthy()
   })
@@ -130,11 +125,7 @@ describe('McpUguiDocument', () => {
           type: 'code',
           label: 'Context',
           language: 'markdown',
-          value: [
-            '| Rule | Meaning |',
-            '|---|---|',
-            '| **D.R.Y.** | Keep `one source` authoritative. |'
-          ].join('\n')
+          value: ['| Rule | Meaning |', '|---|---|', '| **D.R.Y.** | Keep `one source` authoritative. |'].join('\n')
         }
       ]
     } satisfies Document
@@ -309,7 +300,9 @@ describe('McpUguiDocument', () => {
     fireEvent.click(button)
     fireEvent.click(button)
 
-    await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(actionable, 'lucid.response.execution', false))
+    await waitFor(() =>
+      expect(mocks.invokeUguiAction).toHaveBeenCalledWith(actionable, 'lucid.response.execution', false)
+    )
     expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(1)
     expect(await screen.findByRole('heading', { name: 'Current execution' })).toBeTruthy()
   })
@@ -375,9 +368,7 @@ describe('McpUguiDocument', () => {
       ...document,
       provenance: { parentHash: provenance },
       receipt: {
-        action_provenance: [
-          { id: action.id, state: 'AVAILABLE', provenance_hash: provenance }
-        ]
+        action_provenance: [{ id: action.id, state: 'AVAILABLE', provenance_hash: provenance }]
       },
       actions: [action]
     } satisfies Document
@@ -386,9 +377,7 @@ describe('McpUguiDocument', () => {
     render(<McpUguiDocument document={actionable} />)
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
 
-    expect(
-      await screen.findByText('LUCID action completed without a replacement UGUI document')
-    ).toBeTruthy()
+    expect(await screen.findByText('LUCID action completed without a replacement UGUI document')).toBeTruthy()
     expect(screen.queryByText('Refresh completed.')).toBeNull()
   })
 
@@ -474,9 +463,7 @@ describe('McpUguiDocument', () => {
       ...document,
       provenance: { parentHash: provenance },
       receipt: {
-        action_provenance: [
-          { id: choice.id, state: 'AVAILABLE', provenance_hash: provenance }
-        ]
+        action_provenance: [{ id: choice.id, state: 'AVAILABLE', provenance_hash: provenance }]
       },
       actions: [choice]
     } satisfies Document
@@ -492,9 +479,7 @@ describe('McpUguiDocument', () => {
       header: [{ id: 'title', type: 'text', body: 'One-pager choices' }],
       provenance: { parentHash: nextProvenance },
       receipt: {
-        action_provenance: [
-          { id: inspect.id, state: 'AVAILABLE', provenance_hash: nextProvenance }
-        ]
+        action_provenance: [{ id: inspect.id, state: 'AVAILABLE', provenance_hash: nextProvenance }]
       },
       actions: [inspect]
     } satisfies Document
@@ -508,7 +493,12 @@ describe('McpUguiDocument', () => {
         ok: true,
         result: {
           schema: 'hermes-tool-result-channels/1',
-          model: '🟢 LUCID · morph · one-pager · ready',
+          model: canonicalGestaltStream({
+            signal: '🟢',
+            verb: 'morph',
+            noun: 'one-pager',
+            argument: 'ready'
+          }),
           presentation: {
             structuredContent: choices
           }

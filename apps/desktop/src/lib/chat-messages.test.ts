@@ -14,6 +14,7 @@ import {
   upsertToolPart
 } from './chat-messages'
 import { MODEL_VISIBLE_TOOL_RESULT_KEY } from './tool-presentation'
+import { canonicalGestaltStream } from './lucid-gestalt'
 
 describe('toChatMessages', () => {
   it('keeps a turn with interleaved tool-only rows in a single bubble', () => {
@@ -898,7 +899,7 @@ describe('upsertToolPart', () => {
   })
 
   it('retains exact MCP model output separately from Hermes presentation metadata', () => {
-    const exact = { error: '🔴 · 🧠 · 🔎 MALFORMED-ARGS' }
+    const exact = { error: canonicalGestaltStream({ signal: '🔴', evidence: ['MALFORMED-ARGS'] }) }
 
     const [completed] = upsertToolPart(
       [],

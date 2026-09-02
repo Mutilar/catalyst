@@ -292,8 +292,10 @@ class TestErrorPathResourceText:
     def test_lucid_empty_error_projects_canonical_ugui_never_generic(
         self, _handler, monkeypatch, tmp_path
     ):
+        from pathlib import Path
         from unittest.mock import AsyncMock
 
+        from hermes_gestalt import parse_stream
         from tools import lucid_outage, mcp_tool
 
         session, _ = _handler
@@ -315,22 +317,40 @@ class TestErrorPathResourceText:
             mcp_tool._servers.pop("LUCID", None)
             mcp_tool._reset_server_error("LUCID")
 
-        assert data["error"].startswith(
-            "🔴 🧠 · ⚡ DISPATCH · 🎛️ OUTCOME-ENVELOPE-INVALID"
+        stream = parse_stream(Path(__file__).parents[3], data["error"])
+        assert (stream["signal"], stream["verb"], stream["noun"], stream["argument"]) == (
+            "🔴",
+            "dispatch",
+            "transport",
+            "OUTCOME-ENVELOPE-INVALID",
         )
         assert "MCP tool returned an error" not in data["error"]
 
     def test_lucid_semantic_error_is_transparent_passthrough(
         self, _handler, monkeypatch, tmp_path
     ):
+        from pathlib import Path
         from unittest.mock import AsyncMock
 
+        from hermes_gestalt import canonical_stream, semantic_action
         from tools import lucid_outage, mcp_tool
 
-        refusal = (
-            "🔴 🧠 · ⚡ SET · 🎯 ROLE-SESSION · 🎛️ RECOVER · "
-            "🔎 ROLE-SUPERSEDED: role binding settlement outcome unknown · "
-            "➡️ 🧠 · ⚡ GET · 🎯 ROLE-SESSION · 🔎 Inspect settlement before retrying"
+        root = Path(__file__).parents[3]
+        refusal = canonical_stream(
+            root,
+            "🔴",
+            "set",
+            "role-session",
+            "recover",
+            evidence=("ROLE-SUPERSEDED: role binding settlement outcome unknown",),
+            actions=(
+                semantic_action(
+                    root,
+                    "get",
+                    {"path": "role-session"},
+                    "Inspect settlement before retrying",
+                ),
+            ),
         )
         session, _ = _handler
         monkeypatch.setattr(lucid_outage, "_OFFLINE", tmp_path / "absent-offline.json")

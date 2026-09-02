@@ -1,7 +1,10 @@
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
+
+from hermes_gestalt import canonical_stream
 
 from hermes_cli.ugui_actions import (
     UguiActionError,
@@ -419,14 +422,21 @@ def test_capabilities_next_action_is_one_empty_get_call(monkeypatch):
 
 def test_execution_returns_the_presentation_channel_directly(monkeypatch):
     replacement = document(show_action())
+    gestalt = canonical_stream(
+        Path(__file__).parents[3],
+        "🟢",
+        "show",
+        "execution",
+        "complete",
+    )
 
     def invoke(_server_name, _tool_name, _arguments):
         return {
             "schema": "hermes-tool-result-channels/1",
-            "model": "🟢 LUCID · show · execution · complete",
+            "model": gestalt,
             "presentation": {
-                "__hermes_model_visible_result": "🟢 LUCID · show · execution · complete",
-                "result": "🟢 LUCID · show · execution · complete",
+                "__hermes_model_visible_result": gestalt,
+                "result": gestalt,
                 "structuredContent": replacement,
             },
         }

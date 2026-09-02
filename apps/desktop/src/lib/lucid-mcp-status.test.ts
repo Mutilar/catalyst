@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { McpServerSummary } from '@/types/hermes'
 
+import { canonicalGestaltStream, parseGestaltStream } from './lucid-gestalt'
 import { deriveLucidMcpStatus, lucidMcpGestalt, lucidMcpTooltip } from './lucid-mcp-status'
 
 const lucid = (overrides: Partial<McpServerSummary> = {}): McpServerSummary => ({
@@ -33,7 +34,9 @@ describe('LUCID MCP titlebar status', () => {
 
   it('treats missing LUCID, disabled LUCID, and capability-empty connections as red', () => {
     expect(deriveLucidMcpStatus([]).glyph).toBe('🔴')
-    expect(deriveLucidMcpStatus([lucid({ connected: false, enabled: false, runtime_status: 'disabled' })]).glyph).toBe('🔴')
+    expect(deriveLucidMcpStatus([lucid({ connected: false, enabled: false, runtime_status: 'disabled' })]).glyph).toBe(
+      '🔴'
+    )
     expect(deriveLucidMcpStatus([lucid({ discovered_tools: 0 })]).glyph).toBe('🔴')
   })
 
@@ -45,7 +48,11 @@ describe('LUCID MCP titlebar status', () => {
   it('lets runtime health dominate a successful transport handshake', () => {
     expect(
       deriveLucidMcpStatus([
-        lucid({ consecutive_failures: 3, health_error: 'validated domain-result projection failed', health_status: 'unhealthy' })
+        lucid({
+          consecutive_failures: 3,
+          health_error: 'validated domain-result projection failed',
+          health_status: 'unhealthy'
+        })
       ]).glyph
     ).toBe('🔴')
     expect(deriveLucidMcpStatus([lucid({ consecutive_failures: 1, health_status: 'degraded' })]).glyph).toBe('⚠️')
@@ -60,13 +67,13 @@ describe('LUCID MCP titlebar status', () => {
     const tooltip = lucidMcpTooltip(status)
 
     expect(tooltip).toBe(gestalt)
-    expect(gestalt.split('\n')).toEqual([
-      '🔴 · 🧠 · ⚡ SHOW · 🎯 MCP · 🎛️ FAILED',
-      '◆ MCP Connection=Connected, unhealthy · Health=Unhealthy · Transport=STDIO · Tools=7 · Failures=3 · Startup=Automatic',
-      '🔎 Code=lucid-health-error · Detail=projection failed',
-      '➡️ {"arguments":{},"label":"Open LUCID capabilities","verb":"get"}'
+    const stream = parseGestaltStream(gestalt)
+    expect([stream.signal, stream.verb, stream.noun, stream.argument]).toEqual(['🔴', 'show', 'mcp', 'FAILED'])
+    expect(stream.data).toEqual([
+      'MCP Connection=Connected, unhealthy, Health=Unhealthy, Transport=STDIO, Tools=7, Failures=3, Startup=Automatic'
     ])
-    expect(gestalt).not.toContain('show · health')
+    expect(stream.evidence).toEqual(['Code=lucid-health-error, Detail=projection failed'])
+    expect(stream.actions).toEqual([{ verb: 'get', label: 'Open LUCID capabilities' }])
   })
 
   it('emits capabilities as a typed next action only with connected tool evidence', () => {
@@ -76,21 +83,29 @@ describe('LUCID MCP titlebar status', () => {
     )
     const toolLess = lucidMcpGestalt(deriveLucidMcpStatus([lucid({ discovered_tools: 0 })]))
 
-    expect(available).toContain(
-      '➡️ {"arguments":{},"label":"Open LUCID capabilities","verb":"get"}'
-    )
-    expect(unavailable).not.toContain('➡️ ')
-    expect(toolLess).not.toContain('➡️ ')
+    expect(parseGestaltStream(available).actions).toEqual([{ verb: 'get', label: 'Open LUCID capabilities' }])
+    expect(parseGestaltStream(unavailable).actions).toEqual([])
+    expect(parseGestaltStream(toolLess).actions).toEqual([])
   })
 
   it('sanitizes error text before admitting it to GESTALT', () => {
     const gestalt = lucidMcpGestalt(
-      deriveLucidMcpStatus([
-        lucid({ health_error: 'line one\nline two\0', health_status: 'unhealthy' })
-      ])
+      deriveLucidMcpStatus([lucid({ health_error: 'line one\nline two\0', health_status: 'unhealthy' })])
     )
 
-    expect(gestalt).toContain('🔎 Code=lucid-health-error · Detail=line one line two')
+    expect(parseGestaltStream(gestalt).evidence).toEqual(['Code=lucid-health-error, Detail=line one line two'])
     expect(gestalt).not.toContain('\0')
+  })
+
+  it('round trips status-bearing timing without label syntax', () => {
+    const gestalt = canonicalGestaltStream({
+      signal: '⏳',
+      service: '🔥',
+      timing: ['🔴 RTT [################] 200% T+5.0']
+    })
+
+    expect(parseGestaltStream(gestalt).timing).toEqual(['🔴 RTT [################] 200% T+5.0'])
+    expect(gestalt).not.toContain('SERVICE')
+    expect(gestalt).not.toContain('TIMING')
   })
 })

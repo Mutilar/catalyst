@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from hermes_gestalt import canonical_stream, parse_stream
+
 
 @pytest.fixture
 def plugin():
@@ -50,6 +52,10 @@ def _workspace(
         (repository / "envelope" / "HARNESS.json").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (root / "envelope" / "GESTALT.json").write_text(
+        (repository / "envelope" / "GESTALT.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     for name in ["index.json", "universal.md", f"{role.lower()}.md"]:
         (root / "quine" / "mcp" / "onboarding" / name).write_text(
             (repository / "quine" / "mcp" / "onboarding" / name).read_text(encoding="utf-8"),
@@ -59,14 +65,19 @@ def _workspace(
 
 
 def _accepted_submission() -> dict:
+    root = Path(__file__).parents[3]
     return {
-        "model": "\n".join(
-            [
-                "🟢 LUCID · show · text · fresh",
+        "model": canonical_stream(
+            root,
+            "🟢",
+            "show",
+            "text",
+            "fresh",
+            data=(
                 "Presentation Audio Accepted=true",
                 "Presentation Audio Code=speech-queued",
                 "Presentation Audio Status=accepted",
-            ]
+            ),
         )
     }
 
@@ -110,7 +121,11 @@ def test_penguin_session_uses_canonical_double_penguin_not_host_role(plugin, tmp
         agent_role="PENGUIN",
     )
     assert result["action"] == "continue"
-    assert "terminate with exactly 🐧🐧" in result["message"]
+    stream = parse_stream(root, result["message"].splitlines()[0])
+    assert stream["service"] == "🚀"
+    assert stream["data"] == ["🧬"]
+    assert stream["continuations"] == ["🐧"]
+    assert "ROLE PROTOCOL · PENGUIN" in result["message"]
 
 
 def test_final_requires_one_canonical_gestalt_signal(plugin, tmp_path):
@@ -121,8 +136,9 @@ def test_final_requires_one_canonical_gestalt_signal(plugin, tmp_path):
     )
 
     assert result["action"] == "continue"
-    assert "CAUSE canonical-gestalt-signal-missing" in result["message"]
-    assert "include at least one canonical GESTALT signal" in result["message"]
+    stream = parse_stream(root, result["message"].splitlines()[0])
+    assert "canonical-gestalt-signal-missing" in stream["evidence"]
+    assert stream["continuations"] == ["🎼"]
 
 
 def test_wrong_permanent_role_hat_is_diagnosed(plugin, tmp_path):
@@ -132,8 +148,9 @@ def test_wrong_permanent_role_hat_is_diagnosed(plugin, tmp_path):
         workspace_root=str(root),
     )
 
-    assert "CAUSE role-hat-mismatch" in result["message"]
-    assert "terminate with exactly 🎼🐧" in result["message"]
+    stream = parse_stream(root, result["message"].splitlines()[0])
+    assert "role-hat-mismatch" in stream["evidence"]
+    assert stream["continuations"] == ["🎼"]
 
 
 def test_wrong_witness_glyph_is_diagnosed_from_active_witness_binding(plugin, tmp_path):
@@ -161,7 +178,8 @@ def test_wrong_witness_glyph_is_diagnosed_from_active_witness_binding(plugin, tm
         workspace_root=str(root),
     )
 
-    assert "CAUSE witness-glyph-mismatch" in result["message"]
+    stream = parse_stream(root, result["message"].splitlines()[0])
+    assert "witness-glyph-mismatch" in stream["evidence"]
     assert plugin.required_terminal_suffix(root) == "🎼🐧"
 
 
@@ -187,15 +205,22 @@ def test_missing_live_role_binding_allows_one_bounded_recovery_turn(plugin, tmp_
     )
 
     assert result["action"] == "continue"
-    assert result["message"].startswith(
-        "⚠️ · 🧠 · ⚡ SET · 🎯 ROLE · 🎛️ BOOTSTRAP-DECISION-REQUIRED"
+    stream = parse_stream(root, result["message"])
+    assert stream["signal"] == "⚠️"
+    assert stream["service"] == "🚀"
+    assert stream["verb"] is None
+    assert stream["evidence"][0] == "BOOTSTRAP-DECISION-REQUIRED"
+    assert stream["data"] == ["🧬"]
+    assert "\n" not in result["message"]
+    assert any(
+        action["verb"] == "get" and action["noun"] == "role"
+        for action in stream["actions"]
     )
-    assert "preserves the candidate final" in result["message"]
-    assert "envelope/LUCID.json#/role_registry" in result["message"]
-    assert "OWNER WITNESS" in result["message"]
-    assert "mcp__LUCID__get" in result["message"]
-    assert '"action":"recover"' in result["message"]
-    assert "RUN WITNESS sign-in" in result["message"]
+    recover = next(action for action in stream["actions"] if action["verb"] == "set")
+    assert recover["noun"] == "role"
+    assert recover["argument"] == "RECOVER"
+    for leaked in ["lucid://", "envelope/", "QUINE", "WITNESS", "mcp__"]:
+        assert leaked not in result["message"]
 
     repeated = plugin._pre_final(
         final_response="ignored recovery",
@@ -231,7 +256,7 @@ def test_explicit_non_penguin_witness_changes_the_exact_terminal_identity(plugin
     assert plugin.required_terminal_suffix(root) == "🎼🦊"
     assert (
         plugin._pre_final(
-            final_response="◆ Exact non-penguin witness.\n\n🎼🦊",
+            final_response="🟢 Exact non-penguin witness.\n\n🎼🦊",
             workspace_root=str(root),
         )
         is None
@@ -310,10 +335,11 @@ def test_failed_effigy_submission_releases_exact_once_claim(plugin, tmp_path, mo
 
 
 def test_typed_lucid_speech_refusal_is_visible_with_code_and_reason(plugin, capsys):
+    root = Path(__file__).parents[3]
     refusal = {
         "model": "\n".join(
             [
-                "🔴 · 🧠 · ⚡ SHOW · 🎯 TEXT · 🎛️ REFUSED",
+                canonical_stream(root, "🔴", "show", "text", "refused"),
                 "Presentation Audio Accepted=false",
                 "Presentation Audio Code=effigy-transfer-protected-identity-refused",
                 "Presentation Audio Effigy Transfer Code=effigy-transfer-protected-identity-refused",
@@ -325,10 +351,12 @@ def test_typed_lucid_speech_refusal_is_visible_with_code_and_reason(plugin, caps
 
     assert plugin._effigy_submission_accepted(refusal) is False
     plugin._emit_effigy_warning("EM", "🎼🐧", refusal)
-    assert capsys.readouterr().err == (
-        "⚠️ 🎼🐧 · 🔎 effigy-transfer-protected-identity-refused: "
-        "protected identity was present in transfer input\n"
-    )
+    warning = parse_stream(root, capsys.readouterr().err.strip())
+    assert warning["signal"] == "⚠️"
+    assert warning["evidence"] == [
+        "effigy-transfer-protected-identity-refused: protected identity was present in transfer input"
+    ]
+    assert warning["data"] == ["🎼🐧"]
 
 
 def test_nested_lucid_refusal_preserves_typed_code_and_reason(plugin, capsys):
@@ -345,7 +373,9 @@ def test_nested_lucid_refusal_preserves_typed_code_and_reason(plugin, capsys):
     }
 
     plugin._emit_effigy_warning("EM", "🎼🐧", refusal)
-    assert capsys.readouterr().err == "⚠️ 🎼🐧 · 🔎 penguin-model-connect-failed\n"
+    warning = parse_stream(Path(__file__).parents[3], capsys.readouterr().err.strip())
+    assert warning["evidence"] == ["penguin-model-connect-failed"]
+    assert warning["data"] == ["🎼🐧"]
 
 
 def test_distinct_effigy_failure_detail_is_not_deduplicated(plugin, capsys):
@@ -359,10 +389,35 @@ def test_distinct_effigy_failure_detail_is_not_deduplicated(plugin, capsys):
     }
 
     plugin._emit_effigy_warning("EM", "🎼🐧", refusal)
-    assert capsys.readouterr().err == (
-        "⚠️ 🎼🐧 · 🔎 penguin-transfer-timeout: "
-        "registered model exceeded its 2000ms response deadline\n"
-    )
+    warning = parse_stream(Path(__file__).parents[3], capsys.readouterr().err.strip())
+    assert warning["evidence"] == [
+        "penguin-transfer-timeout: registered model exceeded its 2000ms response deadline"
+    ]
+
+
+def test_canonical_mcp_gestalt_refusal_supplies_typed_effigy_detail(plugin, capsys):
+    root = Path(__file__).parents[3]
+    refusal = {
+        "isError": True,
+        "content": [
+            {
+                "type": "text",
+                "text": canonical_stream(
+                    root,
+                    "🔴",
+                    evidence=("PENGUIN-MODEL-CONNECT-FAILED",),
+                    data=("loopback model endpoint refused the connection",),
+                ),
+            }
+        ],
+    }
+
+    plugin._emit_effigy_warning("PENGUIN", "🐧🐧", refusal)
+    warning = parse_stream(root, capsys.readouterr().err.strip())
+    assert warning["evidence"] == [
+        "penguin-model-connect-failed: loopback model endpoint refused the connection"
+    ]
+    assert warning["data"] == ["🐧🐧"]
 
 
 def test_effigy_exception_warning_preserves_cause_and_redacts_secrets(plugin, capsys):
@@ -373,10 +428,10 @@ def test_effigy_exception_warning_preserves_cause_and_redacts_secrets(plugin, ca
         RuntimeError("speech worker refused token=private-value after queue closure"),
     )
 
-    assert capsys.readouterr().err == (
-        "⚠️ 🎼🐧 · 🔎 effigy-submission-failed: "
-        "RuntimeError: speech worker refused token=[redacted] after queue closure\n"
-    )
+    warning = parse_stream(Path(__file__).parents[3], capsys.readouterr().err.strip())
+    assert warning["evidence"] == [
+        "effigy-submission-failed: RuntimeError: speech worker refused token=[redacted] after queue closure"
+    ]
 
 
 def test_post_final_returns_the_exact_typed_effigy_failure(plugin, tmp_path, monkeypatch, capsys):
@@ -384,7 +439,7 @@ def test_post_final_returns_the_exact_typed_effigy_failure(plugin, tmp_path, mon
     refusal = {
         "model": "\n".join(
             [
-                "🔴 · 🧠 · ⚡ SHOW · 🎯 TEXT · 🎛️ REFUSED",
+                canonical_stream(root, "🔴", "show", "text", "refused"),
                 "Presentation Audio Effigy Transfer Code=effigy-transfer-timeout",
                 "Presentation Audio Stage=effigy-transfer",
                 "Presentation Audio Detail=local transfer exceeded its 2000ms deadline",
@@ -400,10 +455,11 @@ def test_post_final_returns_the_exact_typed_effigy_failure(plugin, tmp_path, mon
     )
 
     assert receipt == {"state": "degraded", "code": "effigy-transfer-timeout"}
-    assert capsys.readouterr().err == (
-        "⚠️ 🎼🐧 · 🔎 effigy-transfer-timeout: "
-        "local transfer exceeded its 2000ms deadline\n"
-    )
+    warning = parse_stream(root, capsys.readouterr().err.strip())
+    assert warning["evidence"] == [
+        "effigy-transfer-timeout: local transfer exceeded its 2000ms deadline"
+    ]
+    assert warning["data"] == ["🎼🐧"]
 
 
 def test_unattested_final_is_never_submitted_to_effigy(plugin, tmp_path, monkeypatch):
@@ -430,29 +486,43 @@ def test_missing_suffix_reinjects_canonical_onboarding_then_requires_signout(plu
     )
     assert result["action"] == "continue"
     message = result["message"]
-    assert message.startswith("⚠️ LUCID · role-attestation · protocol-drift")
-    assert "AE/PENGUIN PROTOCOL · UNIVERSAL" in message
-    assert "AE/PENGUIN PROTOCOL · EM" in message
-    assert "lucid://onboarding/em" in message
-    assert "terminate with exactly 🎼🐧" in message
+    stream = parse_stream(root, message.splitlines()[0])
+    assert stream["signal"] == "⚠️"
+    assert "ROLE-ATTESTATION-PROTOCOL-DRIFT" in stream["evidence"]
+    assert stream["service"] == "🚀"
+    assert stream["data"] == ["🧬"]
+    assert stream["continuations"] == ["🎼"]
+    assert "ROLE PROTOCOL · UNIVERSAL" in message
+    assert "ROLE PROTOCOL · EM" in message
+    assert "lucid://" not in message
 
     signout = plugin._pre_final(
         final_response="Still drifted.", workspace_root=str(root), attempt=1, session_id="drift"
     )
     assert signout["action"] == "continue"
-    assert signout["message"].startswith(
-        "🔴 · 🧠 · ⚡ SET · 🎯 ROLE · 🎛️ SIGNOUT-REQUIRED"
-    )
-    assert "➡️ Preserve the candidate final" in signout["message"]
-    assert "before beginning another work turn" in signout["message"]
-    assert '"action":"signout"' in signout["message"]
-    assert "mcp__LUCID__set" in signout["message"]
+    signout_stream = parse_stream(root, signout["message"])
+    assert signout_stream["service"] == "🚀"
+    assert signout_stream["evidence"] == [
+        "ROLE-ATTESTATION-PROTOCOL-DRIFT",
+        "terminal-attestation-missing",
+    ]
+    assert signout_stream["data"] == ["🧬"]
+    assert signout_stream["actions"][0]["verb"] == "set"
+    assert signout_stream["actions"][0]["noun"] == "role"
+    assert signout_stream["actions"][0]["argument"] == "SIGNOUT"
+    for leaked in ["lucid://", "envelope/", "QUINE", "WITNESS", "mcp__"]:
+        assert leaked not in signout["message"]
 
     repeated = plugin._pre_final(
         final_response="Ignored signout.", workspace_root=str(root), attempt=2, session_id="drift"
     )
     assert repeated["action"] == "continue"
-    assert "SIGNOUT-REQUIRED" in repeated["message"]
+    repeated_stream = parse_stream(root, repeated["message"])
+    assert repeated_stream["evidence"] == [
+        "ROLE-ATTESTATION-PROTOCOL-DRIFT",
+        "repeated-role-protocol-drift",
+    ]
+    assert repeated_stream["actions"][0]["argument"] == "SIGNOUT"
 
     plugin._transform_tool_result(
         tool_name="mcp__LUCID__set",
@@ -594,7 +664,8 @@ def test_role_and_suffix_come_from_canon_not_prompt_or_model_claim(plugin, tmp_p
         final_response="I claim I am EM. 🎼🐧",
         workspace_root=str(root),
     )
-    assert "terminate with exactly 🧭🐧" in result["message"]
+    stream = parse_stream(root, result["message"].splitlines()[0])
+    assert stream["continuations"] == ["🧭"]
 
 
 def test_missing_or_symlinked_binding_never_replaces_the_final(plugin, tmp_path):
