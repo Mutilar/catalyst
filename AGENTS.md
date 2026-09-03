@@ -13,4 +13,4 @@ applyTo: 'catalyst/**'
 | 🧪 TEST | `node catalyst/scripts/quality/test.mjs --check` |
 | ⚙️ GENERATED | DAEMON OWNS DECLARED OUTPUTS · EDIT OWNERS, NEVER PROJECTIONS |
 
-🐧
+🦉
