@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { canonicalGestaltStream } from './lucid-gestalt'
+import { SIGNAL_GREEN, SIGNAL_WARNING } from '@/lib/ae-glyphs'
 
 import {
   extractMcpGestalt,
@@ -22,7 +23,7 @@ const document = {
   verb: 'morph',
   state: 'complete',
   header: [{ id: 'title', type: 'text', body: 'LUCID morph' }],
-  sections: [{ id: 'status', type: 'status', signal: '🟢', body: 'Complete' }],
+  sections: [{ id: 'status', type: 'status', signal: SIGNAL_GREEN, body: 'Complete' }],
   actions: []
 }
 
@@ -46,7 +47,7 @@ describe('model-visible MCP result', () => {
 describe('UGUI extraction', () => {
   it('separates full presentation UGUI from the model-visible Gestalt sidecar', () => {
     const gestalt = canonicalGestaltStream({
-      signal: '🟢',
+      signal: SIGNAL_GREEN,
       verb: 'get',
       noun: 'onboarding',
       argument: 'ready'
@@ -64,7 +65,7 @@ describe('UGUI extraction', () => {
 
   it('extracts replacement UGUI from the exact inline-action channel envelope', () => {
     const gestalt = canonicalGestaltStream({
-      signal: '🟢',
+      signal: SIGNAL_GREEN,
       verb: 'get',
       noun: 'gates',
       argument: 'fresh'
@@ -136,7 +137,7 @@ describe('UGUI extraction', () => {
 describe('Gestalt extraction', () => {
   it('extracts one bounded canonical Gestalt without interpreting its fields', () => {
     const gestalt = canonicalGestaltStream({
-      signal: '⚠️',
+      signal: SIGNAL_WARNING,
       verb: 'get',
       noun: 'logs',
       argument: 'stale',
@@ -156,7 +157,7 @@ describe('Gestalt extraction', () => {
   it('refuses prose and noncanonical multiline payloads', () => {
     expect(extractMcpGestalt({ content: [{ type: 'text', text: 'ordinary prose' }] })).toBeNull()
     const oversized = `${canonicalGestaltStream({
-      signal: '🟢',
+      signal: SIGNAL_GREEN,
       verb: 'get',
       noun: 'logs',
       argument: 'fresh'
@@ -166,7 +167,7 @@ describe('Gestalt extraction', () => {
 
   it('extracts canonical CLI help nested in terminal output', () => {
     const help = canonicalGestaltStream({
-      signal: '🟢',
+      signal: SIGNAL_GREEN,
       verb: 'get',
       evidence: ['Read exact registered evidence.']
     })

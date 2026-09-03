@@ -20,6 +20,7 @@ import { ExpandableBlock } from '@/components/chat/expandable-block'
 import { SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
 import { CopyButton } from '@/components/ui/copy-button'
 import { invokeUguiAction } from '@/hermes'
+import { DELIMITER_SEGMENT, SIGNAL_GREEN, SIGNAL_PENDING, SIGNAL_RED, SIGNAL_WARNING } from '@/lib/ae-glyphs'
 import { codiconForLanguage } from '@/lib/markdown-code'
 import { resolveUguiMediaReference } from '@/lib/media'
 import {
@@ -38,10 +39,10 @@ import { cn } from '@/lib/utils'
 import { ingestLucidHostAppearance } from '@/themes/backend-sync'
 
 const SIGNAL_CLASS: Record<string, string> = {
-  '🟢': 'text-emerald-600 dark:text-emerald-400',
-  '⏳': 'text-sky-600 dark:text-sky-400',
-  '⚠️': 'text-amber-600 dark:text-amber-400',
-  '🔴': 'text-rose-600 dark:text-rose-400'
+  [SIGNAL_GREEN]: 'text-emerald-600 dark:text-emerald-400',
+  [SIGNAL_PENDING]: 'text-sky-600 dark:text-sky-400',
+  [SIGNAL_WARNING]: 'text-amber-600 dark:text-amber-400',
+  [SIGNAL_RED]: 'text-rose-600 dark:text-rose-400'
 }
 
 const LUCID_VERBS = new Set(['show', 'get', 'set', 'morph', 'dispatch', 'steer', 'cancel'])
@@ -294,7 +295,7 @@ function UguiMarkdownCode({ code, language, title }: { code: string; language: s
         <CodeCardTitle>
           <CodeCardIcon name={codiconForLanguage(language)} />
           {title}
-          <CodeCardSubtitle> · {language}</CodeCardSubtitle>
+            <CodeCardSubtitle>{DELIMITER_SEGMENT}{language}</CodeCardSubtitle>
         </CodeCardTitle>
         <CopyButton
           appearance="inline"
@@ -753,7 +754,7 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
   const heading = rendered.header
     .map(value => text(record(value)?.body ?? record(value)?.text))
     .filter(Boolean)
-    .join(' · ')
+    .join(DELIMITER_SEGMENT)
 
   const projectedActions = (rendered.actions ?? [])
     .slice(0, 32)

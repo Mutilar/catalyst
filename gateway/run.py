@@ -12,6 +12,10 @@ Usage:
     # Or from CLI
     python cli.py --gateway
 """
+from agent.generated.ae_glyphs import RELATION_ARGUMENT
+from agent.generated.ae_glyphs import OPERATION_CANCEL
+from agent.generated.ae_glyphs import RELATION_DATUM
+from agent.generated.ae_glyphs import HAT_PERFORMANCE, SIGNAL_PENDING, SIGNAL_WARNING
 
 # IMPORTANT: hermes_bootstrap must be the very first import — UTF-8 stdio
 # on Windows.  No-op on POSIX.  See hermes_bootstrap.py for full rationale.
@@ -379,9 +383,9 @@ def _format_exec_approval_fallback(
 ) -> str:
     """Render the text fallback from approval capabilities, not platform names."""
     cmd_preview = command[:200] + "..." if len(command) > 200 else command
-    heading = "⚠️ **Dangerous command requires approval:**"
+    heading = f"{SIGNAL_WARNING} **Dangerous command requires approval:**"
     if smart_denied:
-        heading = "⚠️ **Smart DENY — owner override for one operation:**"
+        heading = f"{SIGNAL_WARNING} **Smart DENY — owner override for one operation:**"
 
     choices = [f"Reply `{command_prefix}approve` to execute this one operation"]
     if not smart_denied and allow_session:
@@ -401,18 +405,18 @@ def _gateway_provider_error_reply(text: str) -> str:
     """Map raw provider/API errors to a short user-safe Telegram reply."""
     if _GATEWAY_AUTH_ERROR_RE.search(text):
         return (
-            "⚠️ Provider authentication failed. Check the configured credentials; "
+            f"{SIGNAL_WARNING} Provider authentication failed. Check the configured credentials; "
             "raw provider details are in the gateway logs."
         )
     if _GATEWAY_PROVIDER_POLICY_RE.search(text):
         return (
-            "⚠️ The model provider rejected the request. I kept the raw provider "
+            f"{SIGNAL_WARNING} The model provider rejected the request. I kept the raw provider "
             "error out of chat; check gateway logs for details or try rephrasing."
         )
     if _GATEWAY_RATE_LIMIT_RE.search(text):
         return "⏱️ The model provider is rate-limiting requests. Please wait a moment and try again."
     return (
-        "⚠️ The model provider failed after retries. I kept raw provider details "
+        f"{SIGNAL_WARNING} The model provider failed after retries. I kept raw provider details "
         "out of chat; check gateway logs for diagnostics."
     )
 
@@ -502,13 +506,13 @@ def _prepare_gateway_status_message(platform: Any, event_type: str, message: str
 
 
 def render_notice_line(notice) -> str:
-    """Render an AgentNotice to a single plaintext line for messaging platforms.
+    f"""Render an AgentNotice to a single plaintext line for messaging platforms.
 
     Messaging has no persistent status bar (unlike the TUI), so a notice is a
     one-shot standalone push. The notice policy already bakes the level glyph
     (⚠ / • / ✕ / ✓) into the text, and the TUI + CLI REPL render that text
     verbatim — so we emit it as-is here too. Prepending a per-level glyph would
-    DOUBLE it ("⚠ ⚠ Credits 90% used", "⛔ ✕ Credit access paused"). Plaintext
+    DOUBLE it ("⚠ ⚠ Credits 90% used", "{OPERATION_CANCEL} ✕ Credit access paused"). Plaintext
     only — no markdown — so it renders uniformly across Telegram/Discord/Slack/
     SMS without per-platform escaping. Fail-soft: a malformed/empty notice
     degrades to "" rather than raising on the agent's callback path.
@@ -2966,7 +2970,7 @@ def _normalize_empty_agent_response(
         ) or ("400" in error_str and history_len > 50)
         if is_context_failure:
             return (
-                "⚠️ Session too large for the model's context window.\n"
+                f"{SIGNAL_WARNING} Session too large for the model's context window.\n"
                 "Use /compact to compress the conversation, or "
                 "/reset to start fresh."
             )
@@ -2987,7 +2991,7 @@ def _normalize_empty_agent_response(
         # silence there swallows a real user message, so surface it.
         if api_calls == 0:
             return (
-                "⚠️ Your message was interrupted before processing started "
+                f"{SIGNAL_WARNING} Your message was interrupted before processing started "
                 "(likely by a recent /stop). Please send it again."
             )
         return response
@@ -2996,9 +3000,9 @@ def _normalize_empty_agent_response(
             return ""
         if agent_result.get("partial"):
             err = agent_result.get("error", "processing incomplete")
-            return f"⚠️ Processing stopped: {str(err)[:200]}. Try again."
+            return f"{SIGNAL_WARNING} Processing stopped: {str(err)[:200]}. Try again."
         return (
-            "⚠️ Processing completed but no response was generated. "
+            f"{SIGNAL_WARNING} Processing completed but no response was generated. "
             "This may be a transient error — try sending your message again."
         )
 
@@ -3014,7 +3018,7 @@ def _normalize_empty_agent_response(
         and not agent_result.get("partial")
     ):
         return (
-            "⚠️ Your message wasn't processed (the previous turn was still "
+            f"{SIGNAL_WARNING} Your message wasn't processed (the previous turn was still "
             "being cleaned up). Please send it again."
         )
 
@@ -5975,9 +5979,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
             thread_meta = self._thread_metadata_for_source(event.source, reply_anchor)
             if self._queue_during_drain_enabled():
                 self._queue_or_replace_pending_event(session_key, event)
-                message = f"⏳ Gateway {self._status_action_gerund()} — queued for the next turn after it comes back."
+                message = f"{SIGNAL_PENDING} Gateway {self._status_action_gerund()} — queued for the next turn after it comes back."
             else:
-                message = f"⏳ Gateway is {self._status_action_gerund()} and is not accepting another turn right now."
+                message = f"{SIGNAL_PENDING} Gateway is {self._status_action_gerund()} and is not accepting another turn right now."
 
             await adapter._send_with_retry(
                 chat_id=event.source.chat_id,
@@ -6078,7 +6082,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
         # background-process completions (terminal notify_on_complete) re-enter
         # the originating session as internal MessageEvents. When the session
         # is busy, treating them like a user TEXT message means interrupt-mode
-        # (the default busy_text_mode) aborts the active turn AND sends a "⚡
+        # (the default busy_text_mode) aborts the active turn AND sends a performance notice.
         # Interrupting current task" ack — exactly the opposite of the design
         # invariant that a completion surfaces as a NEW turn only when idle and
         # never splices into a running turn. Fall through to the base adapter,
@@ -6308,22 +6312,22 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
             # follow-up didn't accidentally kill the subagent and
             # discovers `/stop` as the explicit escape hatch.
             message = (
-                f"⏳ Subagent working{status_detail} — your message is queued for "
+                f"{SIGNAL_PENDING} Subagent working{status_detail} — your message is queued for "
                 f"when it finishes (use /stop to cancel everything)."
             )
         elif is_queue_mode and demoted_for_compression:
             message = (
-                f"⏳ Compressing context{status_detail} — your message is queued for "
+                f"{SIGNAL_PENDING} Compressing context{status_detail} — your message is queued for "
                 f"when it finishes (use /stop to cancel everything)."
             )
         elif is_queue_mode:
             message = (
-                f"⏳ Queued for the next turn{status_detail}. "
+                f"{SIGNAL_PENDING} Queued for the next turn{status_detail}. "
                 f"I'll respond once the current task finishes."
             )
         else:
             message = (
-                f"⚡ Interrupting current task{status_detail}. "
+                f"{HAT_PERFORMANCE} Interrupting current task{status_detail}. "
                 f"I'll respond to your message shortly."
             )
 
@@ -6462,7 +6466,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
             if self._restart_requested
             else "Your current task will be interrupted."
         )
-        msg = f"⚠️ Gateway {action} — {hint}"
+        msg = f"{SIGNAL_WARNING} Gateway {action} — {hint}"
 
         notified: set[tuple[str, str, Optional[str]]] = set()
         for session_key in active:
@@ -10422,7 +10426,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
         """
         source = event.source
 
-        # 🔴 Cross-session leak guard. This handler runs inside a per-message
+        # signal.red Cross-session leak guard. This handler runs inside a per-message
         # asyncio task created via create_task(), which snapshots the spawning
         # context with copy_context(). If a *concurrent* message had already
         # bound its session via set_session_vars() when this task was created,
@@ -10952,7 +10956,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                         accepted = running_agent.steer(steer_text)
                     except Exception as exc:
                         logger.warning("Steer failed for session %s: %s", _quick_key, exc)
-                        return f"⚠️ Steer failed: {exc}"
+                        return f"{SIGNAL_WARNING} Steer failed: {exc}"
                     if accepted:
                         preview = steer_text[:60] + ("..." if len(steer_text) > 60 else "")
                         return f"⏩ Steer queued — arrives after the next tool call: '{preview}'"
@@ -11071,7 +11075,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
             # producing a zero-char response. See #5057, #6252, #10370.
             if _cmd_def_inner:
                 return (
-                    f"⏳ Agent is running — `/{_cmd_def_inner.name}` can't run "
+                    f"{SIGNAL_PENDING} Agent is running — `/{_cmd_def_inner.name}` can't run "
                     f"mid-turn. Wait for the current response or `/stop` first."
                 )
 
@@ -11118,7 +11122,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                     # Force-clean the sentinel so the session is unlocked.
                     self._release_running_agent_state(_quick_key)
                     logger.info("HARD STOP (pending) for session %s — sentinel cleared", _quick_key)
-                    return EphemeralReply("⚡ Force-stopped. The agent was still starting — session unlocked.")
+                    return EphemeralReply(f"{HAT_PERFORMANCE} Force-stopped. The agent was still starting — session unlocked.")
                 # Queue the message so it will be picked up after the
                 # agent starts.
                 adapter = self._adapter_for_source(source)
@@ -11134,9 +11138,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                 if self._queue_during_drain_enabled():
                     self._queue_or_replace_pending_event(_quick_key, event)
                 return (
-                    f"⏳ Gateway {self._status_action_gerund()} — queued for the next turn after it comes back."
+                    f"{SIGNAL_PENDING} Gateway {self._status_action_gerund()} — queued for the next turn after it comes back."
                     if self._queue_during_drain_enabled()
-                    else f"⏳ Gateway is {self._status_action_gerund()} and is not accepting another turn right now."
+                    else f"{SIGNAL_PENDING} Gateway is {self._status_action_gerund()} and is not accepting another turn right now."
                 )
             if self._busy_input_mode == "queue":
                 logger.debug("PRIORITY queue follow-up for session %s", _quick_key)
@@ -11632,7 +11636,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
             return await self._handle_voice_command(event)
 
         if self._draining:
-            return f"⏳ Gateway is {self._status_action_gerund()} and is not accepting new work right now."
+            return f"{SIGNAL_PENDING} Gateway is {self._status_action_gerund()} and is not accepting new work right now."
 
         # User-defined quick commands (bypass agent loop, no LLM call)
         if command:
@@ -11887,7 +11891,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                 _quick_key,
             )
             return (
-                "⏳ This agent is draining for a maintenance action and isn't "
+                f"{SIGNAL_PENDING} This agent is draining for a maintenance action and isn't "
                 "accepting new turns right now. It'll be back in a moment — "
                 "please resend shortly."
             )
@@ -13179,7 +13183,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                                                 _hyg_timeout_seconds,
                                             )
                                             _timeout_msg = (
-                                                "⚠️ Context compression timed out "
+                                                f"{SIGNAL_WARNING} Context compression timed out "
                                                 f"after {_hyg_timeout_seconds:.1f}s. "
                                                 "No messages were dropped — continuing without "
                                                 "compression. Run /compress to retry, /reset for "
@@ -13319,7 +13323,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                                         from agent.redact import redact_sensitive_text
                                         _err = redact_sensitive_text(_err, force=True)
                                         _warn_msg = (
-                                            "⚠️ Context compression aborted "
+                                            f"{SIGNAL_WARNING} Context compression aborted "
                                             f"({_err}). No messages were dropped — "
                                             "conversation is unchanged. Run /compress "
                                             "to retry, /reset for a clean session, or "
@@ -13651,7 +13655,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
             # looks like a bug; a short explanation is more helpful.
             if response == "(empty)" and not _intentional_silence:
                 response = (
-                    "⚠️ The model returned no response after processing tool "
+                    f"{SIGNAL_WARNING} The model returned no response after processing tool "
                     "results. This can happen with some models — try again or "
                     "rephrase your question."
                 )
@@ -14296,7 +14300,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                 # for the API to process — treat it the same way.
                 if _hist_len > 50:
                     return (
-                        "⚠️ Session too large for the model's context window.\n"
+                        f"{SIGNAL_WARNING} Session too large for the model's context window.\n"
                         "Use /compact to compress the conversation, or "
                         "/reset to start fresh."
                     )
@@ -14439,14 +14443,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
             ctx_display = str(context_length)
 
         lines = [
-            f"◆ Model: `{model}`",
-            f"◆ Provider: {provider or 'openrouter'}",
-            f"◆ Context: {ctx_display} tokens ({ctx_source})",
+            f"{RELATION_DATUM} Model: `{model}`",
+            f"{RELATION_DATUM} Provider: {provider or 'openrouter'}",
+            f"{RELATION_DATUM} Context: {ctx_display} tokens ({ctx_source})",
         ]
 
         # Show endpoint for local/custom setups
         if base_url and ("localhost" in base_url or "127.0.0.1" in base_url or "0.0.0.0" in base_url):
-            lines.append(f"◆ Endpoint: {base_url}")
+            lines.append(f"{RELATION_DATUM} Endpoint: {base_url}")
 
         return "\n".join(lines)
 
@@ -14493,7 +14497,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                 "platform. Ask an admin to add you to allow_admin_from "
                 "or to set user_allowed_commands."
             )
-        return f"⛔ /{canonical_cmd} is admin-only here. {suffix}"
+        return f"{OPERATION_CANCEL} /{canonical_cmd} is admin-only here. {suffix}"
 
 
 
@@ -16361,7 +16365,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
 
         _p = self._typed_command_prefix_for(event.source.platform)
         prompt_message = (
-            f"⚠️ **Confirm /{command}**\n\n"
+            f"{SIGNAL_WARNING} **Confirm /{command}**\n\n"
             f"{detail}\n\n"
             "Choose:\n"
             "• **Approve Once** — proceed this time only\n"
@@ -19411,7 +19415,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
             from aiohttp import ClientSession as _AioClientSession, ClientTimeout
         except ImportError:
             return {
-                "final_response": "⚠️ Proxy mode requires aiohttp. Install with: pip install aiohttp",
+                "final_response": f"{SIGNAL_WARNING} Proxy mode requires aiohttp. Install with: pip install aiohttp",
                 "messages": [],
                 "api_calls": 0,
                 "tools": [],
@@ -19420,7 +19424,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
         proxy_url = self._get_proxy_url()
         if not proxy_url:
             return {
-                "final_response": "⚠️ Proxy URL not configured (GATEWAY_PROXY_URL or gateway.proxy_url)",
+                "final_response": f"{SIGNAL_WARNING} Proxy URL not configured (GATEWAY_PROXY_URL or gateway.proxy_url)",
                 "messages": [],
                 "api_calls": 0,
                 "tools": [],
@@ -19571,7 +19575,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                             resp.status, proxy_url, error_text[:500],
                         )
                         return {
-                            "final_response": f"⚠️ Proxy error ({resp.status}): {error_text[:300]}",
+                            "final_response": f"{SIGNAL_WARNING} Proxy error ({resp.status}): {error_text[:300]}",
                             "messages": [],
                             "api_calls": 0,
                             "tools": [],
@@ -19631,7 +19635,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
             logger.error("Proxy connection error to %s: %s", proxy_url, e)
             if not full_response:
                 return {
-                    "final_response": f"⚠️ Proxy connection error: {e}",
+                    "final_response": f"{SIGNAL_WARNING} Proxy connection error: {e}",
                     "messages": [],
                     "api_calls": 0,
                     "tools": [],
@@ -20036,7 +20040,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
         repeat_count = [0]  # How many times the same message repeated
         # True when the previously enqueued progress line was a terminal
         # fenced code block — consecutive terminal calls then drop the
-        # repeated "💻 terminal" header and render back-to-back blocks.
+        # repeated identity.shell-host header and render back-to-back blocks.
         last_was_terminal_block = [False]
 
         # ── Discord voice "verbal ack before tool calls" ────────────────
@@ -20083,7 +20087,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
         # Auto-cleanup of temporary progress bubbles (Telegram + any adapter
         # that implements ``delete_message``). When enabled via
         # ``display.platforms.<platform>.cleanup_progress: true``, message IDs
-        # from the tool-progress / "⏳ Working — N min" / status-callback bubbles
+        # from the tool-progress / signal.pending Working status-callback bubbles
         # are collected here and deleted after the final response lands.
         # Failed runs skip cleanup so the bubbles remain as breadcrumbs.
         _cleanup_progress = bool(
@@ -20229,7 +20233,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
 
             # Build progress message with primary argument preview
             from agent.display import get_tool_emoji
-            emoji = get_tool_emoji(tool_name, default="⚙️")
+            emoji = get_tool_emoji(tool_name, default=f"{RELATION_ARGUMENT}")
 
             # Markdown-capable platforms render a terminal command as a fenced
             # code block instead of the compact `terminal: "cmd…"` preview.
@@ -20260,7 +20264,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                 from agent.display import get_tool_preview_max_len
                 _cmd_full = args["command"].rstrip()
                 # Consecutive terminal calls: drop the repeated
-                # "💻 terminal" header so back-to-back commands render as
+                # identity.shell-host header so back-to-back commands render as
                 # adjacent code blocks under a single header.
                 _block_header = (
                     "" if last_was_terminal_block[0] else f"{emoji} {tool_name}\n"
@@ -20621,7 +20625,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
 
                     # Drain silently when interrupted: events queued in the
                     # window between tool parse and interrupt processing
-                    # should not render as bubbles.  The "⚡ Interrupting
+                    # should not render as bubbles. The performance interrupting
                     # current task" message is sent separately and is the
                     # last progress-flavored bubble the user should see.
                     try:
@@ -20962,7 +20966,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                 )
             except Exception as exc:
                 return {
-                    "final_response": f"⚠️ Provider authentication failed: {exc}",
+                    "final_response": f"{SIGNAL_WARNING} Provider authentication failed: {exc}",
                     "messages": [],
                     "api_calls": 0,
                     "tools": [],
@@ -22078,7 +22082,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                 )
                 final_response = _sanitize_gateway_final_response(source.platform, final_response)
                 if not final_response:
-                    final_response = f"⚠️ {result['error']}" if result.get("error") else ""
+                    final_response = f"{SIGNAL_WARNING} {result['error']}" if result.get("error") else ""
                 return {
                     "final_response": final_response,
                     "messages": result.get("messages", []),
@@ -22434,7 +22438,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                 _heartbeat_text = (
                     _generic_status_phrase("status")
                     if _long_running_mode == "generic"
-                    else f"⏳ Working — {_elapsed_mins} min{_status_detail}"
+                    else f"{SIGNAL_PENDING} Working — {_elapsed_mins} min{_status_detail}"
                 )
                 try:
                     _notify_res = None
@@ -22581,7 +22585,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                             try:
                                 await _warn_adapter.send(
                                     source.chat_id,
-                                    f"⚠️ No activity for {_elapsed_warn} min. "
+                                    f"{SIGNAL_WARNING} No activity for {_elapsed_warn} min. "
                                     f"If the agent does not respond soon, it will "
                                     f"be timed out in {_remaining_mins} min. "
                                     f"You can continue waiting or use /reset.",

@@ -1,3 +1,10 @@
+from agent.generated.ae_glyphs import IDENTITY_LUCID
+from agent.generated.ae_glyphs import IDENTITY_RUN
+from agent.generated.ae_glyphs import RELATION_ACTION
+from agent.generated.ae_glyphs import SIGNAL_WARNING
+from agent.generated.ae_glyphs import SIGNAL_RED
+from agent.generated.ae_glyphs import SIGNAL_GREEN
+from agent.generated.ae_glyphs import SIGNAL_PENDING
 import json
 from pathlib import Path
 
@@ -46,7 +53,7 @@ def revival(active=True):
         "schema": "run-mcp-revival/1",
         "node": "butler:port:mcp",
         "owner": "RUN",
-        "eta": "⏳ ETA T-10s" if active else None,
+                "eta": f"{SIGNAL_PENDING} ETA T-10s" if active else None,
         "offline_facades_active": active,
         "observed_epoch_ms": 1_000,
     }
@@ -71,7 +78,7 @@ def test_active_outage_projects_exact_search_fallback(monkeypatch, tmp_path):
     assert set(result) == {"error"}
     assert "\n" not in result["error"]
     stream = parse_stream(Path(__file__).parents[3], result["error"])
-    assert stream["signal"] == "⚠️"
+    assert stream["signal"] == f"{SIGNAL_WARNING}"
     assert (stream["verb"], stream["noun"], stream["argument"]) == (
         "get",
         "transport",
@@ -89,24 +96,24 @@ def test_active_outage_projects_exact_search_fallback(monkeypatch, tmp_path):
 
 def test_canonical_stream_is_projected_from_the_root_gestalt_contract():
     root = Path(__file__).parents[3]
-    complete = parse_stream(root, canonical_stream(root, "🟢", "show", "app", "macos-shell"))
+    complete = parse_stream(root, canonical_stream(root, f"{SIGNAL_GREEN}", "show", "app", "macos-shell"))
     assert (complete["signal"], complete["verb"], complete["noun"], complete["argument"]) == (
-        "🟢",
+        f"{SIGNAL_GREEN}",
         "show",
         "app",
         "MACOS-SHELL",
     )
-    root_stream = parse_stream(root, canonical_stream(root, "⚠️"))
-    assert root_stream["signal"] == "⚠️"
-    assert root_stream["service"] == "🧠"
-    verb_stream = parse_stream(root, canonical_stream(root, "🟢", "show"))
+    root_stream = parse_stream(root, canonical_stream(root, f"{SIGNAL_WARNING}"))
+    assert root_stream["signal"] == f"{SIGNAL_WARNING}"
+    assert root_stream["service"] == f"{IDENTITY_LUCID}"
+    verb_stream = parse_stream(root, canonical_stream(root, f"{SIGNAL_GREEN}", "show"))
     assert verb_stream["verb"] == "show"
     assert verb_stream["noun"] is None
     with pytest.raises(ValueError, match="coordinate dependencies"):
-        canonical_stream(root, "🟢", "show", argument="view")
+        canonical_stream(root, f"{SIGNAL_GREEN}", "show", argument="view")
     stream = canonical_stream(
         root,
-        "⏳",
+        SIGNAL_PENDING,
         "show",
         "app",
         '"macos-shell"',
@@ -125,11 +132,11 @@ def test_canonical_stream_is_projected_from_the_root_gestalt_contract():
     ]
     timing = canonical_stream(
         root,
-        "⏳",
-        service="🔥",
-        timing=("🔴 RTT [################] 200% T+5.0",),
+        SIGNAL_PENDING,
+        service=f"{IDENTITY_RUN}",
+        timing=(f"{SIGNAL_RED} RTT [################] 200% T+5.0",),
     )
-    assert parse_stream(root, timing)["timing"] == ["🔴 RTT [################] 200% T+5.0"]
+    assert parse_stream(root, timing)["timing"] == [f"{SIGNAL_RED} RTT [################] 200% T+5.0"]
     assert "SERVICE" not in timing
     assert "TIMING" not in timing
 
@@ -189,13 +196,13 @@ def test_unattested_empty_error_uses_canonical_outcome_code(monkeypatch, tmp_pat
     assert set(result) == {"error"}
     stream = parse_stream(Path(__file__).parents[3], result["error"])
     assert (stream["signal"], stream["verb"], stream["noun"], stream["argument"]) == (
-        "🔴",
+        f"{SIGNAL_RED}",
         "dispatch",
         "transport",
         "OUTCOME-ENVELOPE-INVALID",
     )
     assert "MCP tool returned an error" not in result["error"]
-    assert "➡️" not in result["error"]
+    assert f"{RELATION_ACTION}" not in result["error"]
     assert "?" not in result["error"]
 
 
@@ -216,7 +223,7 @@ def test_canonical_semantic_refusal_is_transparent_passthrough(monkeypatch, tmp_
     root = Path(__file__).parents[3]
     refusal = canonical_stream(
         root,
-        "🔴",
+        f"{SIGNAL_RED}",
         "set",
         "role",
         "recover",
@@ -254,7 +261,7 @@ def test_server_supplied_ugui_error_is_not_forwarded_through_model_context():
     assert "structuredContent" not in result
     stream = parse_stream(Path(__file__).parents[3], result["error"])
     assert (stream["signal"], stream["verb"], stream["noun"], stream["argument"]) == (
-        "🔴",
+        f"{SIGNAL_RED}",
         "dispatch",
         "transport",
         "OUTCOME-ENVELOPE-INVALID",

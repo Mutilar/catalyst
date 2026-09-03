@@ -1,4 +1,5 @@
 import { parseGestaltStream } from '../../shared/src/lucid-gestalt.js'
+import { SIGNAL_WARNING } from './ae-glyphs.generated.js'
 
 const SEMANTIC_OBSERVATION_PREFIXES = ['CATALYST_TOOL_OBSERVATION ', 'PENGUIN_TEACHING_EVENT '] as const
 
@@ -9,7 +10,7 @@ export type SemanticObservationWriter = (line: string) => void
 function isEffigyWarning(line: string): boolean {
   try {
     const stream = parseGestaltStream(line)
-    return stream.signal === '⚠️' && stream.evidence.length > 0
+    return stream.signal === SIGNAL_WARNING && stream.evidence.length > 0
   } catch {
     return false
   }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import { createSemanticObservationForwarder } from './backend-semantic-observations'
+import { SIGNAL_WARNING } from './ae-glyphs.generated.js'
 import { canonicalGestaltStream } from '../../shared/src/lucid-gestalt.js'
 
 test('forwards only complete bounded semantic observation lines across chunk boundaries', () => {
@@ -13,16 +14,16 @@ test('forwards only complete bounded semantic observation lines across chunk bou
   push('VATION {"schema":"ae-catalyst-harness-tool-observation/1"}\n')
   push('PENGUIN_TEACHING_EVENT {"schema":"penguin-tool-intent-observed/1"}\n')
   const protectedIdentity = canonicalGestaltStream({
-    signal: '⚠️',
+    signal: SIGNAL_WARNING,
     evidence: ['effigy-transfer-protected-identity-refused: protected identity reached transfer']
   })
   const connectFailed = canonicalGestaltStream({
-    signal: '⚠️',
+    signal: SIGNAL_WARNING,
     evidence: ['penguin-model-connect-failed']
   })
   push(`${protectedIdentity}\n`)
   push(`${connectFailed}\n`)
-  push('⚠️ retired warning syntax\n')
+  push(`${SIGNAL_WARNING} retired warning syntax\n`)
 
   assert.deepEqual(forwarded, [
     'CATALYST_TOOL_OBSERVATION {"schema":"ae-catalyst-harness-tool-observation/1"}\n',

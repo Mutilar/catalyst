@@ -1,3 +1,12 @@
+from agent.generated.ae_glyphs import OPERATION_STEER
+from agent.generated.ae_glyphs import SIGNAL_WARNING
+from agent.generated.ae_glyphs import SIGNAL_RED
+from agent.generated.ae_glyphs import SIGNAL_GREEN
+from agent.generated.ae_glyphs import IDENTITY_PENGUIN
+from agent.generated.ae_glyphs import DELIMITER_SEGMENT
+from agent.generated.ae_glyphs import IDENTITY_CATALYST
+from agent.generated.ae_glyphs import IDENTITY_QUINE
+from agent.generated.ae_glyphs import ROLE_EM
 import importlib.util
 import json
 from pathlib import Path
@@ -20,9 +29,9 @@ def plugin():
 def _workspace(
     root: Path,
     role: str = "EM",
-    hat: str = "🎼",
+    hat: str = ROLE_EM,
     witness_alias: str = "brianhu",
-    witness_glyph: str = "🐧",
+    witness_glyph: str = f"{IDENTITY_PENGUIN}",
 ) -> Path:
     repository = Path(__file__).parents[3]
     (root / "quine" / "canon").mkdir(parents=True)
@@ -69,7 +78,7 @@ def _accepted_submission() -> dict:
     return {
         "model": canonical_stream(
             root,
-            "🟢",
+            f"{SIGNAL_GREEN}",
             "show",
             "text",
             "fresh",
@@ -84,18 +93,18 @@ def _accepted_submission() -> dict:
 
 def test_exact_canonical_suffix_passes_without_synthetic_turn(plugin, tmp_path):
     root = _workspace(tmp_path)
-    assert plugin.required_terminal_suffix(root) == "🎼🐧"
-    assert plugin._pre_final(final_response="🟢 Done.\n\n🎼🐧", workspace_root=str(root)) is None
+    assert plugin.required_terminal_suffix(root) == f"{ROLE_EM}{IDENTITY_PENGUIN}"
+    assert plugin._pre_final(final_response=f"{SIGNAL_GREEN} Done.\n\n{ROLE_EM}{IDENTITY_PENGUIN}", workspace_root=str(root)) is None
 
 
 def test_penguin_session_uses_canonical_double_penguin_not_host_role(plugin, tmp_path):
-    root = _workspace(tmp_path, role="EM", hat="🎼")
+    root = _workspace(tmp_path, role="EM", hat=ROLE_EM)
     registry_path = root / "quine" / "canon" / "roles.json"
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     registry["roles"]["PENGUIN"] = {
         "automation": "host",
         "behavior_tag": "penguin_only",
-        "hat": "🐧",
+        "hat": f"{IDENTITY_PENGUIN}",
         "lease": "PENGUIN.md",
     }
     registry_path.write_text(json.dumps(registry), encoding="utf-8")
@@ -109,55 +118,73 @@ def test_penguin_session_uses_canonical_double_penguin_not_host_role(plugin, tmp
 
     assert (
         plugin._pre_final(
-            final_response="🟢 Local observation.\n\n🐧🐧",
+            final_response=f"{SIGNAL_GREEN} Local observation.\n\n{IDENTITY_PENGUIN}{IDENTITY_PENGUIN}",
             workspace_root=str(root),
             agent_role="PENGUIN",
         )
         is None
     )
     result = plugin._pre_final(
-        final_response="🟢 Local observation.\n\n🐧🐧 COMPLETE",
+        final_response=f"{SIGNAL_GREEN} Local observation.\n\n{IDENTITY_PENGUIN}{IDENTITY_PENGUIN} COMPLETE",
         workspace_root=str(root),
         agent_role="PENGUIN",
     )
     assert result["action"] == "continue"
     stream = parse_stream(root, result["message"].splitlines()[0])
-    assert stream["service"] == "🚀"
-    assert stream["data"] == ["🧬"]
-    assert stream["continuations"] == ["🐧"]
-    assert "ROLE PROTOCOL · PENGUIN" in result["message"]
+    assert stream["service"] == IDENTITY_CATALYST
+    assert stream["data"] == [IDENTITY_QUINE]
+    assert stream["continuations"] == [f"{IDENTITY_PENGUIN}"]
+    assert DELIMITER_SEGMENT.join(("ROLE PROTOCOL", "PENGUIN")) in result["message"]
+
+    terminal = plugin._pre_final(
+        final_response="Still missing the terminal glyphs.",
+        workspace_root=str(root),
+        agent_role="PENGUIN",
+        attempt=1,
+        session_id="penguin-offline",
+    )
+    assert terminal["action"] == "block"
+    assert terminal["message"].endswith(
+        f"{IDENTITY_PENGUIN}{IDENTITY_PENGUIN}"
+    )
+    terminal_stream = parse_stream(root, terminal["message"].splitlines()[0])
+    assert terminal_stream["evidence"] == [
+        "ROLE-ATTESTATION-PROTOCOL-DRIFT",
+        "repeated-role-protocol-drift",
+    ]
+    assert terminal_stream["actions"] == []
 
 
 def test_final_requires_one_canonical_gestalt_signal(plugin, tmp_path):
     root = _workspace(tmp_path)
     result = plugin._pre_final(
-        final_response="Done without semantic signal.\n\n🎼🐧",
+        final_response=f"Done without semantic signal.\n\n{ROLE_EM}{IDENTITY_PENGUIN}",
         workspace_root=str(root),
     )
 
     assert result["action"] == "continue"
     stream = parse_stream(root, result["message"].splitlines()[0])
     assert "canonical-gestalt-signal-missing" in stream["evidence"]
-    assert stream["continuations"] == ["🎼"]
+    assert stream["continuations"] == [ROLE_EM]
 
 
 def test_wrong_permanent_role_hat_is_diagnosed(plugin, tmp_path):
     root = _workspace(tmp_path)
     result = plugin._pre_final(
-        final_response="🟢 Done.\n\n🧭🐧",
+        final_response=f"{SIGNAL_GREEN} Done.\n\n{OPERATION_STEER}{IDENTITY_PENGUIN}",
         workspace_root=str(root),
     )
 
     stream = parse_stream(root, result["message"].splitlines()[0])
     assert "role-hat-mismatch" in stream["evidence"]
-    assert stream["continuations"] == ["🎼"]
+    assert stream["continuations"] == [ROLE_EM]
 
 
 def test_wrong_witness_glyph_is_diagnosed_from_active_witness_binding(plugin, tmp_path):
-    root = _workspace(tmp_path, witness_alias="brian", witness_glyph="🐧")
+    root = _workspace(tmp_path, witness_alias="brian", witness_glyph=f"{IDENTITY_PENGUIN}")
     authors = root / "quine" / "author-glyphs.json"
     authors.write_text(
-        json.dumps({"schema": "ae-author-glyphs/1", "authors": {"brian": "🐧", "alex": "🦊"}}),
+        json.dumps({"schema": "ae-author-glyphs/1", "authors": {"brian": f"{IDENTITY_PENGUIN}", "alex": "🦊"}}),
         encoding="utf-8",
     )
     decision = root / "run" / "state" / "runtime" / "lucid-host-role.json"
@@ -167,26 +194,26 @@ def test_wrong_witness_glyph_is_diagnosed_from_active_witness_binding(plugin, tm
                 "schema": "lucid-host-role-decision/1",
                 "role": "EM",
                 "witness_alias": "brian",
-                "witness_glyph": "🐧",
+                "witness_glyph": f"{IDENTITY_PENGUIN}",
             }
         ),
         encoding="utf-8",
     )
 
     result = plugin._pre_final(
-        final_response="🟢 Done.\n\n🎼🦊",
+        final_response=f"{SIGNAL_GREEN} Done.\n\n{ROLE_EM}🦊",
         workspace_root=str(root),
     )
 
     stream = parse_stream(root, result["message"].splitlines()[0])
     assert "witness-glyph-mismatch" in stream["evidence"]
-    assert plugin.required_terminal_suffix(root) == "🎼🐧"
+    assert plugin.required_terminal_suffix(root) == f"{ROLE_EM}{IDENTITY_PENGUIN}"
 
 
 def test_multiple_witnesses_require_an_explicit_host_binding(plugin, tmp_path):
     root = _workspace(tmp_path)
     (root / "quine" / "author-glyphs.json").write_text(
-        json.dumps({"schema": "ae-author-glyphs/1", "authors": {"brian": "🐧", "alex": "🦊"}}),
+        json.dumps({"schema": "ae-author-glyphs/1", "authors": {"brian": f"{IDENTITY_PENGUIN}", "alex": "🦊"}}),
         encoding="utf-8",
     )
 
@@ -206,11 +233,11 @@ def test_missing_live_role_binding_allows_one_bounded_recovery_turn(plugin, tmp_
 
     assert result["action"] == "continue"
     stream = parse_stream(root, result["message"])
-    assert stream["signal"] == "⚠️"
-    assert stream["service"] == "🚀"
+    assert stream["signal"] == f"{SIGNAL_WARNING}"
+    assert stream["service"] == IDENTITY_CATALYST
     assert stream["verb"] is None
     assert stream["evidence"][0] == "BOOTSTRAP-DECISION-REQUIRED"
-    assert stream["data"] == ["🧬"]
+    assert stream["data"] == [IDENTITY_QUINE]
     assert "\n" not in result["message"]
     assert any(
         action["verb"] == "get" and action["noun"] == "role"
@@ -238,7 +265,7 @@ def test_pre_final_remains_inert_outside_ae_workspace(plugin, tmp_path):
 def test_explicit_non_penguin_witness_changes_the_exact_terminal_identity(plugin, tmp_path):
     root = _workspace(tmp_path)
     (root / "quine" / "author-glyphs.json").write_text(
-        json.dumps({"schema": "ae-author-glyphs/1", "authors": {"brianhu": "🐧", "alex": "🦊"}}),
+        json.dumps({"schema": "ae-author-glyphs/1", "authors": {"brianhu": f"{IDENTITY_PENGUIN}", "alex": "🦊"}}),
         encoding="utf-8",
     )
     (root / "run" / "state" / "runtime" / "lucid-host-role.json").write_text(
@@ -253,10 +280,10 @@ def test_explicit_non_penguin_witness_changes_the_exact_terminal_identity(plugin
         encoding="utf-8",
     )
 
-    assert plugin.required_terminal_suffix(root) == "🎼🦊"
+    assert plugin.required_terminal_suffix(root) == f"{ROLE_EM}🦊"
     assert (
         plugin._pre_final(
-            final_response="🟢 Exact non-penguin witness.\n\n🎼🦊",
+            final_response=f"{SIGNAL_GREEN} Exact non-penguin witness.\n\n{ROLE_EM}🦊",
             workspace_root=str(root),
         )
         is None
@@ -272,7 +299,7 @@ def test_attested_final_submits_once_to_current_role_effigy(plugin, tmp_path, mo
         return _accepted_submission()
 
     monkeypatch.setattr(plugin, "_submit_effigy_speech", submit)
-    response = "🟢 The exact final statement.\n\n🎼🐧"
+    response = f"{SIGNAL_GREEN} The exact final statement.\n\n{ROLE_EM}{IDENTITY_PENGUIN}"
     receipt = plugin._post_final(
         final_response=response,
         workspace_root=str(root),
@@ -309,7 +336,7 @@ def test_attested_final_without_session_id_still_submits(plugin, tmp_path, monke
     )
 
     receipt = plugin._post_final(
-        final_response="🟢 Desktop final without an agent session id.\n\n🎼🐧",
+        final_response=f"{SIGNAL_GREEN} Desktop final without an agent session id.\n\n{ROLE_EM}{IDENTITY_PENGUIN}",
         workspace_root=str(root),
         session_id="",
     )
@@ -324,7 +351,7 @@ def test_failed_effigy_submission_releases_exact_once_claim(plugin, tmp_path, mo
         [{"error": "speech unavailable"}, _accepted_submission()]
     )
     monkeypatch.setattr(plugin, "_submit_effigy_speech", lambda _arguments: next(responses))
-    final = "⚠️ Retry this final after transient speech failure.\n\n🎼🐧"
+    final = f"{SIGNAL_WARNING} Retry this final after transient speech failure.\n\n{ROLE_EM}{IDENTITY_PENGUIN}"
 
     assert plugin._post_final(
         final_response=final, workspace_root=str(root), session_id="session-retry"
@@ -339,7 +366,7 @@ def test_typed_lucid_speech_refusal_is_visible_with_code_and_reason(plugin, caps
     refusal = {
         "model": "\n".join(
             [
-                canonical_stream(root, "🔴", "show", "text", "refused"),
+                canonical_stream(root, f"{SIGNAL_RED}", "show", "text", "refused"),
                 "Presentation Audio Accepted=false",
                 "Presentation Audio Code=effigy-transfer-protected-identity-refused",
                 "Presentation Audio Effigy Transfer Code=effigy-transfer-protected-identity-refused",
@@ -350,13 +377,13 @@ def test_typed_lucid_speech_refusal_is_visible_with_code_and_reason(plugin, caps
     }
 
     assert plugin._effigy_submission_accepted(refusal) is False
-    plugin._emit_effigy_warning("EM", "🎼🐧", refusal)
+    plugin._emit_effigy_warning("EM", f"{ROLE_EM}{IDENTITY_PENGUIN}", refusal)
     warning = parse_stream(root, capsys.readouterr().err.strip())
-    assert warning["signal"] == "⚠️"
+    assert warning["signal"] == f"{SIGNAL_WARNING}"
     assert warning["evidence"] == [
-        "effigy-transfer-protected-identity-refused: protected identity was present in transfer input"
+        "EFFIGY-TRANSFER-PROTECTED-IDENTITY-REFUSED: protected identity was present in transfer input"
     ]
-    assert warning["data"] == ["🎼🐧"]
+    assert warning["data"] == [f"{ROLE_EM}{IDENTITY_PENGUIN}"]
 
 
 def test_nested_lucid_refusal_preserves_typed_code_and_reason(plugin, capsys):
@@ -372,10 +399,10 @@ def test_nested_lucid_refusal_preserves_typed_code_and_reason(plugin, capsys):
         }
     }
 
-    plugin._emit_effigy_warning("EM", "🎼🐧", refusal)
+    plugin._emit_effigy_warning("EM", f"{ROLE_EM}{IDENTITY_PENGUIN}", refusal)
     warning = parse_stream(Path(__file__).parents[3], capsys.readouterr().err.strip())
-    assert warning["evidence"] == ["penguin-model-connect-failed"]
-    assert warning["data"] == ["🎼🐧"]
+    assert warning["evidence"] == ["PENGUIN-MODEL-CONNECT-FAILED"]
+    assert warning["data"] == [f"{ROLE_EM}{IDENTITY_PENGUIN}"]
 
 
 def test_distinct_effigy_failure_detail_is_not_deduplicated(plugin, capsys):
@@ -388,10 +415,10 @@ def test_distinct_effigy_failure_detail_is_not_deduplicated(plugin, capsys):
         }
     }
 
-    plugin._emit_effigy_warning("EM", "🎼🐧", refusal)
+    plugin._emit_effigy_warning("EM", f"{ROLE_EM}{IDENTITY_PENGUIN}", refusal)
     warning = parse_stream(Path(__file__).parents[3], capsys.readouterr().err.strip())
     assert warning["evidence"] == [
-        "penguin-transfer-timeout: registered model exceeded its 2000ms response deadline"
+        "PENGUIN-TRANSFER-TIMEOUT: registered model exceeded its 2000ms response deadline"
     ]
 
 
@@ -404,7 +431,7 @@ def test_canonical_mcp_gestalt_refusal_supplies_typed_effigy_detail(plugin, caps
                 "type": "text",
                 "text": canonical_stream(
                     root,
-                    "🔴",
+                    f"{SIGNAL_RED}",
                     evidence=("PENGUIN-MODEL-CONNECT-FAILED",),
                     data=("loopback model endpoint refused the connection",),
                 ),
@@ -412,26 +439,46 @@ def test_canonical_mcp_gestalt_refusal_supplies_typed_effigy_detail(plugin, caps
         ],
     }
 
-    plugin._emit_effigy_warning("PENGUIN", "🐧🐧", refusal)
+    plugin._emit_effigy_warning("PENGUIN", f"{IDENTITY_PENGUIN}{IDENTITY_PENGUIN}", refusal)
     warning = parse_stream(root, capsys.readouterr().err.strip())
     assert warning["evidence"] == [
-        "penguin-model-connect-failed: loopback model endpoint refused the connection"
+        "PENGUIN-MODEL-CONNECT-FAILED: loopback model endpoint refused the connection"
     ]
-    assert warning["data"] == ["🐧🐧"]
+    assert warning["data"] == [f"{IDENTITY_PENGUIN}{IDENTITY_PENGUIN}"]
 
 
 def test_effigy_exception_warning_preserves_cause_and_redacts_secrets(plugin, capsys):
     plugin._emit_effigy_warning(
         "EM",
-        "🎼🐧",
+        f"{ROLE_EM}{IDENTITY_PENGUIN}",
         None,
         RuntimeError("speech worker refused token=private-value after queue closure"),
     )
 
     warning = parse_stream(Path(__file__).parents[3], capsys.readouterr().err.strip())
     assert warning["evidence"] == [
-        "effigy-submission-failed: RuntimeError: speech worker refused token=[redacted] after queue closure"
+        "EFFIGY-SUBMISSION-FAILED: RuntimeError: speech worker refused token=[redacted] after queue closure"
     ]
+
+
+def test_canonical_refusal_in_error_field_is_not_flattened_into_slash_prose(plugin, capsys):
+    root = Path(__file__).parents[3]
+    refusal = {
+        "error": canonical_stream(
+            root,
+            f"{SIGNAL_RED}",
+            "show",
+            "text",
+            "no-capability",
+            evidence=("capability is required", "no-capability"),
+        )
+    }
+
+    plugin._emit_effigy_warning("PENGUIN", f"{IDENTITY_PENGUIN}{IDENTITY_PENGUIN}", refusal)
+    rendered = capsys.readouterr().err.strip()
+    warning = parse_stream(root, rendered)
+    assert warning["evidence"] == ["NO-CAPABILITY: capability is required"]
+    assert " / " not in rendered
 
 
 def test_post_final_returns_the_exact_typed_effigy_failure(plugin, tmp_path, monkeypatch, capsys):
@@ -439,7 +486,7 @@ def test_post_final_returns_the_exact_typed_effigy_failure(plugin, tmp_path, mon
     refusal = {
         "model": "\n".join(
             [
-                canonical_stream(root, "🔴", "show", "text", "refused"),
+                canonical_stream(root, f"{SIGNAL_RED}", "show", "text", "refused"),
                 "Presentation Audio Effigy Transfer Code=effigy-transfer-timeout",
                 "Presentation Audio Stage=effigy-transfer",
                 "Presentation Audio Detail=local transfer exceeded its 2000ms deadline",
@@ -449,7 +496,7 @@ def test_post_final_returns_the_exact_typed_effigy_failure(plugin, tmp_path, mon
     monkeypatch.setattr(plugin, "_submit_effigy_speech", lambda _arguments: refusal)
 
     receipt = plugin._post_final(
-        final_response="🟢 Bounded final.\n\n🎼🐧",
+        final_response=f"{SIGNAL_GREEN} Bounded final.\n\n{ROLE_EM}{IDENTITY_PENGUIN}",
         workspace_root=str(root),
         session_id="typed-effigy-failure",
     )
@@ -457,9 +504,9 @@ def test_post_final_returns_the_exact_typed_effigy_failure(plugin, tmp_path, mon
     assert receipt == {"state": "degraded", "code": "effigy-transfer-timeout"}
     warning = parse_stream(root, capsys.readouterr().err.strip())
     assert warning["evidence"] == [
-        "effigy-transfer-timeout: local transfer exceeded its 2000ms deadline"
+        "EFFIGY-TRANSFER-TIMEOUT: local transfer exceeded its 2000ms deadline"
     ]
-    assert warning["data"] == ["🎼🐧"]
+    assert warning["data"] == [f"{ROLE_EM}{IDENTITY_PENGUIN}"]
 
 
 def test_unattested_final_is_never_submitted_to_effigy(plugin, tmp_path, monkeypatch):
@@ -487,13 +534,13 @@ def test_missing_suffix_reinjects_canonical_onboarding_then_requires_signout(plu
     assert result["action"] == "continue"
     message = result["message"]
     stream = parse_stream(root, message.splitlines()[0])
-    assert stream["signal"] == "⚠️"
+    assert stream["signal"] == f"{SIGNAL_WARNING}"
     assert "ROLE-ATTESTATION-PROTOCOL-DRIFT" in stream["evidence"]
-    assert stream["service"] == "🚀"
-    assert stream["data"] == ["🧬"]
-    assert stream["continuations"] == ["🎼"]
-    assert "ROLE PROTOCOL · UNIVERSAL" in message
-    assert "ROLE PROTOCOL · EM" in message
+    assert stream["service"] == IDENTITY_CATALYST
+    assert stream["data"] == [IDENTITY_QUINE]
+    assert stream["continuations"] == [ROLE_EM]
+    assert DELIMITER_SEGMENT.join(("ROLE PROTOCOL", "UNIVERSAL")) in message
+    assert DELIMITER_SEGMENT.join(("ROLE PROTOCOL", "EM")) in message
     assert "lucid://" not in message
 
     signout = plugin._pre_final(
@@ -501,12 +548,12 @@ def test_missing_suffix_reinjects_canonical_onboarding_then_requires_signout(plu
     )
     assert signout["action"] == "continue"
     signout_stream = parse_stream(root, signout["message"])
-    assert signout_stream["service"] == "🚀"
+    assert signout_stream["service"] == IDENTITY_CATALYST
     assert signout_stream["evidence"] == [
         "ROLE-ATTESTATION-PROTOCOL-DRIFT",
         "terminal-attestation-missing",
     ]
-    assert signout_stream["data"] == ["🧬"]
+    assert signout_stream["data"] == [IDENTITY_QUINE]
     assert signout_stream["actions"][0]["verb"] == "set"
     assert signout_stream["actions"][0]["noun"] == "role"
     assert signout_stream["actions"][0]["argument"] == "SIGNOUT"
@@ -516,13 +563,20 @@ def test_missing_suffix_reinjects_canonical_onboarding_then_requires_signout(plu
     repeated = plugin._pre_final(
         final_response="Ignored signout.", workspace_root=str(root), attempt=2, session_id="drift"
     )
-    assert repeated["action"] == "continue"
-    repeated_stream = parse_stream(root, repeated["message"])
+    assert repeated["action"] == "block"
+    assert repeated["message"].endswith(f"{ROLE_EM}{IDENTITY_PENGUIN}")
+    repeated_stream = parse_stream(root, repeated["message"].splitlines()[0])
     assert repeated_stream["evidence"] == [
         "ROLE-ATTESTATION-PROTOCOL-DRIFT",
         "repeated-role-protocol-drift",
     ]
-    assert repeated_stream["actions"][0]["argument"] == "SIGNOUT"
+    assert repeated_stream["data"] == [IDENTITY_QUINE, "OFFLINE", "RESUME WITNESS"]
+    assert repeated_stream["actions"] == []
+
+    terminal = plugin._pre_final(
+        final_response="Still offline.", workspace_root=str(root), attempt=3, session_id="drift"
+    )
+    assert terminal == repeated
 
     plugin._transform_tool_result(
         tool_name="mcp__LUCID__set",
@@ -581,7 +635,7 @@ def test_confirmed_capability_bound_witness_preserves_substantive_final(plugin, 
                 "schema": "lucid-host-role-decision/1",
                 "role": "WITNESS",
                 "witness_alias": "brianhu",
-                "witness_glyph": "🐧",
+                "witness_glyph": f"{IDENTITY_PENGUIN}",
             }
         ),
         encoding="utf-8",
@@ -616,7 +670,7 @@ def test_unconfirmed_or_noncanonical_witness_preserves_finalization(plugin, tmp_
                 "schema": "lucid-host-role-decision/1",
                 "role": "WITNESS",
                 "witness_alias": "brianhu",
-                "witness_glyph": "🐧",
+                "witness_glyph": f"{IDENTITY_PENGUIN}",
             }
         ),
         encoding="utf-8",
@@ -659,13 +713,13 @@ def test_role_lifecycle_terminal_states_are_action_specific(plugin):
 
 
 def test_role_and_suffix_come_from_canon_not_prompt_or_model_claim(plugin, tmp_path):
-    root = _workspace(tmp_path, role="SIDEKICK", hat="🧭")
+    root = _workspace(tmp_path, role="SIDEKICK", hat=f"{OPERATION_STEER}")
     result = plugin._pre_final(
-        final_response="I claim I am EM. 🎼🐧",
+        final_response=f"I claim I am EM. {ROLE_EM}{IDENTITY_PENGUIN}",
         workspace_root=str(root),
     )
     stream = parse_stream(root, result["message"].splitlines()[0])
-    assert stream["continuations"] == ["🧭"]
+    assert stream["continuations"] == [f"{OPERATION_STEER}"]
 
 
 def test_missing_or_symlinked_binding_never_replaces_the_final(plugin, tmp_path):

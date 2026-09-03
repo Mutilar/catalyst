@@ -6,6 +6,8 @@ this plugin never executes or replays either call.
 """
 
 from __future__ import annotations
+from agent.generated.ae_glyphs import SIGNAL_WARNING
+from agent.generated.ae_glyphs import SIGNAL_RED
 
 import hashlib
 import json
@@ -22,7 +24,12 @@ from typing import Any, Optional
 
 SUGGESTION_SCHEMA = "penguin-tool-suggestion/1"
 CANDIDATE_SCHEMA = "penguin-tool-suggestion-candidate/1"
+GLYPH_PARAGRAPH_SCHEMA = "penguin-glyph-paragraph-observed/1"
 _MAX_COMMAND_BYTES = 16_384
+_MAX_GLYPH_PARAGRAPHS = 64
+_MAX_GLYPH_ROWS = 64
+_MAX_GLYPH_COUNT = 1_000_000
+_WORKSTREAM_SALT = os.urandom(32)
 _MAX_TRAJECTORIES = 256
 _AREA_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
 _SHELL_CONTROL_RE = re.compile(r"[\r\n;&|<>`$()]")
@@ -42,6 +49,195 @@ _TRANSFORMS = {
 _HELD_CALLS: OrderedDict[tuple[str, str], int] = OrderedDict()
 _OVERRIDDEN_CALLS: OrderedDict[tuple[str, str], int] = OrderedDict()
 _PENDING_CANDIDATES: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
+
+
+def _glyph_tokens(root: Path) -> Optional[tuple[str, dict[str, tuple[str, ...]]]]:
+    try:
+        registry = json.loads((root / "quine" / "canon" / "GLYPH.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError, TypeError):
+        return None
+    profile_id = registry.get("active_profile") if isinstance(registry, dict) else None
+    profiles = registry.get("profiles") if isinstance(registry, dict) else None
+    roles = registry.get("roles") if isinstance(registry, dict) else None
+    profile = profiles.get(profile_id) if isinstance(profiles, dict) else None
+    tokens = profile.get("tokens") if isinstance(profile, dict) else None
+    if (
+        registry.get("schema") != "quine-glyph-registry/1"
+        or not isinstance(roles, dict)
+        or not isinstance(tokens, dict)
+        or set(tokens) != set(roles)
+    ):
+        return None
+    by_token: dict[str, list[str]] = {}
+    for role, token in tokens.items():
+        if not isinstance(role, str) or not isinstance(token, str) or not token:
+            return None
+        by_token.setdefault(token, []).append(role)
+    canonical = json.dumps(registry, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest(), {
+        token: tuple(sorted(candidate_roles))
+        for token, candidate_roles in sorted(by_token.items())
+    }
+
+
+def _prose_paragraphs(response_text: str) -> list[str]:
+    paragraphs: list[str] = []
+    current: list[str] = []
+    fence: Optional[str] = None
+
+    def flush() -> None:
+        if current and len(paragraphs) < _MAX_GLYPH_PARAGRAPHS:
+            paragraphs.append("\n".join(current))
+        current.clear()
+
+    for line in response_text.splitlines():
+        stripped = line.strip()
+        marker = next((candidate for candidate in ("```", "~~~") if stripped.startswith(candidate)), None)
+        if marker is not None:
+            flush()
+            fence = None if fence == marker else marker
+            continue
+        if fence is not None:
+            continue
+        if not stripped:
+            flush()
+            continue
+        current.append(line)
+    flush()
+    return paragraphs
+
+
+def _completion_attribution(
+    root: Path,
+    principal: str,
+    paragraph: str,
+) -> tuple[bool, Optional[str], Optional[str], list[str]]:
+    try:
+        roles = json.loads((root / "quine" / "canon" / "roles.json").read_text(encoding="utf-8"))
+        witnesses = json.loads((root / "quine" / "author-glyphs.json").read_text(encoding="utf-8"))
+        decision = json.loads(
+            (root / "run" / "state" / "runtime" / "lucid-host-role.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    except (OSError, UnicodeError, ValueError, TypeError):
+        return False, None, None, []
+    definitions = roles.get("roles") if isinstance(roles, dict) else None
+    definition = definitions.get(principal) if isinstance(definitions, dict) else None
+    role_glyph = definition.get("hat") if isinstance(definition, dict) else None
+    authors = witnesses.get("authors") if isinstance(witnesses, dict) else None
+    if (
+        roles.get("$schema") != "ae-roles/1"
+        or witnesses.get("schema") != "ae-author-glyphs/1"
+        or decision.get("schema") != "lucid-host-role-decision/1"
+    ):
+        return False, None, None, []
+    witness_alias = decision.get("witness_alias") if isinstance(decision, dict) else None
+    if witness_alias is None and isinstance(authors, dict) and len(authors) == 1:
+        witness_alias = next(iter(authors))
+    witness_glyph = authors.get(witness_alias) if isinstance(authors, dict) else None
+    if not isinstance(role_glyph, str) or not isinstance(witness_glyph, str):
+        return False, None, None, []
+    terminal = paragraph.strip()
+    suffix = f"{role_glyph}{witness_glyph}"
+    if not terminal.endswith(suffix):
+        return False, role_glyph, witness_glyph, []
+    prefix = terminal[: -len(suffix)]
+    try:
+        glyph_registry = json.loads(
+            (root / "quine" / "canon" / "GLYPH.json").read_text(encoding="utf-8")
+        )
+        profile = glyph_registry["profiles"][glyph_registry["active_profile"]]["tokens"]
+        definitions = glyph_registry["roles"]
+        hats = sorted(
+            {
+                profile[role]
+                for role, definition in definitions.items()
+                if isinstance(definition, dict) and definition.get("family") == "hat"
+            },
+            key=len,
+            reverse=True,
+        )
+    except (KeyError, OSError, UnicodeError, ValueError, TypeError):
+        return False, None, None, []
+    completion_hats = []
+    while prefix:
+        hat = next((candidate for candidate in hats if prefix.startswith(candidate)), None)
+        if hat is None or hat in completion_hats or len(completion_hats) >= 10:
+            return False, None, None, []
+        completion_hats.append(hat)
+        prefix = prefix[len(hat) :]
+    return (
+        True,
+        role_glyph,
+        witness_glyph,
+        completion_hats,
+    )
+
+
+def _on_transform_llm_output(
+    *,
+    response_text: str = "",
+    session_id: str = "",
+    **_: Any,
+) -> None:
+    if not isinstance(response_text, str) or not response_text:
+        return None
+    root = _ae_root({})
+    registry = _glyph_tokens(root) if root is not None else None
+    if registry is None:
+        return None
+    registry_hash, tokens = registry
+    try:
+        from gateway.session_context import get_agent_role
+
+        principal = get_agent_role().strip().upper() or "UNBOUND"
+    except Exception:
+        principal = "UNBOUND"
+    if principal not in {"EM", "SIDEKICK", "BUTLER", "ENGINEER", "PENGUIN", "UNBOUND"}:
+        principal = "UNBOUND"
+    observed_epoch = max(1, int(time.time()))
+    workstream_hash = "sha256:" + hashlib.sha256(
+        _WORKSTREAM_SALT + (session_id or "unbound").encode("utf-8")
+    ).hexdigest()
+    for ordinal, paragraph in enumerate(_prose_paragraphs(response_text)):
+        rows = []
+        for token, roles in tokens.items():
+            count = min(paragraph.count(token), _MAX_GLYPH_COUNT)
+            if count:
+                rows.append({"glyph": token, "count": count, "roles": list(roles)})
+        if not rows:
+            continue
+        completion_attested, role_glyph, witness_glyph, completion_hats = _completion_attribution(
+            root, principal, paragraph
+        )
+        event = {
+            "schema": GLYPH_PARAGRAPH_SCHEMA,
+            "source_class": "local-observation",
+            "observed_epoch": observed_epoch,
+            "workstream_hash": workstream_hash,
+            "paragraph_hash": "sha256:"
+            + hashlib.sha256(_WORKSTREAM_SALT + paragraph.encode("utf-8")).hexdigest(),
+            "paragraph_ordinal": ordinal,
+            "principal": principal,
+            "principal_glyph": role_glyph,
+            "oversight_glyph": witness_glyph,
+            "glyph_registry_hash": registry_hash,
+            "glyphs": rows[:_MAX_GLYPH_ROWS],
+            "completion_attested": completion_attested,
+            "role_glyph": role_glyph if completion_attested else None,
+            "witness_glyph": witness_glyph if completion_attested else None,
+            "completion_hats": completion_hats,
+            "raw_content_stored": False,
+            "authority": "none",
+        }
+        sys.stderr.write(
+            "PENGUIN_TEACHING_EVENT "
+            + json.dumps(event, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+            + "\n"
+        )
+    sys.stderr.flush()
+    return None
 
 
 def _ae_root(args: dict[str, Any]) -> Optional[Path]:
@@ -1016,7 +1212,7 @@ def _tool_outcome(status: str, result: str) -> str:
     state = structured.get("state")
     if state in {"refused", "blocked"}:
         return "refusal"
-    if state in {"🔴", "⚠️", "failed", "failure", "error", "degraded", "stale", "unavailable"}:
+    if state in {f"{SIGNAL_RED}", f"{SIGNAL_WARNING}", "failed", "failure", "error", "degraded", "stale", "unavailable"}:
         return "failure"
     return "success"
 
@@ -1086,4 +1282,5 @@ def _on_transform_tool_result(
 def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", _on_pre_tool_call)
     ctx.register_hook("transform_tool_result", _on_transform_tool_result)
+    ctx.register_hook("transform_llm_output", _on_transform_llm_output)
     ctx.register_hook("on_session_end", _on_session_end)

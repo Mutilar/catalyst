@@ -1,4 +1,5 @@
 from __future__ import annotations
+from agent.generated.ae_glyphs import DELIMITER_SEGMENT, IDENTITY_PENGUIN
 
 import pytest
 
@@ -26,11 +27,11 @@ def test_picker_row_is_one_authenticated_closed_penguin_model() -> None:
 
     assert row["slug"] == "penguin"
     assert row["name"] == "Microsoft Applied Sciences"
-    assert row["model_labels"] == {"PENGUIN": "🐧"}
+    assert row["model_labels"] == {"PENGUIN": f"{IDENTITY_PENGUIN}"}
     assert row["model_annotations"]["PENGUIN"] == [
         {"label": "Role", "value": "PENGUIN"},
         {"label": "Runtime", "value": "Local MLX"},
-        {"label": "Grants", "value": "GET · SHOW"},
+            {"label": "Grants", "value": DELIMITER_SEGMENT.join(("GET", "SHOW"))},
     ]
     assert row["models"] == ["PENGUIN"]
     assert row["authenticated"] is True

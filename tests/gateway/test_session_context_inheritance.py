@@ -25,6 +25,11 @@ to ``_UNSET`` at the top of the per-message handler (``GatewayRunner._handle_mes
 strips safe instead of leaking the sibling's. The handler then binds its own
 session a few steps later.
 """
+from agent.generated.ae_glyphs import HAT_AI_AGENT
+from agent.generated.ae_glyphs import OPERATION_STEER
+from agent.generated.ae_glyphs import IDENTITY_PENGUIN
+from agent.generated.ae_glyphs import ROLE_BUTLER
+from agent.generated.ae_glyphs import ROLE_EM
 import asyncio
 from contextvars import copy_context
 
@@ -185,10 +190,10 @@ def test_reset_session_vars_restores_unset_not_empty():
 @pytest.mark.parametrize(
     ("header", "role"),
     [
-        ("| **🎼🐧 PROTOCOL** | **RULE** |", "EM"),
-        ("| **🧭🐧 PROTOCOL** | **RULE** |", "SIDEKICK"),
-        ("| **🎩🐧 PROTOCOL** | **RULE** |", "BUTLER"),
-        ("| **🦾🐧 PROTOCOL** | **RULE** |", "ENGINEER"),
+        (f"| **{ROLE_EM}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |", "EM"),
+        (f"| **{OPERATION_STEER}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |", "SIDEKICK"),
+        (f"| **{ROLE_BUTLER}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |", "BUTLER"),
+        (f"| **{HAT_AI_AGENT}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |", "ENGINEER"),
     ],
 )
 def test_exact_generated_protocol_header_binds_one_agent_role(header, role):
@@ -197,14 +202,16 @@ def test_exact_generated_protocol_header_binds_one_agent_role(header, role):
 
 
 def test_universal_or_ambiguous_protocol_headers_bind_no_agent_role():
-    assert bind_agent_role_from_system_prompt("| **🐧 PROTOCOL** | **RULE** |") == ""
+    assert bind_agent_role_from_system_prompt(f"| **{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |") == ""
     assert bind_agent_role_from_system_prompt(
-        "| **🎼🐧 PROTOCOL** | **RULE** |\n| **🧭🐧 PROTOCOL** | **RULE** |"
+        f"| **{ROLE_EM}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |\n| **{OPERATION_STEER}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |"
     ) == ""
 
 
 def test_new_session_bind_clears_inherited_agent_role_until_prompt_attestation():
-    bind_agent_role_from_system_prompt("| **🎼🐧 PROTOCOL** | **RULE** |")
+    bind_agent_role_from_system_prompt(
+        f"| **{ROLE_EM}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |"
+    )
     assert _AGENT_ROLE.get() == "EM"
 
     set_session_vars(session_id="new-session")

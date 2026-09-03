@@ -148,10 +148,12 @@ export function technicalTrace(args: unknown, result: unknown): string {
 }
 
 export function mcpModelTrace(args: unknown, result: unknown): string {
+  const modelOutput = modelVisibleToolResult(result)
+
   return clampForDisplay(
     [
       `Input:\n${prettyTechnicalValue(args ?? {})}`,
-      `Output:\n${prettyTechnicalValue(modelVisibleToolResult(result))}`
+      `Output:\n${modelOutput === undefined ? '(no model-visible output recorded)' : prettyTechnicalValue(modelOutput)}`
     ].join('\n\n')
   )
 }

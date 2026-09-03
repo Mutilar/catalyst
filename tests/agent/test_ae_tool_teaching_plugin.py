@@ -1,3 +1,14 @@
+from agent.generated.ae_glyphs import (
+    HAT_ACCESSIBILITY,
+    HAT_SECURITY,
+    HAT_TESTABILITY,
+    IDENTITY_PENGUIN,
+    OPERATION_MORPH,
+    RELATION_EVIDENCE,
+    ROLE_ENGINEER,
+    SIGNAL_GREEN,
+    SIGNAL_RED,
+)
 import hashlib
 import importlib.util
 import json
@@ -22,7 +33,7 @@ def workspace(tmp_path):
     (tmp_path / "run").mkdir()
     (tmp_path / "butler").mkdir()
     (tmp_path / "envelope").mkdir()
-    (tmp_path / "quine").mkdir()
+    (tmp_path / "quine" / "canon").mkdir(parents=True)
     (tmp_path / "run" / "STACK.json").write_text("{}", encoding="utf-8")
     canonical = json.loads(
         (Path(__file__).parents[3] / "envelope" / "LUCID.json").read_text(encoding="utf-8")
@@ -37,6 +48,35 @@ def workspace(tmp_path):
     )
     (tmp_path / "quine" / "areas.json").write_text(
         (Path(__file__).parents[3] / "quine" / "areas.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / "quine" / "canon" / "GLYPH.json").write_text(
+        (Path(__file__).parents[3] / "quine" / "canon" / "GLYPH.json").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "quine" / "canon" / "roles.json").write_text(
+        (Path(__file__).parents[3] / "quine" / "canon" / "roles.json").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "quine" / "author-glyphs.json").write_text(
+        (Path(__file__).parents[3] / "quine" / "author-glyphs.json").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "run" / "state" / "runtime").mkdir(parents=True)
+    (tmp_path / "run" / "state" / "runtime" / "lucid-host-role.json").write_text(
+        json.dumps(
+            {
+                "schema": "lucid-host-role-decision/1",
+                "role": "ENGINEER",
+                "witness_alias": "brianhu",
+            }
+        ),
         encoding="utf-8",
     )
     return tmp_path
@@ -63,6 +103,29 @@ def _executable_refusal_schema():
             / "TERMINAL-EXECUTABLE-REFUSAL.schema.json"
         ).read_text(encoding="utf-8")
     )
+
+
+def _glyph_paragraph_schema():
+    return json.loads(
+        (
+            Path(__file__).parents[3]
+            / "envelope"
+            / "PENGUIN-GLYPH-PARAGRAPH.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+
+
+def test_glyph_paragraph_schema_is_registered_in_teaching_event_union():
+    union = json.loads(
+        (
+            Path(__file__).parents[3]
+            / "envelope"
+            / "PENGUIN-TEACHING-EVENT.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert {variant["$ref"] for variant in union["oneOf"]} >= {
+        "./PENGUIN-GLYPH-PARAGRAPH.schema.json"
+    }
 
 
 def test_generated_universe_joins_every_closed_verb(workspace):
@@ -346,7 +409,7 @@ def test_exact_follow_up_records_all_terminal_outcomes(
 
 
 def test_transport_success_with_typed_red_result_records_failure(plugin):
-    result = json.dumps({"structuredContent": {"state": "🔴"}})
+    result = json.dumps({"structuredContent": {"state": f"{SIGNAL_RED}"}})
     assert plugin._tool_outcome("success", result) == "failure"
 
 
@@ -700,6 +763,74 @@ def test_trajectory_state_is_bounded(plugin, workspace):
     assert len(plugin._PENDING_CANDIDATES) <= plugin._MAX_TRAJECTORIES
 
 
+def test_agent_prose_emits_content_free_glyph_counts(plugin, workspace, monkeypatch, capsys):
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(plugin.time, "time", lambda: 1_788_381_200)
+    monkeypatch.setattr("gateway.session_context.get_agent_role", lambda: "ENGINEER")
+    response = (
+        f"{SIGNAL_GREEN} Investigated {OPERATION_MORPH} with {RELATION_EVIDENCE} evidence."
+        f"\n\n```text\n{SIGNAL_RED} excluded\n```"
+        f"\n\n{SIGNAL_RED} Failed."
+        f"\n\n{HAT_ACCESSIBILITY}{HAT_SECURITY}{HAT_TESTABILITY}{ROLE_ENGINEER}{IDENTITY_PENGUIN}"
+    )
+
+    assert plugin._on_transform_llm_output(
+        response_text=response,
+        session_id="session-1",
+    ) is None
+
+    events = [
+        json.loads(line.removeprefix("PENGUIN_TEACHING_EVENT "))
+        for line in capsys.readouterr().err.splitlines()
+    ]
+    assert len(events) == 3
+    import jsonschema
+
+    for event in events:
+        jsonschema.validate(event, _glyph_paragraph_schema())
+    assert [event["paragraph_ordinal"] for event in events] == [0, 1, 2]
+    assert events[0]["raw_content_stored"] is False
+    assert events[0]["principal_glyph"] == ROLE_ENGINEER
+    assert events[0]["oversight_glyph"] == IDENTITY_PENGUIN
+    assert "Investigated" not in json.dumps(events)
+    morph = next(row for row in events[0]["glyphs"] if row["glyph"] == OPERATION_MORPH)
+    assert morph["count"] == 1
+    assert morph["roles"] == ["identity.quine", "operation.morph"]
+    assert not any(row["glyph"] == SIGNAL_RED for row in events[0]["glyphs"])
+    assert any(row["glyph"] == SIGNAL_RED for row in events[1]["glyphs"])
+    assert events[2]["completion_attested"] is True
+    assert events[2]["role_glyph"] == ROLE_ENGINEER
+    assert events[2]["witness_glyph"] == IDENTITY_PENGUIN
+    assert events[2]["completion_hats"] == [
+        HAT_ACCESSIBILITY,
+        HAT_SECURITY,
+        HAT_TESTABILITY,
+    ]
+
+
+def test_glyph_event_count_and_serialized_size_are_bounded(
+    plugin, workspace, monkeypatch, capsys
+):
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr("gateway.session_context.get_agent_role", lambda: "UNBOUND")
+    registry = json.loads(
+        (workspace / "quine" / "canon" / "GLYPH.json").read_text(encoding="utf-8")
+    )
+    profile = registry["profiles"][registry["active_profile"]]["tokens"]
+    paragraph = " ".join(sorted(set(profile.values()))) + SIGNAL_RED * (
+        plugin._MAX_GLYPH_COUNT + 1
+    )
+
+    plugin._on_transform_llm_output(response_text=paragraph, session_id="maximal-event")
+
+    line = capsys.readouterr().err.rstrip("\n")
+    payload = line.removeprefix("PENGUIN_TEACHING_EVENT ")
+    event = json.loads(payload)
+    signal = next(row for row in event["glyphs"] if row["glyph"] == SIGNAL_RED)
+    assert signal["count"] == plugin._MAX_GLYPH_COUNT
+    assert len(payload.encode("utf-8")) <= 4_096
+
+
 def test_registers_pre_tool_and_result_transform_hooks(plugin):
     registered = []
 
@@ -711,5 +842,6 @@ def test_registers_pre_tool_and_result_transform_hooks(plugin):
     assert registered == [
         ("pre_tool_call", plugin._on_pre_tool_call),
         ("transform_tool_result", plugin._on_transform_tool_result),
+        ("transform_llm_output", plugin._on_transform_llm_output),
         ("on_session_end", plugin._on_session_end),
     ]

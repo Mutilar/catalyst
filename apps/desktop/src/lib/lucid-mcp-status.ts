@@ -1,4 +1,5 @@
 import type { McpServerSummary } from '@/types/hermes'
+import { SIGNAL_GREEN, SIGNAL_PENDING, SIGNAL_RED, SIGNAL_WARNING } from '@/lib/ae-glyphs'
 
 import { canonicalGestaltStream } from './lucid-gestalt'
 
@@ -8,7 +9,7 @@ export interface LucidMcpStatus {
   connection: string
   error: string | null
   failures: number
-  glyph: '⚠️' | '⏳' | '🔴' | '🟢'
+  glyph: typeof SIGNAL_WARNING | typeof SIGNAL_PENDING | typeof SIGNAL_RED | typeof SIGNAL_GREEN
   health: string
   signal: LucidStatusSignal
   tools: number
@@ -16,10 +17,10 @@ export interface LucidMcpStatus {
 }
 
 const STATUS: Record<LucidStatusSignal, Pick<LucidMcpStatus, 'glyph' | 'signal'>> = {
-  green: { glyph: '🟢', signal: 'green' },
-  hourglass: { glyph: '⏳', signal: 'hourglass' },
-  red: { glyph: '🔴', signal: 'red' },
-  warning: { glyph: '⚠️', signal: 'warning' }
+  green: { glyph: SIGNAL_GREEN, signal: 'green' },
+  hourglass: { glyph: SIGNAL_PENDING, signal: 'hourglass' },
+  red: { glyph: SIGNAL_RED, signal: 'red' },
+  warning: { glyph: SIGNAL_WARNING, signal: 'warning' }
 }
 
 export function lucidMcpGestalt(status: LucidMcpStatus): string {

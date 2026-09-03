@@ -1,4 +1,9 @@
 """Tests for MCP tool structuredContent preservation."""
+from agent.generated.ae_glyphs import HAT_AI_AGENT
+from agent.generated.ae_glyphs import OPERATION_STEER
+from agent.generated.ae_glyphs import IDENTITY_PENGUIN
+from agent.generated.ae_glyphs import ROLE_BUTLER
+from agent.generated.ae_glyphs import ROLE_EM
 
 import asyncio
 import json
@@ -216,7 +221,9 @@ class TestStructuredContentPreservation:
             )
         )
         set_session_vars(session_id="hermes-session-42")
-        bind_agent_role_from_system_prompt("| **🎼🐧 PROTOCOL** | **RULE** |")
+        bind_agent_role_from_system_prompt(
+            f"| **{ROLE_EM}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |"
+        )
 
         handler = mcp_tool._make_tool_handler("test-server", "set", 30.0)
         assert json.loads(handler({"path": "role", "value": {"action": "signin"}})) == {
@@ -252,10 +259,10 @@ class TestStructuredContentPreservation:
     @pytest.mark.parametrize(
         ("header", "role"),
         [
-            ("| **🎼🐧 PROTOCOL** | **RULE** |", "EM"),
-            ("| **🧭🐧 PROTOCOL** | **RULE** |", "SIDEKICK"),
-            ("| **🎩🐧 PROTOCOL** | **RULE** |", "BUTLER"),
-            ("| **🦾🐧 PROTOCOL** | **RULE** |", "ENGINEER"),
+            (f"| **{ROLE_EM}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |", "EM"),
+            (f"| **{OPERATION_STEER}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |", "SIDEKICK"),
+            (f"| **{ROLE_BUTLER}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |", "BUTLER"),
+            (f"| **{HAT_AI_AGENT}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |", "ENGINEER"),
         ],
     )
     def test_host_context_bootstrap_preserves_each_closed_agent_role(
@@ -310,7 +317,9 @@ class TestStructuredContentPreservation:
             model="PENGUIN",
             provider="penguin",
         )
-        bind_agent_role_from_system_prompt("| **🎼🐧 PROTOCOL** | **RULE** |")
+        bind_agent_role_from_system_prompt(
+            f"| **{ROLE_EM}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |"
+        )
 
         assert get_agent_role() == "PENGUIN"
         meta = mcp_tool._preferred_tool_call_meta(

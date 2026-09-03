@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { McpUguiDocument as Document } from '@/lib/tool-presentation'
+import { SIGNAL_GREEN } from '@/lib/ae-glyphs'
 import { canonicalGestaltStream } from '../../../lib/lucid-gestalt'
 import { $pendingModeApply, $pendingSkinApply, __resetBackendSkinSync } from '@/themes/backend-sync'
 
@@ -30,7 +31,7 @@ const document: Document = {
   state: 'complete',
   header: [{ id: 'title', type: 'text', body: 'LUCID morph' }],
   sections: [
-    { id: 'status', type: 'status', signal: '🟢', body: 'Complete' },
+    { id: 'status', type: 'status', signal: SIGNAL_GREEN, body: 'Complete' },
     {
       id: 'result',
       type: 'key_value',
@@ -163,8 +164,8 @@ describe('McpUguiDocument', () => {
     const responsiveDocument = {
       ...document,
       sections: [
-        { id: 'left', type: 'status', signal: '🟢', body: 'Left', width: 5 },
-        { id: 'right', type: 'status', signal: '🟢', body: 'Right', width: 7 }
+        { id: 'left', type: 'status', signal: SIGNAL_GREEN, body: 'Left', width: 5 },
+        { id: 'right', type: 'status', signal: SIGNAL_GREEN, body: 'Right', width: 7 }
       ]
     } satisfies Document
 
@@ -494,7 +495,7 @@ describe('McpUguiDocument', () => {
         result: {
           schema: 'hermes-tool-result-channels/1',
           model: canonicalGestaltStream({
-            signal: '🟢',
+            signal: SIGNAL_GREEN,
             verb: 'morph',
             noun: 'one-pager',
             argument: 'ready'

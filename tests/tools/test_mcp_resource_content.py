@@ -4,6 +4,7 @@ Regression coverage for a customer report (2026-07): non-image binary
 resources returned through MCP resource blocks were silently dropped from
 tool results, so a PDF-returning MCP tool appeared to return metadata only.
 """
+from agent.generated.ae_glyphs import SIGNAL_RED
 
 import base64
 import json
@@ -319,7 +320,7 @@ class TestErrorPathResourceText:
 
         stream = parse_stream(Path(__file__).parents[3], data["error"])
         assert (stream["signal"], stream["verb"], stream["noun"], stream["argument"]) == (
-            "🔴",
+            f"{SIGNAL_RED}",
             "dispatch",
             "transport",
             "OUTCOME-ENVELOPE-INVALID",
@@ -338,7 +339,7 @@ class TestErrorPathResourceText:
         root = Path(__file__).parents[3]
         refusal = canonical_stream(
             root,
-            "🔴",
+            f"{SIGNAL_RED}",
             "set",
             "role-session",
             "recover",

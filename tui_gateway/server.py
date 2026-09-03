@@ -1,3 +1,4 @@
+from agent.generated.ae_glyphs import DELIMITER_SEGMENT, HAT_PERFORMANCE, SIGNAL_PENDING, SIGNAL_WARNING
 import atexit
 import concurrent.futures
 import contextlib
@@ -65,7 +66,7 @@ def _panic_hook(exc_type, exc_value, exc_tb):
         os.makedirs(os.path.dirname(_CRASH_LOG), exist_ok=True)
         with open(_CRASH_LOG, "a", encoding="utf-8") as f:
             f.write(
-                f"\n=== unhandled exception · {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n"
+                f"\n=== unhandled exception{DELIMITER_SEGMENT}{time.strftime('%Y-%m-%d %H:%M:%S')} ===\n"
             )
             f.write(trace)
     except Exception:
@@ -97,7 +98,7 @@ def _thread_panic_hook(args):
         os.makedirs(os.path.dirname(_CRASH_LOG), exist_ok=True)
         with open(_CRASH_LOG, "a", encoding="utf-8") as f:
             f.write(
-                f"\n=== thread exception · {time.strftime('%Y-%m-%d %H:%M:%S')} "
+                f"\n=== thread exception{DELIMITER_SEGMENT}{time.strftime('%Y-%m-%d %H:%M:%S')} "
                 f"· thread={args.thread.name} ===\n"
             )
             f.write(trace)
@@ -11519,8 +11520,8 @@ def _run_prompt_submit(
                 os.makedirs(os.path.dirname(_CRASH_LOG), exist_ok=True)
                 with open(_CRASH_LOG, "a", encoding="utf-8") as f:
                     f.write(
-                        f"\n=== turn-dispatcher exception · "
-                        f"{time.strftime('%Y-%m-%d %H:%M:%S')} · sid={sid} ===\n"
+                        f"\n=== turn-dispatcher exception{DELIMITER_SEGMENT}"
+                        f"{time.strftime('%Y-%m-%d %H:%M:%S')}{DELIMITER_SEGMENT}sid={sid} ===\n"
                     )
                     f.write(trace)
             except Exception:
@@ -14137,7 +14138,7 @@ def _(rid, params: dict) -> dict:
                     {
                         "status": "confirm_required",
                         "message": (
-                            "⚠️  /reload-mcp invalidates the prompt cache (next "
+                            f"{SIGNAL_WARNING}  /reload-mcp invalidates the prompt cache (next "
                             "message re-sends full input tokens). Reply `/reload-mcp "
                             "now` to proceed, or `/reload-mcp always` to proceed and "
                             "silence this prompt permanently."
@@ -14603,7 +14604,7 @@ def _(rid, params: dict) -> dict:
         msg, loaded_names, missing = bundle_result
         bundle_info = get_skill_bundles().get(bundle_key, {})
         bundle_name = bundle_info.get("name", bundle_key.lstrip("/"))
-        notice = f"⚡ Loading bundle: {bundle_name} ({len(loaded_names)} skills)"
+        notice = f"{HAT_PERFORMANCE} Loading bundle: {bundle_name} ({len(loaded_names)} skills)"
         if missing:
             notice += f"\nSkipped missing skills: {', '.join(missing)}"
         return _ok(
@@ -14801,7 +14802,7 @@ def _(rid, params: dict) -> dict:
         if not arg.strip() or lower == "status":
             status_out = mgr.status_line()
             if pending_goal:
-                status_out = f"{status_out}\n⏳ Queued (starts at turn end): {pending_goal}"
+                status_out = f"{status_out}\n{SIGNAL_PENDING} Queued (starts at turn end): {pending_goal}"
             return _ok(rid, {"type": "exec", "output": status_out})
         if lower == "pause":
             if pending_goal:
@@ -14860,8 +14861,8 @@ def _(rid, params: dict) -> dict:
                 {
                     "type": "exec",
                     "output": (
-                        f"⏳ Goal queued — starts when this turn finishes: {arg.strip()}\n"
-                        "Controls: /goal status · /goal pause · /goal clear (clear also "
+                        f"{SIGNAL_PENDING} Goal queued — starts when this turn finishes: {arg.strip()}\n"
+                        f"Controls: {DELIMITER_SEGMENT.join(('/goal status', '/goal pause', '/goal clear'))} (clear also "
                         "drops a queued goal)"
                     ),
                 },
@@ -14874,7 +14875,7 @@ def _(rid, params: dict) -> dict:
         notice = (
             f"⊙ Goal set ({state.max_turns}-turn budget): {state.goal}\n"
             "I'll keep working until the goal is done, you pause/clear it, or the budget is exhausted.\n"
-            "Controls: /goal status · /goal pause · /goal resume · /goal clear"
+            f"Controls: {DELIMITER_SEGMENT.join(('/goal status', '/goal pause', '/goal resume', '/goal clear'))}"
         )
         # Send the goal text as the kickoff prompt. The TUI client sees
         # {type: send, notice, message} → renders `notice` as a sys line,

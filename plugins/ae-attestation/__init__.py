@@ -6,6 +6,17 @@ canonical role registry; prompt prose and model claims are never authority.
 """
 
 from __future__ import annotations
+from agent.generated.ae_glyphs import (
+    DELIMITER_SEGMENT,
+    IDENTITY_CATALYST,
+    IDENTITY_QUINE,
+    RELATION_DATUM,
+    RELATION_EVIDENCE,
+    SIGNAL_GREEN,
+    SIGNAL_PENDING,
+    SIGNAL_RED,
+    SIGNAL_WARNING,
+)
 
 import hashlib
 import json
@@ -201,7 +212,7 @@ def _offline_recovery_message(root: Path, projection: dict[str, Any], cause: str
     return canonical_stream(
         root,
         projection["signal"],
-        service="🚀",
+        service=IDENTITY_CATALYST,
         evidence=(projection["state"].upper(), f"{cause}."),
         data=(projection["owner"],),
         actions=(
@@ -236,7 +247,7 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
         or attestation.get("witness_registry") != "quine/author-glyphs.json"
         or attestation.get("minimum_signals") != 1
         or not isinstance(signals, list)
-        or signals != ["🟢", "⏳", "⚠️", "🔴"]
+        or signals != [SIGNAL_GREEN, SIGNAL_PENDING, SIGNAL_WARNING, SIGNAL_RED]
     ):
         return None
     attempts = finalization.get("attempts")
@@ -270,10 +281,10 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
         or terminal.get("automatic_recover") is not False
         or not isinstance(bootstrap, dict)
         or bootstrap.get("schema") != "ae-harness-refusal-projection/1"
-        or bootstrap.get("signal") != "⚠️"
+        or bootstrap.get("signal") != f"{SIGNAL_WARNING}"
         or bootstrap.get("subject") != "role"
         or bootstrap.get("state") != "bootstrap-decision-required"
-        or bootstrap.get("owner") != "🧬"
+        or bootstrap.get("owner") != IDENTITY_QUINE
         or bootstrap.get("settles") != "exact-local-bootstrap-decision"
         or bootstrap.get("inspect") != expected_inspect
         or bootstrap.get("recover") != expected_recover
@@ -286,13 +297,13 @@ def _finalization_contract(root: Path) -> Optional[dict[str, Any]]:
         ]
         or not _valid_projection(
             reinject_projection,
-            signal="⚠️",
+            signal=f"{SIGNAL_WARNING}",
             evidence="ROLE-ATTESTATION-PROTOCOL-DRIFT",
             continuation="{role_hat}",
         )
         or not _valid_projection(
             signout_projection,
-            signal="🔴",
+            signal=f"{SIGNAL_RED}",
             evidence="ROLE-ATTESTATION-PROTOCOL-DRIFT",
         )
     ):
@@ -315,9 +326,9 @@ def _valid_projection(
     return (
         set(projection) == expected_keys
         and projection.get("signal") == signal
-        and projection.get("service") == "🚀"
+        and projection.get("service") == IDENTITY_CATALYST
         and projection.get("evidence") == [evidence, "{cause}"]
-        and projection.get("data") == ["🧬"]
+        and projection.get("data") == [IDENTITY_QUINE]
         and (
             continuation is None
             or projection.get("continuations") == [continuation]
@@ -417,6 +428,35 @@ def _render_attempt(
     return rendered
 
 
+def _render_terminal_offline(
+    root: Path,
+    role_hat: str,
+    witness_glyph: str,
+    finalization: dict[str, Any],
+) -> Optional[str]:
+    terminal = finalization.get("terminal")
+    if not isinstance(terminal, dict):
+        return None
+    state = terminal.get("state")
+    resume_authority = terminal.get("resume_authority")
+    if not isinstance(state, str) or not isinstance(resume_authority, str):
+        return None
+    try:
+        rendered = canonical_stream(
+            root,
+            SIGNAL_RED,
+            service=IDENTITY_CATALYST,
+            evidence=(
+                "ROLE-ATTESTATION-PROTOCOL-DRIFT",
+                "repeated-role-protocol-drift",
+            ),
+            data=(IDENTITY_QUINE, state.upper(), f"RESUME {resume_authority}"),
+        )
+    except (OSError, TypeError, ValueError):
+        return None
+    return f"{rendered}\n\n{role_hat}{witness_glyph}"
+
+
 def _attestation_failure(
     final_response: str,
     identity: tuple[Path, str, str, str, str, str],
@@ -499,22 +539,19 @@ def _pre_final(
         return None
     cause = _attestation_failure(final_response, attestation, finalization)
     attempts = finalization["attempts"]
-    if attempt >= len(attempts):
+    terminal_attempt = 1 if role == "PENGUIN" else len(attempts)
+    if attempt >= terminal_attempt:
         with _STATE_LOCK:
             signed_out = bool(session_id) and session_id in _SIGNED_OUT_SESSIONS
-        if not signed_out:
-            selected = attempts[1]
-            message = _render_attempt(
-                root,
-                role,
-                role_hat,
-                witness_glyph,
-                suffix,
-                "repeated-role-protocol-drift",
-                selected,
-            )
-            return {"action": "continue", "message": message} if message is not None else None
-        return None
+        if signed_out:
+            return None
+        message = _render_terminal_offline(
+            root,
+            role_hat,
+            witness_glyph,
+            finalization,
+        )
+        return {"action": "block", "message": message} if message is not None else None
     if cause is None:
         return None
     selected = attempts[attempt]
@@ -564,7 +601,7 @@ def _effigy_submission_accepted(result: Any) -> bool:
             continue
         semantics = set(stream["data"]) | set(stream["evidence"])
         if (
-            stream["signal"] == "🟢"
+            stream["signal"] == f"{SIGNAL_GREEN}"
             and stream["verb"] == "show"
             and stream["noun"] == "text"
             and stream["argument"] == "FRESH"
@@ -620,6 +657,41 @@ def _effigy_display_detail(code: str, detail: str) -> Optional[str]:
     return None if words and words <= code_words else detail
 
 
+def _canonical_effigy_refusal(value: Any) -> Optional[tuple[str, str]]:
+    if not isinstance(value, str):
+        return None
+    try:
+        stream = parse_stream(_GESTALT_ROOT, value)
+    except (OSError, ValueError):
+        return None
+    evidence = stream.get("evidence")
+    data = stream.get("data")
+    if not isinstance(evidence, list) or not isinstance(data, list):
+        return None
+    machine = next(
+        (
+            item
+            for item in reversed(evidence)
+            if isinstance(item, str)
+            and "-" in item
+            and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,95}", item)
+        ),
+        None,
+    )
+    if machine is None:
+        return None
+    detail = next(
+        (
+            bounded
+            for item in [*evidence, *data]
+            if item != machine
+            and (bounded := _bounded_effigy_detail(item)) is not None
+        ),
+        "LUCID returned a refusal without a typed failure detail",
+    )
+    return machine, detail
+
+
 def _effigy_failure_fields(
     result: Any,
     cause: Optional[BaseException] = None,
@@ -657,6 +729,11 @@ def _effigy_failure_fields(
         and isinstance(item.get("text"), str)
     )
     for container in containers:
+        for key in ("detail", "error", "reason", "message"):
+            parsed = _canonical_effigy_refusal(container.get(key))
+            if parsed is not None:
+                return stage, *parsed
+    for container in containers:
         refusal = container.get("refusal")
         if not isinstance(refusal, dict):
             continue
@@ -682,9 +759,13 @@ def _effigy_failure_fields(
         if not isinstance(candidate, str):
             continue
         for line in candidate.splitlines():
-            canonical = [segment.strip() for segment in line.split(" · ")]
+            canonical = [segment.strip() for segment in line.split(DELIMITER_SEGMENT)]
             refusal_code = next(
-                (segment.removeprefix("🔎 ") for segment in canonical if segment.startswith("🔎 ")),
+                (
+                    segment.removeprefix(f"{RELATION_EVIDENCE} ")
+                    for segment in canonical
+                    if segment.startswith(f"{RELATION_EVIDENCE} ")
+                ),
                 None,
             )
             if refusal_code is not None:
@@ -693,9 +774,9 @@ def _effigy_failure_fields(
                     code = normalized_code
                 typed_detail = next(
                     (
-                        _bounded_effigy_detail(segment.removeprefix("◆ "))
+                        _bounded_effigy_detail(segment.removeprefix(f"{RELATION_DATUM} "))
                         for segment in canonical
-                        if segment.startswith("◆ ")
+                        if segment.startswith(f"{RELATION_DATUM} ")
                     ),
                     None,
                 )
@@ -723,9 +804,10 @@ def _emit_effigy_warning(
 ) -> tuple[str, str, str]:
     stage, code, detail = _effigy_failure_fields(result, cause)
     display_detail = _effigy_display_detail(code, detail)
-    rca = code if display_detail is None else f"{code}: {display_detail}"
+    display_code = code.upper()
+    rca = display_code if display_detail is None else f"{display_code}: {display_detail}"
     print(
-        canonical_stream(_GESTALT_ROOT, "⚠️", evidence=(rca,), data=(role_glyph,)),
+        canonical_stream(_GESTALT_ROOT, f"{SIGNAL_WARNING}", evidence=(rca,), data=(role_glyph,)),
         file=sys.stderr,
         flush=True,
     )

@@ -53,4 +53,8 @@ describe('mcpModelTrace', () => {
       )
     ).toBe(`Input:\n{}\n\nOutput:\n${JSON.stringify({ error }, null, 2)}`)
   })
+
+  it('names a settled MCP call with no recorded model output', () => {
+    expect(mcpModelTrace({}, undefined)).toBe('Input:\n{}\n\nOutput:\n(no model-visible output recorded)')
+  })
 })

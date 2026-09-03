@@ -35,6 +35,12 @@ needs to replace the import + call site:
     from gateway.session_context import get_session_env
     platform = get_session_env("HERMES_SESSION_PLATFORM", "")
 """
+from agent.generated.ae_glyphs import HAT_AI_AGENT
+from agent.generated.ae_glyphs import OPERATION_STEER
+from agent.generated.ae_glyphs import SIGNAL_RED
+from agent.generated.ae_glyphs import IDENTITY_PENGUIN
+from agent.generated.ae_glyphs import ROLE_BUTLER
+from agent.generated.ae_glyphs import ROLE_EM
 
 from contextvars import ContextVar
 from typing import Any
@@ -96,10 +102,10 @@ _AGENT_ROLE: ContextVar = ContextVar("HERMES_AGENT_ROLE", default=_UNSET)
 _MODEL_ROLE: ContextVar = ContextVar("HERMES_MODEL_ROLE", default=_UNSET)
 
 _AGENT_ROLE_PROTOCOL_PREFIXES = {
-    "| **🎼": "EM",
-    "| **🧭": "SIDEKICK",
-    "| **🎩": "BUTLER",
-    "| **🦾": "ENGINEER",
+    f"| **{ROLE_EM}": "EM",
+    f"| **{OPERATION_STEER}": "SIDEKICK",
+    f"| **{ROLE_BUTLER}": "BUTLER",
+    f"| **{HAT_AI_AGENT}": "ENGINEER",
 }
 
 # Whether the current session's delivery channel can route an ASYNC completion
@@ -163,9 +169,9 @@ def set_current_session_id(session_id: str) -> None:
 
 
 def bind_agent_role_from_system_prompt(system_prompt: str) -> str:
-    """Bind one closed operational role from an exact generated protocol header.
+    f"""Bind one closed operational role from an exact generated protocol header.
 
-    The universal WITNESS header begins with ``| **🐧`` and therefore never
+    The universal WITNESS header begins with ``| **{IDENTITY_PENGUIN}`` and therefore never
     selects an agent role. Missing or ambiguous role headers bind no role.
     User messages and tool arguments are never inspected.
     """
@@ -299,7 +305,7 @@ def clear_session_vars(tokens: list) -> None:
 
 
 def reset_session_vars() -> None:
-    """Reset every session context variable to ``_UNSET`` for THIS context.
+    f"""Reset every session context variable to ``_UNSET`` for THIS context.
 
     Distinct from :func:`clear_session_vars`, which sets the vars to ``""``
     ("explicitly cleared" — suppresses the os.environ fallback and is used when
@@ -307,7 +313,7 @@ def reset_session_vars() -> None:
     ("never bound in this context"), which is what a freshly-spawned task should
     look like *before* it binds its own session.
 
-    🔴 Why this exists — the cross-session ContextVar inheritance leak.
+    {SIGNAL_RED} Why this exists — the cross-session ContextVar inheritance leak.
     Each gateway message is processed in its own ``asyncio`` task, created via
     ``create_task`` (which snapshots the *current* context with
     ``copy_context``).  When message B's task is spawned from a context where a

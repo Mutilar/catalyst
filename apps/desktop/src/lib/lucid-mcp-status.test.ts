@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { McpServerSummary } from '@/types/hermes'
+import { IDENTITY_RUN, SIGNAL_GREEN, SIGNAL_PENDING, SIGNAL_RED, SIGNAL_WARNING } from '@/lib/ae-glyphs'
 
 import { canonicalGestaltStream, parseGestaltStream } from './lucid-gestalt'
 import { deriveLucidMcpStatus, lucidMcpGestalt, lucidMcpTooltip } from './lucid-mcp-status'
@@ -26,18 +27,18 @@ const lucid = (overrides: Partial<McpServerSummary> = {}): McpServerSummary => (
 
 describe('LUCID MCP titlebar status', () => {
   it('projects every canonical signal deterministically', () => {
-    expect(deriveLucidMcpStatus([lucid()]).glyph).toBe('🟢')
-    expect(deriveLucidMcpStatus([lucid({ connected: false, runtime_status: 'connecting' })]).glyph).toBe('⏳')
-    expect(deriveLucidMcpStatus([lucid({ connected: false, runtime_status: 'configured' })]).glyph).toBe('⚠️')
-    expect(deriveLucidMcpStatus([lucid({ connected: false, runtime_status: 'failed' })]).glyph).toBe('🔴')
+    expect(deriveLucidMcpStatus([lucid()]).glyph).toBe(SIGNAL_GREEN)
+    expect(deriveLucidMcpStatus([lucid({ connected: false, runtime_status: 'connecting' })]).glyph).toBe(SIGNAL_PENDING)
+    expect(deriveLucidMcpStatus([lucid({ connected: false, runtime_status: 'configured' })]).glyph).toBe(SIGNAL_WARNING)
+    expect(deriveLucidMcpStatus([lucid({ connected: false, runtime_status: 'failed' })]).glyph).toBe(SIGNAL_RED)
   })
 
   it('treats missing LUCID, disabled LUCID, and capability-empty connections as red', () => {
-    expect(deriveLucidMcpStatus([]).glyph).toBe('🔴')
+    expect(deriveLucidMcpStatus([]).glyph).toBe(SIGNAL_RED)
     expect(deriveLucidMcpStatus([lucid({ connected: false, enabled: false, runtime_status: 'disabled' })]).glyph).toBe(
-      '🔴'
+      SIGNAL_RED
     )
-    expect(deriveLucidMcpStatus([lucid({ discovered_tools: 0 })]).glyph).toBe('🔴')
+    expect(deriveLucidMcpStatus([lucid({ discovered_tools: 0 })]).glyph).toBe(SIGNAL_RED)
   })
 
   it('uses hourglass only for a live observation or connection attempt', () => {
@@ -54,9 +55,9 @@ describe('LUCID MCP titlebar status', () => {
           health_status: 'unhealthy'
         })
       ]).glyph
-    ).toBe('🔴')
-    expect(deriveLucidMcpStatus([lucid({ consecutive_failures: 1, health_status: 'degraded' })]).glyph).toBe('⚠️')
-    expect(deriveLucidMcpStatus([lucid({ health_status: 'pending' })]).glyph).toBe('⏳')
+    ).toBe(SIGNAL_RED)
+    expect(deriveLucidMcpStatus([lucid({ consecutive_failures: 1, health_status: 'degraded' })]).glyph).toBe(SIGNAL_WARNING)
+    expect(deriveLucidMcpStatus([lucid({ health_status: 'pending' })]).glyph).toBe(SIGNAL_PENDING)
   })
 
   it('builds one canonical GESTALT for the tooltip and UGUI modal', () => {
@@ -68,7 +69,7 @@ describe('LUCID MCP titlebar status', () => {
 
     expect(tooltip).toBe(gestalt)
     const stream = parseGestaltStream(gestalt)
-    expect([stream.signal, stream.verb, stream.noun, stream.argument]).toEqual(['🔴', 'show', 'mcp', 'FAILED'])
+    expect([stream.signal, stream.verb, stream.noun, stream.argument]).toEqual([SIGNAL_RED, 'show', 'mcp', 'FAILED'])
     expect(stream.data).toEqual([
       'MCP Connection=Connected, unhealthy, Health=Unhealthy, Transport=STDIO, Tools=7, Failures=3, Startup=Automatic'
     ])
@@ -99,12 +100,12 @@ describe('LUCID MCP titlebar status', () => {
 
   it('round trips status-bearing timing without label syntax', () => {
     const gestalt = canonicalGestaltStream({
-      signal: '⏳',
-      service: '🔥',
-      timing: ['🔴 RTT [################] 200% T+5.0']
+      signal: SIGNAL_PENDING,
+      service: IDENTITY_RUN,
+      timing: [`${SIGNAL_RED} RTT [################] 200% T+5.0`]
     })
 
-    expect(parseGestaltStream(gestalt).timing).toEqual(['🔴 RTT [################] 200% T+5.0'])
+    expect(parseGestaltStream(gestalt).timing).toEqual([`${SIGNAL_RED} RTT [################] 200% T+5.0`])
     expect(gestalt).not.toContain('SERVICE')
     expect(gestalt).not.toContain('TIMING')
   })

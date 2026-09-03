@@ -1,6 +1,7 @@
 """Closed local PENGUIN model identity for Catalyst and LUCID host binding."""
 
 from __future__ import annotations
+from agent.generated.ae_glyphs import DELIMITER_SEGMENT, IDENTITY_PENGUIN
 
 import json
 from pathlib import Path
@@ -39,12 +40,12 @@ def penguin_picker_row(*, current_provider: str, current_model: str) -> dict[str
     return {
         "slug": PENGUIN_PROVIDER_ID,
         "name": "Microsoft Applied Sciences",
-        "model_labels": {PENGUIN_MODEL_ID: "🐧"},
+        "model_labels": {PENGUIN_MODEL_ID: f"{IDENTITY_PENGUIN}"},
         "model_annotations": {
             PENGUIN_MODEL_ID: [
                 {"label": "Role", "value": PENGUIN_ROLE},
                 {"label": "Runtime", "value": "Local MLX"},
-                {"label": "Grants", "value": "GET · SHOW"},
+                {"label": "Grants", "value": DELIMITER_SEGMENT.join(("GET", "SHOW"))},
             ]
         },
         "is_current": is_penguin_selection(current_provider, current_model),
@@ -100,7 +101,7 @@ def penguin_role_document() -> str:
     text = content.decode("utf-8")
     if (
         not text.startswith("<!-- GENERATED")
-        or "| **🐧🐧 PROTOCOL** | **RULE** |" not in text
+        or f"| **{IDENTITY_PENGUIN}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |" not in text
     ):
         raise ValueError("PENGUIN role document is not canonical")
     lucid_path = path.parent / "envelope" / "LUCID.json"
@@ -129,7 +130,7 @@ def penguin_role_document() -> str:
     if not {"role", "pulse"}.issubset(get_ids) or "identity" in get_ids:
         raise ValueError("LUCID role/pulse GET vocabulary is invalid")
     vocabulary = (
-        f"LUCID has exactly {len(verb_names)} verbs: {' · '.join(verb_names)}. "
+        f"LUCID has exactly {len(verb_names)} verbs: {DELIMITER_SEGMENT.join(verb_names)}. "
         "MCP prompts and resources are discovery surfaces, not verbs. "
         "After sign-in, GET role verifies the binding and GET pulse reads current state; "
         "GET identity is not registered."

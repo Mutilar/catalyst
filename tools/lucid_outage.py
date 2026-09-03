@@ -1,6 +1,7 @@
 """Project RUN-owned MCP outage state through generated LUCID offline facades."""
 
 from __future__ import annotations
+from agent.generated.ae_glyphs import SIGNAL_PENDING, SIGNAL_RED, SIGNAL_WARNING
 
 import json
 from pathlib import Path
@@ -106,7 +107,9 @@ def project_lucid_transport_outage(tool: str, arguments: dict[str, Any]) -> dict
     ):
         return None
     eta = revival.get("eta")
-    if not isinstance(eta, str) or not (eta == "⏳ ETA UNKNOWN" or eta.startswith("⏳ ETA T-")):
+    if not isinstance(eta, str) or not (
+        eta == f"{SIGNAL_PENDING} ETA UNKNOWN" or eta.startswith(f"{SIGNAL_PENDING} ETA T-")
+    ):
         return None
     facades = registry.get("facades")
     if not isinstance(facades, list):
@@ -122,12 +125,12 @@ def project_lucid_transport_outage(tool: str, arguments: dict[str, Any]) -> dict
         return None
     text = canonical_stream(
         _REPO,
-        "⚠️",
+        f"{SIGNAL_WARNING}",
         tool,
         "transport",
         "offline-fallback",
         evidence=("mcp-unavailable",),
-        timing=(eta.removeprefix("⏳ "),),
+        timing=(eta.removeprefix(f"{SIGNAL_PENDING} "),),
         actions=(semantic_action(_REPO, tool, arguments, command),),
     )
     return {"error": text}
@@ -169,7 +172,7 @@ def project_lucid_failure(
     noun = arguments.get(noun_key) if noun_key else None
     projected = canonical_stream(
         _REPO,
-        "🔴",
+        f"{SIGNAL_RED}",
         tool,
         noun if isinstance(noun, str) and noun else "transport",
         code,
