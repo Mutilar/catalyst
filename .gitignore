@@ -94,6 +94,8 @@ apps/desktop/src/**/*.d.ts
 apps/shared/src/**/*.js
 apps/shared/src/**/*.js.map
 apps/shared/src/**/*.d.ts
+!apps/shared/src/lucid-gestalt.js
+!apps/shared/src/lucid-gestalt.d.ts
 apps/desktop/release/
 *.tsbuildinfo
 
