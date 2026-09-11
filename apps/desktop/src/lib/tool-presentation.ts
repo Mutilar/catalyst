@@ -114,11 +114,14 @@ function record(value: unknown): Record<string, unknown> | null {
 export function extractMcpGestalt(result: unknown): string | null {
   const channel = record(result)
   const presentation = presentationToolResult(result)
+
   const visibleValue =
     channel?.schema === 'hermes-tool-result-channels/1' && typeof channel.model === 'string'
       ? channel.model
       : modelVisibleToolResult(result)
+
   const visible = record(visibleValue)
+
   const candidates: unknown[] = [
     visibleValue,
     visible?.result,
@@ -160,6 +163,42 @@ export function extractMcpGestalt(result: unknown): string | null {
   return null
 }
 
+export function uguiDocumentIssue(candidate: unknown): { code: string; path: string; detail: string } | null {
+  const value = record(candidate)
+
+  if (!value) {
+    return { code: 'shape-invalid', path: '', detail: 'expected=object' }
+  }
+
+  if (typeof value.schema !== 'string' || !/^[a-z0-9][a-z0-9._/-]{0,127}$/i.test(value.schema)) {
+    return { code: 'document-invalid', path: '/schema', detail: 'expected=bounded UGUI schema identifier' }
+  }
+
+  if (typeof value.id !== 'string' || !value.id) {
+    return { code: 'document-invalid', path: '/id', detail: 'expected=nonempty string' }
+  }
+
+  if (value.type !== 'lucid' && value.type !== 'document') {
+    return { code: 'document-invalid', path: '/type', detail: 'expected=document or lucid' }
+  }
+
+  for (const [region, maximum] of [['header', 16], ['sections', 32], ['actions', 32]] as const) {
+    const items = value[region]
+
+    if (region === 'actions' && items === undefined) { continue }
+
+    if (!Array.isArray(items)) {
+      return { code: 'region-invalid', path: `/${region}`, detail: 'expected=array' }
+    }
+
+    if (items.length > maximum) {
+      return { code: 'region-bound', path: `/${region}`, detail: `maximum=${maximum} observed=${items.length}` }
+    }
+  }
+
+  return null
+}
+
 export function extractMcpUguiDocument(result: unknown): McpUguiDocument | null {
   const raw = record(result)
   const visible = record(modelVisibleToolResult(result))
@@ -181,19 +220,7 @@ export function extractMcpUguiDocument(result: unknown): McpUguiDocument | null 
   ]
 
   for (const candidate of candidates) {
-    if (
-      !candidate ||
-      typeof candidate.schema !== 'string' ||
-      !/^[a-z0-9][a-z0-9._/-]{0,127}$/i.test(candidate.schema) ||
-      typeof candidate.id !== 'string' ||
-      !candidate.id ||
-      (candidate.type !== 'lucid' && candidate.type !== 'document') ||
-      !Array.isArray(candidate.header) ||
-      candidate.header.length > 16 ||
-      !Array.isArray(candidate.sections) ||
-      candidate.sections.length > 32 ||
-      (candidate.actions !== undefined && (!Array.isArray(candidate.actions) || candidate.actions.length > 32))
-    ) {
+    if (uguiDocumentIssue(candidate)) {
       continue
     }
 

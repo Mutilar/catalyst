@@ -131,11 +131,16 @@ describe('assistant canonical UGUI boundary', () => {
   })
 
   it('renders a canonical failure card with explicit retry and no raw fallback', async () => {
-    mocks.project.mockRejectedValueOnce(new Error('projector-unavailable')).mockResolvedValueOnce(snapshot(document('Recovered')))
+    const diagnostic = 'conversation-projector-region-invalid: /documents/1/header expected=array'
+    const copy = vi.fn(async () => undefined)
+    vi.stubGlobal('hermesDesktop', { ...window.hermesDesktop, writeClipboard: copy })
+    mocks.project.mockRejectedValueOnce(new Error(diagnostic)).mockResolvedValueOnce(snapshot(document('Recovered')))
     const { container } = render(<UguiTextContent isRunning={false} text="retained source" />)
-    await screen.findByText('projector-unavailable')
+    await screen.findByText(diagnostic)
     expect(container.querySelector('[data-mcp-ugui="lucid-ugui-response/1"]')).toBeTruthy()
     expect(screen.queryByText('retained source')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Copy output' }))
+    await waitFor(() => expect(copy).toHaveBeenCalledWith('retained source'))
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     await screen.findByText('Recovered')
     expect(mocks.project).toHaveBeenCalledTimes(2)

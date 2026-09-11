@@ -1,4 +1,4 @@
-import { extractMcpGestalt, extractMcpUguiDocument, type McpUguiDocument } from '@/lib/tool-presentation'
+import { extractMcpGestalt, extractMcpUguiDocument, type McpUguiDocument, uguiDocumentIssue } from '@/lib/tool-presentation'
 
 type UguiWasmInitInput = BufferSource | Request | string | URL | WebAssembly.Module
 
@@ -42,22 +42,102 @@ export interface ConversationProjection {
 export async function projectConversationText(source: string, running: boolean): Promise<ConversationProjection> {
   const module = await loadUgUi()
   const project = module?.ugui_project_conversation_text
+
   if (!project) {
     throw new Error(moduleFailure ?? 'conversation-projector-unavailable')
   }
-  const value = JSON.parse(project(source, running)) as Record<string, unknown>
-  if (value.schema !== 'ugui-conversation-text/1' || value.authority !== 'presentation-only' ||
-      value.source !== source || !Array.isArray(value.documents) || value.documents.some(document =>
-        !extractMcpUguiDocument(document) || document.authority !== 'presentation-only' ||
-        typeof document.source !== 'string' || typeof document.revision !== 'string' ||
-        !['pending', 'complete'].includes(document.streamState))) {
-    throw new Error(typeof value.code === 'string' ? value.code : 'conversation-projector-document-invalid')
+
+  return parseConversationProjection(project(source, running), source)
+}
+
+/** Validate the transport envelope; never parse or repair conversation content here. */
+export function parseConversationProjection(payload: string, source: string): ConversationProjection {
+  const refuse = (code: string, path: string, detail: string): never => {
+    throw new Error(`conversation-projector-${code}: ${path} ${detail}`)
   }
+
+  const object = (value: unknown, path: string): Record<string, unknown> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return refuse('shape-invalid', path, 'expected=object')
+    }
+
+    return value as Record<string, unknown>
+  }
+
+  let parsed: unknown
+
+  try {
+    parsed = JSON.parse(payload)
+  } catch {
+    return refuse('json-invalid', '/', 'expected=JSON object')
+  }
+
+  const value = object(parsed, '/')
+
+  if (value.schema === 'ugui-conversation-text-error/1') {
+    const code = typeof value.code === 'string' && /^[a-z0-9-]{1,128}$/.test(value.code)
+      ? value.code : 'unrecognized-refusal'
+
+    return refuse('refused', '/code', code)
+  }
+
+  if (value.schema !== 'ugui-conversation-text/1') {
+    const observed = typeof value.schema === 'string' && /^[a-z0-9._/-]{1,128}$/i.test(value.schema)
+      ? value.schema : typeof value.schema
+
+    return refuse('schema-mismatch', '/schema', `expected=ugui-conversation-text/1 observed=${observed}; rebuild matching renderer and WASM through the UGUI factory`)
+  }
+
+  if (value.authority !== 'presentation-only') {
+    return refuse('authority-invalid', '/authority', 'expected=presentation-only')
+  }
+
+  if (value.source !== source) {
+    return refuse('source-mismatch', '/source', 'expected=exact request source')
+  }
+
+  if (!Array.isArray(value.documents)) {
+    return refuse('shape-invalid', '/documents', 'expected=array; rebuild matching renderer and WASM through the UGUI factory')
+  }
+
+  for (const [index, candidate] of value.documents.entries()) {
+    const path = `/documents/${index}`
+    const document = object(candidate, path)
+    const issue = uguiDocumentIssue(document)
+
+    if (issue) {
+      return refuse(issue.code, `${path}${issue.path}`, issue.detail)
+    }
+
+    if (!Array.isArray(document.actions)) {
+      return refuse('region-invalid', `${path}/actions`, 'expected=array')
+    }
+
+    if (document.authority !== 'presentation-only') {
+      return refuse('authority-invalid', `${path}/authority`, 'expected=presentation-only')
+    }
+
+    for (const field of ['source', 'revision'] as const) {
+      if (typeof document[field] !== 'string') {
+        return refuse('metadata-invalid', `${path}/${field}`, 'expected=string')
+      }
+    }
+
+    if (document.streamState !== 'pending' && document.streamState !== 'complete') {
+      return refuse('metadata-invalid', `${path}/streamState`, 'expected=pending or complete')
+    }
+  }
+
+  if (source.trim() && value.documents.map(document => document.source).join('') !== source) {
+    return refuse('source-mismatch', '/documents', 'expected=ordered lossless source partition')
+  }
+
   return value as unknown as ConversationProjection
 }
 
 function boundedError(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error)
+
   return detail.replace(/[\r\n\t]+/g, ' ').slice(0, 512)
 }
 
@@ -71,6 +151,7 @@ export function resolveUguiWasmUrl(moduleUrl: string): string {
   const url = new URL(moduleUrl)
 
   url.pathname = url.pathname.replace(/\.js$/, '_bg.wasm')
+
   return url.href
 }
 
@@ -83,6 +164,7 @@ export async function initializeUguiModule(
     const wasmUrl = resolveUguiWasmUrl(moduleUrl)
     const parsed = new URL(wasmUrl)
     const assetName = parsed.pathname.split('/').pop()
+
     const input =
       parsed.protocol === 'file:' && assetName && readPackagedWasm
         ? await readPackagedWasm(assetName)
@@ -114,8 +196,10 @@ async function loadUgUi(): Promise<UgUiWasmModule | null> {
             module.catalyst_project_lucid_gestalt
           ) {
             moduleFailure = null
+
             return module
           }
+
           moduleFailure = `projector-export-missing: ${url}`
         } catch (error) {
           // Keep the legacy façade fallback, but do not make a missing or
@@ -198,7 +282,9 @@ export async function mountResidentUguiDocument(
   if (!mount) {
     throw new Error('The UGUI browser painter is unavailable')
   }
+
   const receipt = JSON.parse(mount(root, JSON.stringify(document))) as Record<string, unknown>
+
   if (receipt.mounted !== true) {
     throw new Error(typeof receipt.detail === 'string' ? receipt.detail : 'UGUI browser painter refused the app')
   }
@@ -235,6 +321,7 @@ export async function projectLucidGestaltDetailed(
   }
 
   const module = await loadUgUi()
+
   const project =
     module?.ugui_project_lucid_gestalt ??
     module?.projects_project_lucid_gestalt ??
@@ -246,12 +333,16 @@ export async function projectLucidGestaltDetailed(
 
   try {
     const document = JSON.parse(project(gestalt)) as Record<string, unknown>
+
     if (document.schema === 'lucid-gestalt-projection-error/1') {
       const code = typeof document.code === 'string' ? document.code : 'projector-refused'
       const detail = typeof document.detail === 'string' ? document.detail : 'UGUI refused the GESTALT input'
+
       return { document: null, error: `${code}: ${detail}` }
     }
+
     const extracted = extractMcpUguiDocument(document)
+
     return extracted
       ? { document: extracted, error: null }
       : { document: null, error: 'projector-document-invalid' }
