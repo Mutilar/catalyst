@@ -32,19 +32,28 @@ export type UguiProjectionResult = {
   error: string | null
 }
 
-/** Canonical Rust owns both recognition and ordered streaming projection. */
-export async function projectConversationText(source: string, running: boolean): Promise<McpUguiDocument> {
+export interface ConversationProjection {
+  schema: 'ugui-conversation-text/1'
+  source: string
+  documents: Array<McpUguiDocument & { source: string; revision: string; streamState: 'pending' | 'complete' }>
+}
+
+/** Transport validation only: Rust owns every canonical document and region. */
+export async function projectConversationText(source: string, running: boolean): Promise<ConversationProjection> {
   const module = await loadUgUi()
   const project = module?.ugui_project_conversation_text
   if (!project) {
     throw new Error(moduleFailure ?? 'conversation-projector-unavailable')
   }
   const value = JSON.parse(project(source, running)) as Record<string, unknown>
-  const document = extractMcpUguiDocument(value)
-  if (!document || value.schema !== 'ugui-conversation-text/1' || value.authority !== 'presentation-only') {
+  if (value.schema !== 'ugui-conversation-text/1' || value.authority !== 'presentation-only' ||
+      value.source !== source || !Array.isArray(value.documents) || value.documents.some(document =>
+        !extractMcpUguiDocument(document) || document.authority !== 'presentation-only' ||
+        typeof document.source !== 'string' || typeof document.revision !== 'string' ||
+        !['pending', 'complete'].includes(document.streamState))) {
     throw new Error(typeof value.code === 'string' ? value.code : 'conversation-projector-document-invalid')
   }
-  return document
+  return value as unknown as ConversationProjection
 }
 
 function boundedError(error: unknown): string {

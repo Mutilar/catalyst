@@ -17,10 +17,10 @@ import {
   CodeCardTitle
 } from '@/components/chat/code-card'
 import { CompactMarkdown } from '@/components/chat/compact-markdown'
-import { MarkdownTextContent } from '@/components/assistant-ui/markdown-text'
 import { ExpandableBlock } from '@/components/chat/expandable-block'
 import { SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
-import { CopyButton } from '@/components/ui/copy-button'
+import { CopyButton, type CopyButtonProps } from '@/components/ui/copy-button'
+import { useI18n } from '@/i18n'
 import { invokeUguiAction } from '@/hermes'
 import { DELIMITER_SEGMENT, SIGNAL_GREEN, SIGNAL_PENDING, SIGNAL_RED, SIGNAL_WARNING } from '@/lib/ae-glyphs'
 import { codiconForLanguage } from '@/lib/markdown-code'
@@ -55,6 +55,7 @@ const HASH_RE = /^sha256:[0-9a-f]{64}$/
 
 interface ProjectedAction {
   executable: boolean
+  conversationText?: string
   id: string
   input: { id: string; label: string; maxLength: number } | null
   label: string
@@ -509,32 +510,6 @@ function UguiSectionImpl({ value, presentationOnly = false }: { value: unknown; 
   const body = text(section.body ?? section.text)
   const signal = text(section.signal)
 
-  if (type === 'nested' && section.layout === 'flow' && Array.isArray(section.sections)) {
-    return (
-      <section className="space-y-1.5" data-ugui-primitive="flow" data-ugui-block={text(section.id)} data-ugui-state={text(section.state)}>
-        {section.sections.map((child, index) => (
-          <UgUiSection key={text(record(child)?.id) || index} presentationOnly={presentationOnly} value={child} />
-        ))}
-      </section>
-    )
-  }
-
-  if (type === 'text' && section.relation === 'continuation') {
-    return (
-      <section className="flex items-start gap-2 text-(--ui-text-secondary)" data-ugui-primitive="continuation">
-        <CompactMarkdown text={body} />
-      </section>
-    )
-  }
-
-  if (presentationOnly && type === 'text') {
-    return (
-      <section data-ugui-primitive="text" data-ugui-relation={text(section.relation)}>
-        <MarkdownTextContent isRunning={section.state === 'pending'} text={body} />
-      </section>
-    )
-  }
-
   if (type === 'app_reference') {
     if (presentationOnly) {return <CompactMarkdown text={text(section.source)} />}
     return <UgUiResidentAppReference value={section} />
@@ -665,13 +640,7 @@ function UguiSectionImpl({ value, presentationOnly = false }: { value: unknown; 
   ) : null
 }
 
-const UgUiSection = memo(UguiSectionImpl, (before, after) => {
-  if (before.presentationOnly !== after.presentationOnly) {return false}
-  if (before.value === after.value) {return true}
-  const previous = record(before.value)
-  const next = record(after.value)
-  return Boolean(before.presentationOnly && previous?.revision && previous.id === next?.id && previous.revision === next?.revision)
-})
+const UgUiSection = memo(UguiSectionImpl)
 
 const UGUI_RESPONSIVE_SPAN: Record<number, string> = {
   1: '@lg:col-span-1',
@@ -696,7 +665,13 @@ function uguiResponsiveSpan(value: unknown): string {
   return UGUI_RESPONSIVE_SPAN[span] ?? '@lg:col-span-12'
 }
 
-export function McpUguiDocument({ document, presentationOnly = false }: { document: McpUguiDocumentValue; presentationOnly?: boolean }) {
+export function McpUguiDocument({ document, presentationOnly = false, onContinuation, copyText }: {
+  document: McpUguiDocumentValue
+  presentationOnly?: boolean
+  onContinuation?: (text: string) => void
+  copyText?: CopyButtonProps['text']
+}) {
+  const { t } = useI18n()
   const [actionDocument, setRendered] = useState(document)
   const rendered = presentationOnly ? document : actionDocument
   const [pendingAction, setPendingAction] = useState('')
@@ -743,9 +718,11 @@ export function McpUguiDocument({ document, presentationOnly = false }: { docume
   const activateAction = async (projected: ProjectedAction) => {
     const { executable, id: actionId, label } = projected
 
-    if (presentationOnly || !executable) {
+    if (presentationOnly) {
+      if (executable && projected.conversationText) {onContinuation?.(projected.conversationText)}
       return
     }
+    if (!executable) {return}
 
     const inputValue = projected.input ? (actionInputs[actionId] ?? '').trim() : ''
 
@@ -803,22 +780,34 @@ export function McpUguiDocument({ document, presentationOnly = false }: { docume
     .filter(Boolean)
     .join(DELIMITER_SEGMENT)
 
-  const projectedActions = (presentationOnly ? [] : rendered.actions ?? [])
+  const projectedActions = (rendered.actions ?? [])
+    .filter(action => !presentationOnly || record(action)?.action === 'conversation.submit')
     .slice(0, 32)
-    .map((action, index) => projectUguiAction(rendered, action, index))
+    .map((value, index): ProjectedAction => {
+      if (!presentationOnly) {return projectUguiAction(rendered, value, index)}
+      const action = record(value) ?? {}
+      const prompt = typeof action.value === 'string' ? action.value : ''
+      const label = text(action.label)
+      return {
+        id: text(action.id), label, conversationText: prompt,
+        executable: action.disabled !== true && Boolean(prompt && label && onContinuation),
+        input: null, reason: '', requiresConfirmation: false
+      }
+    })
 
   const helpAction = projectedActions.find(action => action.id === 'lucid.response.help')
   const primaryActions = projectedActions.filter(action => action.id !== 'lucid.response.help')
 
   return (
     <article
-      className={cn('@container space-y-1.5 text-xs', !presentationOnly && 'rounded-[0.3125rem] border border-(--ui-stroke-tertiary) bg-(--ui-bg-elevated) p-2')}
+      className="@container min-w-0 w-full max-w-full space-y-1.5 rounded-[0.3125rem] border border-(--ui-stroke-tertiary) bg-(--ui-bg-elevated) p-2 text-xs"
       data-mcp-ugui={rendered.schema}
       data-ugui-authority={presentationOnly ? 'presentation-only' : 'tool'}
     >
-      {(!presentationOnly || heading) && <header className="flex min-w-0 items-center justify-between gap-2">
-        <h4 className="min-w-0 truncate font-semibold text-(--ui-text-primary)">{heading || rendered.id}</h4>
+      <header className="flex min-w-0 items-start justify-between gap-2">
+        <h4 className="min-w-0 flex-1 wrap-anywhere font-semibold text-(--ui-text-primary)">{heading}</h4>
         <span className="flex shrink-0 items-center gap-1">
+          <CopyButton appearance="inline" label={t.assistant.tool.copyOutput} showLabel text={copyText ?? JSON.stringify(rendered, null, 2)} />
           {rendered.state && (
             <span className="rounded bg-(--ui-bg-quinary) px-1.5 py-0.5 text-[0.62rem] uppercase tracking-[0.06em] text-(--ui-text-tertiary)">
               {rendered.state}
@@ -837,7 +826,7 @@ export function McpUguiDocument({ document, presentationOnly = false }: { docume
             </button>
           )}
         </span>
-      </header>}
+      </header>
       <div className="grid grid-cols-12 gap-[var(--ugui-section-gap)]" data-ugui-layout="responsive-grid">
         {rendered.sections.map((section, index) => (
           <div
@@ -865,7 +854,7 @@ export function McpUguiDocument({ document, presentationOnly = false }: { docume
             const pending = pendingAction === projected.id
 
             return (
-              <span className="flex items-center gap-1" key={projected.id}>
+              <span className="flex min-w-0 max-w-full items-center gap-1" key={projected.id}>
                 {projected.input && (
                   <input
                     aria-label={projected.input.label}
@@ -882,7 +871,7 @@ export function McpUguiDocument({ document, presentationOnly = false }: { docume
                 <button
                   aria-busy={pending}
                   aria-label={projected.label}
-                  className="rounded border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) px-1.5 py-0.5 text-[0.65rem] text-(--ui-text-secondary) enabled:hover:bg-(--ui-bg-tertiary) disabled:cursor-not-allowed disabled:opacity-50"
+                  className="max-w-full whitespace-normal wrap-anywhere rounded border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) px-1.5 py-0.5 text-left text-[0.65rem] text-(--ui-text-secondary) enabled:hover:bg-(--ui-bg-tertiary) disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={!projected.executable || Boolean(pendingAction)}
                   onClick={() => void activateAction(projected)}
                   title={projected.executable ? undefined : projected.reason}

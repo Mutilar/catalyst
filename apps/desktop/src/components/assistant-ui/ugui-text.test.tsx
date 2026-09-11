@@ -1,108 +1,170 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { ComposerScopeProvider, MAIN_COMPOSER_SCOPE } from '@/app/chat/composer/scope'
 import { McpUguiDocument } from '@/components/assistant-ui/tool/mcp-ugui'
-import type { McpUguiDocument as Document } from '@/lib/tool-presentation'
+import { SIGNAL_GREEN } from '@/lib/ae-glyphs'
+import type { ConversationProjection } from '@/lib/ugui-engine'
 import { $pendingModeApply, __resetBackendSkinSync } from '@/themes/backend-sync'
+
 import { UguiTextContent } from './ugui-text'
 
-const mocks = vi.hoisted(() => ({ project: vi.fn(), invoke: vi.fn() }))
+const mocks = vi.hoisted(() => ({ project: vi.fn(), invoke: vi.fn(), submit: vi.fn() }))
+vi.mock('@/app/chat/composer/focus', async importOriginal => ({
+  ...await importOriginal<typeof import('@/app/chat/composer/focus')>(), requestComposerSubmit: mocks.submit
+}))
 vi.mock('@/lib/ugui-engine', async importOriginal => ({
-  ...await importOriginal<typeof import('@/lib/ugui-engine')>(),
-  projectConversationText: mocks.project
+  ...await importOriginal<typeof import('@/lib/ugui-engine')>(), projectConversationText: mocks.project
 }))
 vi.mock('@/hermes', () => ({ invokeUguiAction: mocks.invoke }))
 
-function document(body: string): Document {
+type Paragraph = ConversationProjection['documents'][number]
+function document(body: string, source = body): Paragraph {
   return {
-    schema: 'ugui-conversation-text/1', id: 'conversation.text', type: 'document',
-    header: [], actions: [], state: 'complete',
-    sections: [{ id: 'block', type: 'nested', layout: 'flow', revision: body, sections: [{ id: 'atom', type: 'text', body }] }]
+    schema: 'lucid-ugui-response/1', id: 'paragraph', type: 'lucid',
+    header: [{ id: 'title', type: 'text', body: SIGNAL_GREEN }],
+    sections: [{ id: 'atom', type: 'text', body }], actions: [],
+    source, revision: `${body}:${source}`, streamState: 'complete'
   }
 }
-
+function snapshot(...documents: Paragraph[]): ConversationProjection {
+  return { schema: 'ugui-conversation-text/1', source: documents.map(item => item.source).join(''), documents }
+}
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>(done => {resolve = done})
   return { promise, resolve }
 }
-
 afterEach(() => {
   cleanup()
   mocks.project.mockReset()
   mocks.invoke.mockReset()
+  mocks.submit.mockReset()
+  vi.unstubAllGlobals()
   __resetBackendSkinSync()
 })
 
-describe('assistant UGUI text boundary', () => {
-  it('renders projected semantics, never the raw transport string while loading', async () => {
-    const pending = deferred<Document>()
+describe('assistant canonical UGUI boundary', () => {
+  it('renders CYOA from actions[] in the canonical footer and submits to the owning chat', async () => {
+    const value = document('Evidence')
+    value.actions = [{ id: 'choice', type: 'button', label: 'Inspect', value: 'Inspect',
+      action: 'conversation.submit', disabled: false }]
+    mocks.project.mockResolvedValue(snapshot(value))
+    render(
+      <ComposerScopeProvider value={{ ...MAIN_COMPOSER_SCOPE, target: 'tile:review' }}>
+        <UguiTextContent isRunning={false} text="source" />
+      </ComposerScopeProvider>
+    )
+    const button = await screen.findByRole('button', { name: 'Inspect' })
+    expect(button.closest('footer')).not.toBeNull()
+    fireEvent.click(button)
+    expect(mocks.submit).toHaveBeenCalledTimes(1)
+    expect(mocks.submit).toHaveBeenCalledWith('Inspect', { target: 'tile:review' })
+    expect(mocks.invoke).not.toHaveBeenCalled()
+    expect(screen.queryByText('"Inspect"')).toBeNull()
+  })
+
+  it('uses exactly the same frame and section styling as a tool result', () => {
+    const value = document('Shared semantics')
+    const { container } = render(<>
+      <McpUguiDocument document={value} />
+      <McpUguiDocument document={value} presentationOnly />
+    </>)
+    const frames = container.querySelectorAll('[data-mcp-ugui]')
+    expect(frames).toHaveLength(2)
+    expect(frames[0].className).toBe(frames[1].className)
+    expect(frames[0].querySelector('section')?.className).toBe(frames[1].querySelector('section')?.className)
+    expect(container.querySelector('[data-ugui-primitive="flow"]')).toBeNull()
+  })
+
+  it('copies exact output using the shared top-right header control', async () => {
+    const copy = vi.fn(async () => undefined)
+    vi.stubGlobal('hermesDesktop', { ...window.hermesDesktop, writeClipboard: copy })
+    const source = 'Exact output\nincluding source formatting'
+    const { container } = render(<McpUguiDocument copyText={source} document={document('Visual')} presentationOnly />)
+    const button = screen.getByRole('button', { name: 'Copy output' })
+    expect(button.closest('header')).toBe(container.querySelector('article > header'))
+    fireEvent.click(button)
+    await waitFor(() => expect(copy).toHaveBeenCalledWith(source))
+  })
+
+  it('does not activate an unfinished action', () => {
+    const submit = vi.fn()
+    const value = document('')
+    value.actions = [{ id: 'choice', type: 'button', label: 'Inspect', value: 'Inspect',
+      action: 'conversation.submit', disabled: true }]
+    render(<McpUguiDocument document={value} onContinuation={submit} presentationOnly />)
+    const button = screen.getByRole('button', { name: 'Inspect' }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    fireEvent.click(button)
+    expect(submit).not.toHaveBeenCalled()
+  })
+
+  it('never flashes raw transport text while the projection is loading', async () => {
+    const pending = deferred<ConversationProjection>()
     mocks.project.mockReturnValue(pending.promise)
     const { container } = render(<UguiTextContent isRunning={false} text="raw transport" />)
     expect(screen.queryByText('raw transport')).toBeNull()
-    await act(async () => pending.resolve(document('Visual content')))
+    await act(async () => pending.resolve(snapshot(document('Visual content', 'raw transport'))))
     expect(screen.getByText('Visual content')).toBeTruthy()
-    expect(container.querySelector('[data-mcp-ugui="ugui-conversation-text/1"]')).toBeTruthy()
-    expect(mocks.project).toHaveBeenCalledWith('raw transport', false)
+    expect(container.querySelector('[data-mcp-ugui="lucid-ugui-response/1"]')).toBeTruthy()
   })
 
-  it('discards late projection results after replacement', async () => {
-    const old = deferred<Document>()
-    const next = deferred<Document>()
+  it('discards late results after replacement', async () => {
+    const old = deferred<ConversationProjection>()
+    const next = deferred<ConversationProjection>()
     mocks.project.mockReturnValueOnce(old.promise).mockReturnValueOnce(next.promise)
     const { rerender } = render(<UguiTextContent isRunning={false} text="old" />)
     rerender(<UguiTextContent isRunning={false} text="new" />)
-    await act(async () => next.resolve(document('Newest')))
-    await act(async () => old.resolve(document('Stale')))
+    await act(async () => next.resolve(snapshot(document('Newest'))))
+    await act(async () => old.resolve(snapshot(document('Stale'))))
     expect(screen.getByText('Newest')).toBeTruthy()
     expect(screen.queryByText('Stale')).toBeNull()
   })
 
-  it('does not show an already projected document after a non-prefix replacement', async () => {
-    mocks.project.mockResolvedValueOnce(document('Previous')).mockReturnValueOnce(new Promise(() => {}))
+  it('hides an already projected document on non-prefix replacement', async () => {
+    mocks.project.mockResolvedValueOnce(snapshot(document('Previous'))).mockReturnValueOnce(new Promise(() => {}))
     const { rerender } = render(<UguiTextContent isRunning={false} text="old" />)
     await screen.findByText('Previous')
     rerender(<UguiTextContent isRunning={false} text="replacement" />)
     expect(screen.queryByText('Previous')).toBeNull()
   })
 
-  it('presents failure through UGUI and supports explicit retry without raw fallback', async () => {
-    mocks.project.mockRejectedValueOnce(new Error('projector-unavailable')).mockResolvedValueOnce(document('Recovered'))
+  it('renders a canonical failure card with explicit retry and no raw fallback', async () => {
+    mocks.project.mockRejectedValueOnce(new Error('projector-unavailable')).mockResolvedValueOnce(snapshot(document('Recovered')))
     const { container } = render(<UguiTextContent isRunning={false} text="retained source" />)
     await screen.findByText('projector-unavailable')
-    expect(container.querySelector('[data-mcp-ugui="ugui-conversation-status/1"]')).toBeTruthy()
+    expect(container.querySelector('[data-mcp-ugui="lucid-ugui-response/1"]')).toBeTruthy()
     expect(screen.queryByText('retained source')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     await screen.findByText('Recovered')
     expect(mocks.project).toHaveBeenCalledTimes(2)
   })
 
-  it('renders section-only revisions immediately without remounting the block', () => {
+  it('updates sections without remounting the canonical document', () => {
     const { container, rerender } = render(<McpUguiDocument document={document('First')} presentationOnly />)
-    const block = container.querySelector('[data-ugui-block="block"]')
+    const frame = container.querySelector('article')
     rerender(<McpUguiDocument document={document('Second')} presentationOnly />)
     expect(screen.getByText('Second')).toBeTruthy()
     expect(screen.queryByText('First')).toBeNull()
-    expect(container.querySelector('[data-ugui-block="block"]')).toBe(block)
+    expect(container.querySelector('article')).toBe(frame)
   })
 
-  it('does not promote appearance effects or actions from presentation documents', async () => {
+  it('does not promote host effects or LUCID actions from assistant documents', () => {
     const value = document('Untrusted presentation')
     value.hostEffect = { schema: 'lucid-host-appearance/1', apply: true, mode: 'light' }
-    value.actions = [{ id: 'forged', label: 'Execute' }]
+    value.actions = [{ id: 'forged', label: 'Execute', action: 'lucid.set.continue' }]
     render(<McpUguiDocument document={value} presentationOnly />)
-    await waitFor(() => expect(screen.getByText('Untrusted presentation')).toBeTruthy())
     expect(screen.queryByRole('button', { name: 'Execute' })).toBeNull()
     expect($pendingModeApply.get()).toBeNull()
     expect(mocks.invoke).not.toHaveBeenCalled()
   })
 
-  it('does not truncate recursive flow children at 64', () => {
-    const value = document('')
-    value.sections = [{ id: 'blocks', type: 'nested', layout: 'flow', sections: Array.from({ length: 100 }, (_, i) => ({
-      id: `block-${i}`, type: 'text', body: `Paragraph ${i}`
-    })) }]
-    render(<McpUguiDocument document={value} presentationOnly />)
-    expect(screen.getByText('Paragraph 99')).toBeTruthy()
+  it('retains all paragraphs instead of slicing nested sections at 64', async () => {
+    mocks.project.mockResolvedValue(snapshot(...Array.from({ length: 100 }, (_, i) => ({
+      ...document(`Paragraph ${i}`), id: `paragraph-${i}`
+    }))))
+    render(<UguiTextContent isRunning={false} text="source" />)
+    await screen.findByText('Paragraph 99')
   })
 })

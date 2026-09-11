@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
     }
   },
   getBootProgress: () => ipcRenderer.invoke('hermes:boot-progress:get'),
+  getSplashIdentity: () => ipcRenderer.invoke('hermes:splash-identity:get'),
   restartConsent: {
     get: () => ipcRenderer.invoke('hermes:restart-consent:get'),
     decide: request => ipcRenderer.invoke('hermes:restart-consent:decide', request)

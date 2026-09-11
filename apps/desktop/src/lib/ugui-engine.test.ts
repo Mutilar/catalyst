@@ -1,8 +1,37 @@
+import { readFile } from 'node:fs/promises'
 import { describe, expect, it, vi } from 'vitest'
+
+import { DELIMITER_SEGMENT, RELATION_ACTION, SIGNAL_GREEN } from './ae-glyphs'
+import { canonicalGestaltStream } from './lucid-gestalt'
 
 import { initializeUguiModule, resolveUguiModuleUrls, resolveUguiWasmUrl } from './ugui-engine'
 
 describe('UGUI WASM module resolution', () => {
+  it('projects through the actual generated conversation ABI, not a mocked document', async () => {
+    const module = await import('../../public/wasm/ugui_gestalt_wasm.js')
+    const bytes = await readFile(new URL('../../public/wasm/ugui_gestalt_wasm_bg.wasm', import.meta.url))
+    await module.default({ module_or_path: new Uint8Array(bytes).buffer })
+    const source = `${canonicalGestaltStream({ signal: SIGNAL_GREEN, data: ['First paragraph'] })}\n\nSecond paragraph`
+    const pending = JSON.parse(module.ugui_project_conversation_text(source, true))
+    const complete = JSON.parse(module.ugui_project_conversation_text(source, false))
+    expect(pending.schema).toBe('ugui-conversation-text/1')
+    expect(pending.authority).toBe('presentation-only')
+    expect(pending.source).toBe(source)
+    expect(pending.documents).toHaveLength(2)
+    expect(pending.documents[0].schema).toBe('lucid-ugui-response/1')
+    expect(pending.documents[0].actions).toEqual([])
+    expect(pending.documents[0].hostEffect).toBeUndefined()
+    expect(pending.documents[1].streamState).toBe('pending')
+    expect(complete.documents[1].streamState).toBe('complete')
+    expect(complete.documents[0]).toEqual(pending.documents[0])
+    const cyoa = `${SIGNAL_GREEN}${DELIMITER_SEGMENT}${RELATION_ACTION} "Inspect"`
+    const choice = JSON.parse(module.ugui_project_conversation_text(cyoa, false))
+    expect(choice.documents[0].sections).toEqual([])
+    expect(choice.documents[0].actions).toContainEqual(expect.objectContaining({
+      type: 'button', action: 'conversation.submit', label: 'Inspect', value: 'Inspect', disabled: false
+    }))
+  }, 30_000)
+
   it('resolves assets beside the Electron file entrypoint', () => {
     expect(
       resolveUguiModuleUrls(

@@ -103,11 +103,11 @@ export function useComposerSubmit({
   useEffect(
     () =>
       onComposerSubmitRequest(({ target, text }) => {
-        if (target === 'main' && !inputDisabled) {
+        if (target === scope.target && !inputDisabled) {
           dispatchSubmitRef.current(text)
         }
       }),
-    [inputDisabled]
+    [inputDisabled, scope.target]
   )
 
   const submitDraft = () => {

@@ -102,6 +102,7 @@ import {
 } from './git-review-ops'
 import { gitRootForIpc } from './git-root'
 import { decideCatalystRestart, readCatalystRestartIntent } from './restart-consent'
+import { readSplashIdentity } from './splash-identity'
 import {
   addWorktree,
   cleanupManagedWorktree,
@@ -8976,6 +8977,7 @@ ipcMain.handle('hermes:bootstrap:cancel', async () => {
   return { ok: false, cancelled: false }
 })
 ipcMain.handle('hermes:boot-progress:get', async () => bootProgressState)
+ipcMain.handle('hermes:splash-identity:get', () => readSplashIdentity(SOURCE_REPO_ROOT))
 ipcMain.handle('hermes:restart-consent:get', () => readCatalystRestartIntent(SOURCE_REPO_ROOT))
 ipcMain.handle('hermes:restart-consent:decide', (_event, request) =>
   decideCatalystRestart(SOURCE_REPO_ROOT, request)

@@ -574,7 +574,7 @@ function ToolEntry({ part }: ToolEntryProps) {
       {isPending && <PendingToolApproval part={part} />}
       {open && (
         <div className="relative grid w-full min-w-0 max-w-full gap-1.5 overflow-hidden p-1.5">
-          {copyAction.text && (
+          {copyAction.text && !mcpUgui && (
             <CopyButton
               appearance="inline"
               className="absolute right-4 top-1.5 z-10 h-5 gap-0 rounded-md px-1 opacity-5 transition-opacity group-hover/tool-block:opacity-100 hover:opacity-100 focus-visible:opacity-100"
@@ -591,7 +591,7 @@ function ToolEntry({ part }: ToolEntryProps) {
           )}
           {mcpUgui ? (
             <>
-              <McpUguiDocument document={mcpUgui} />
+              <McpUguiDocument copyText={copyAction.text} document={mcpUgui} />
               <details className="max-w-full">
                 <summary className={cn(TOOL_SECTION_LABEL_CLASS, 'mb-0 cursor-pointer')}>Exact input / output</summary>
                 <pre className={cn(TOOL_SECTION_PRE_CLASS, 'mt-1 whitespace-pre-wrap wrap-anywhere')}>{mcpTrace}</pre>

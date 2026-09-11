@@ -56,6 +56,7 @@ declare global {
         onControl: (callback: (payload: PetOverlayControl) => void) => () => void
       }
       getBootProgress: () => Promise<DesktopBootProgress>
+      getSplashIdentity?: () => Promise<{ alias: string; glyph: string; image: string } | null>
       getConnectionConfig: (profile?: null | string) => Promise<DesktopConnectionConfig>
       saveConnectionConfig: (payload: DesktopConnectionConfigInput) => Promise<DesktopConnectionConfig>
       applyConnectionConfig: (payload: DesktopConnectionConfigInput) => Promise<DesktopConnectionConfig>
