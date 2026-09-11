@@ -306,7 +306,10 @@ def semantic_action(
 def _semantic_value(value: str, separator: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError("GESTALT semantic value is invalid")
-    return value.replace("\r", " ").replace("\n", " ").replace(separator, " / ")
+    value = value.replace("\r", " ").replace("\n", " ")
+    if separator in value:
+        raise ValueError("GESTALT semantic value contains the canonical separator; use separate semantic fields")
+    return value
 
 
 def _canonical_json(value: object) -> str:

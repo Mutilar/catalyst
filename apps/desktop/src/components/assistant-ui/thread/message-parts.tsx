@@ -7,7 +7,7 @@ import {
 import { type ComponentProps, type FC, type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { ClarifyTool } from '@/components/assistant-ui/clarify-tool'
-import { MarkdownText, MarkdownTextContent } from '@/components/assistant-ui/markdown-text'
+import { UguiText, UguiTextContent } from '@/components/assistant-ui/ugui-text'
 import { ToolFallback, ToolGroupSlot } from '@/components/assistant-ui/tool/fallback'
 import { useElapsedSeconds } from '@/components/chat/activity-timer'
 import { ActivityTimerText } from '@/components/chat/activity-timer-text'
@@ -197,7 +197,7 @@ const ReasoningTextPart: ReasoningMessagePartComponent = () => {
   const messageRunning = useAuiState(s => s.message.status?.type === 'running')
 
   return (
-    <MarkdownTextContent
+    <UguiTextContent
       containerClassName="text-xs leading-snug text-muted-foreground/85"
       containerProps={{ 'data-slot': 'aui_reasoning-text' } as ComponentProps<'div'>}
       isRunning={status.type === 'running' || messageRunning}
@@ -216,7 +216,7 @@ const ReasoningTextPart: ReasoningMessagePartComponent = () => {
 export const MESSAGE_PARTS_COMPONENTS = {
   Reasoning: ReasoningTextPart,
   ReasoningGroup: ReasoningAccordionGroup,
-  Text: MarkdownText,
+  Text: UguiText,
   ToolGroup: ToolGroupSlot,
   tools: { Fallback: ChainToolFallback }
 } as const

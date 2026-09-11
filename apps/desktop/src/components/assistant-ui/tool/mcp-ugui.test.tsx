@@ -43,6 +43,44 @@ const document: Document = {
 }
 
 describe('McpUguiDocument', () => {
+  it('admits exact noun discovery and refuses disguised execution', () => {
+    const provenance = `sha256:${'a'.repeat(64)}`
+    const action = {
+      id: 'discover-role', label: 'Choose role syntax', action: 'lucid.help.noun', value: 'role',
+      intent: { verb: 'set', arguments: { help: 'role' } }
+    }
+    const value = {
+      ...document, provenance: { parentHash: provenance }, actions: [action],
+      receipt: { action_provenance: [{ id: action.id, state: 'AVAILABLE', provenance_hash: provenance }] }
+    } satisfies Document
+    expect(projectUguiAction(value, action, 0).executable).toBe(true)
+    expect(projectUguiAction(value, action, 0).requiresConfirmation).toBe(false)
+    for (const args of [{ path: 'role' }, { help: 'role', value: 'EM' }, { help: 'other' }]) {
+      expect(projectUguiAction(value, { ...action, intent: { verb: 'set', arguments: args } }, 0).executable).toBe(false)
+    }
+  })
+
+  it('admits provenance-bound SET help without granting a mutation', () => {
+    const provenance = `sha256:${'a'.repeat(64)}`
+    const action = {
+      id: 'onboarding-signin', label: 'Sign in', action: 'lucid.help.verb', value: 'set',
+      intent: { verb: 'set', arguments: {} }
+    }
+    const value = {
+      ...document, provenance: { parentHash: provenance }, actions: [action],
+      receipt: { action_provenance: [{ id: action.id, state: 'AVAILABLE', provenance_hash: provenance }] }
+    } satisfies Document
+    expect(projectUguiAction(value, action, 0).executable).toBe(true)
+    expect(projectUguiAction(value, action, 0).requiresConfirmation).toBe(false)
+    expect(projectUguiAction(value, {
+      ...action, intent: { verb: 'set', arguments: { path: 'role', value: '<identity>' } }
+    }, 0).executable).toBe(false)
+    expect(projectUguiAction(value, {
+      ...action, action: 'lucid.set.continue', value: provenance,
+      intent: { verb: 'set', arguments: { path: 'role', value: 'EM' } }
+    }, 0).executable).toBe(false)
+  })
+
   it('consumes a typed LUCID appearance host effect', async () => {
     render(
       <McpUguiDocument
@@ -134,8 +172,8 @@ describe('McpUguiDocument', () => {
     const { container } = render(<McpUguiDocument document={markdownDocument} />)
 
     expect(container.querySelector('[data-ugui-renderer="streamdown"]')).toBeTruthy()
-    expect(screen.getByText('D.R.Y.').tagName).toBe('STRONG')
-    expect(screen.getByText('one source').tagName).toBe('CODE')
+    expect(screen.getByText('D.R.Y.').closest('strong')).toBeTruthy()
+    expect(screen.getByText('one source').closest('code')).toBeTruthy()
     expect(screen.getByRole('table')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Copy Markdown source' })).toBeTruthy()
   })
@@ -203,7 +241,7 @@ describe('McpUguiDocument', () => {
     render(<McpUguiDocument document={value} />)
     fireEvent.click(screen.getByRole('button', { name: 'Help' }))
 
-    await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(value, help.id, false))
+    await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(value, help.id, false, {}))
     expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(1)
     expect(screen.queryByText('Help')).toBeNull()
   })
@@ -302,7 +340,7 @@ describe('McpUguiDocument', () => {
     fireEvent.click(button)
 
     await waitFor(() =>
-      expect(mocks.invokeUguiAction).toHaveBeenCalledWith(actionable, 'lucid.response.execution', false)
+      expect(mocks.invokeUguiAction).toHaveBeenCalledWith(actionable, 'lucid.response.execution', false, {})
     )
     expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(1)
     expect(await screen.findByRole('heading', { name: 'Current execution' })).toBeTruthy()
@@ -350,7 +388,7 @@ describe('McpUguiDocument', () => {
     render(<McpUguiDocument document={cancellable} />)
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     await waitFor(() =>
-      expect(mocks.invokeUguiAction).toHaveBeenCalledWith(cancellable, 'lucid.response.cancel', false)
+      expect(mocks.invokeUguiAction).toHaveBeenCalledWith(cancellable, 'lucid.response.cancel', false, {})
     )
     expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(1)
     expect(await screen.findByRole('heading', { name: 'Cancellation complete' })).toBeTruthy()
@@ -510,12 +548,12 @@ describe('McpUguiDocument', () => {
     const { rerender } = render(<McpUguiDocument document={choose} />)
     fireEvent.click(screen.getByRole('button', { name: 'One-pager' }))
 
-    await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(choose, choice.id, false))
+    await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(choose, choice.id, false, {}))
     expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(1)
     expect(screen.queryByText(/Confirmation required/)).toBeNull()
     expect(await screen.findByRole('heading', { name: 'One-pager choices' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Inspect quality' }))
-    await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(choices, inspect.id, false))
+    await waitFor(() => expect(mocks.invokeUguiAction).toHaveBeenCalledWith(choices, inspect.id, false, {}))
     expect(mocks.invokeUguiAction).toHaveBeenCalledTimes(2)
     expect(await screen.findByRole('heading', { name: 'Quality gates' })).toBeTruthy()
     rerender(<McpUguiDocument document={{ ...choose }} />)

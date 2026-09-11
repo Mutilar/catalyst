@@ -666,15 +666,15 @@ def _canonical_effigy_refusal(value: Any) -> Optional[tuple[str, str]]:
         return None
     evidence = stream.get("evidence")
     data = stream.get("data")
-    if not isinstance(evidence, list) or not isinstance(data, list):
+    if stream.get("signal") != SIGNAL_RED or not isinstance(evidence, list) or not isinstance(data, list):
         return None
     machine = next(
         (
-            item
-            for item in reversed(evidence)
+            item.lower()
+            for item in [stream.get("argument"), *reversed(evidence)]
             if isinstance(item, str)
             and "-" in item
-            and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,95}", item)
+            and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,95}", item, re.IGNORECASE)
         ),
         None,
     )
@@ -684,7 +684,7 @@ def _canonical_effigy_refusal(value: Any) -> Optional[tuple[str, str]]:
         (
             bounded
             for item in [*evidence, *data]
-            if item != machine
+            if isinstance(item, str) and item.lower() != machine
             and (bounded := _bounded_effigy_detail(item)) is not None
         ),
         "LUCID returned a refusal without a typed failure detail",
@@ -699,6 +699,9 @@ def _effigy_failure_fields(
     stage = "submission"
     code = "effigy-submission-failed"
     if cause is not None:
+        parsed = _canonical_effigy_refusal(str(cause))
+        if parsed is not None:
+            return stage, *parsed
         detail = _bounded_effigy_detail(str(cause)) or "submission raised without an error message"
         return stage, code, f"{type(cause).__name__}: {detail}"
     if not isinstance(result, dict):
@@ -728,6 +731,10 @@ def _effigy_failure_fields(
         and item.get("type") == "text"
         and isinstance(item.get("text"), str)
     )
+    for candidate in candidates:
+        parsed = _canonical_effigy_refusal(candidate)
+        if parsed is not None:
+            return stage, *parsed
     for container in containers:
         for key in ("detail", "error", "reason", "message"):
             parsed = _canonical_effigy_refusal(container.get(key))
@@ -806,8 +813,9 @@ def _emit_effigy_warning(
     display_detail = _effigy_display_detail(code, detail)
     display_code = code.upper()
     rca = display_code if display_detail is None else f"{display_code}: {display_detail}"
+    atoms = tuple(atom.strip() for atom in rca.split(DELIMITER_SEGMENT) if atom.strip())
     print(
-        canonical_stream(_GESTALT_ROOT, f"{SIGNAL_WARNING}", evidence=(rca,), data=(role_glyph,)),
+        canonical_stream(_GESTALT_ROOT, f"{SIGNAL_WARNING}", evidence=atoms[:1], data=(*atoms[1:], role_glyph)),
         file=sys.stderr,
         flush=True,
     )

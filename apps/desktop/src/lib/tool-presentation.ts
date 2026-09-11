@@ -1,4 +1,4 @@
-import { parseGestaltStream } from './lucid-gestalt'
+import { SIGNAL_GREEN, SIGNAL_PENDING, SIGNAL_RED, SIGNAL_WARNING } from './ae-glyphs'
 
 export const MODEL_VISIBLE_TOOL_RESULT_KEY = '__hermes_model_visible_result'
 
@@ -128,17 +128,16 @@ export function extractMcpGestalt(result: unknown): string | null {
     presentation?.output
   ]
 
-  const canonical = (value: string): boolean => {
-    try {
-      parseGestaltStream(value)
-      return true
-    } catch {
-      return false
-    }
-  }
+  // Transport candidate selection only. The Rust projector owns grammar and
+  // refusal; a second parser here rejected valid CLI/semantic continuations.
+  const candidateText = (value: string): boolean =>
+    value.length <= 1_048_576 && !/[\r\n\0]/.test(value) &&
+    [SIGNAL_GREEN, SIGNAL_PENDING, SIGNAL_RED, SIGNAL_WARNING].some(
+      signal => value === signal || value.startsWith(`${signal} `)
+    )
 
   for (const candidate of candidates) {
-    if (typeof candidate === 'string' && canonical(candidate)) {
+    if (typeof candidate === 'string' && candidateText(candidate)) {
       return candidate
     }
 
@@ -152,7 +151,7 @@ export function extractMcpGestalt(result: unknown): string | null {
       const row = record(item)
       const value = typeof row?.text === 'string' ? row.text : null
 
-      if (value && canonical(value)) {
+      if (value && candidateText(value)) {
         return value
       }
     }

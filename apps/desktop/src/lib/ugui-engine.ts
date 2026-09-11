@@ -5,6 +5,7 @@ type UguiWasmInitInput = BufferSource | Request | string | URL | WebAssembly.Mod
 export type UgUiWasmModule = {
   default?: (input?: UguiWasmInitInput | { module_or_path: UguiWasmInitInput }) => Promise<unknown>
   ugui_project_lucid_gestalt?: (gestalt: string) => string
+  ugui_project_conversation_text?: (source: string, running: boolean) => string
   ugui_app_load_reference?: (appId: string, source: string, seed: number) => string
   ugui_app_input?: (message: string) => string
   ugui_app_reset?: () => void
@@ -29,6 +30,21 @@ let moduleFailure: string | null = null
 export type UguiProjectionResult = {
   document: McpUguiDocument | null
   error: string | null
+}
+
+/** Canonical Rust owns both recognition and ordered streaming projection. */
+export async function projectConversationText(source: string, running: boolean): Promise<McpUguiDocument> {
+  const module = await loadUgUi()
+  const project = module?.ugui_project_conversation_text
+  if (!project) {
+    throw new Error(moduleFailure ?? 'conversation-projector-unavailable')
+  }
+  const value = JSON.parse(project(source, running)) as Record<string, unknown>
+  const document = extractMcpUguiDocument(value)
+  if (!document || value.schema !== 'ugui-conversation-text/1' || value.authority !== 'presentation-only') {
+    throw new Error(typeof value.code === 'string' ? value.code : 'conversation-projector-document-invalid')
+  }
+  return document
 }
 
 function boundedError(error: unknown): string {

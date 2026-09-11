@@ -132,16 +132,23 @@ def compile_lucid_ugui_action(
     tool_name = intent.get("verb")
     if not isinstance(tool_name, str) or tool_name not in _LUCID_VERBS:
         raise UguiActionError("action-verb-mismatch", "action does not name a closed LUCID verb")
-    if handler == "lucid.help.verb":
-        if (
-            arguments
-            or action.get("value") != tool_name
-        ):
-            raise UguiActionError("action-intent-invalid", "help action is not exactly verb-bound")
+    if handler in {"lucid.help.verb", "lucid.help.noun"}:
+        if handler == "lucid.help.verb":
+            valid_help = not arguments and action.get("value") == tool_name
+        else:
+            noun = arguments.get("help")
+            valid_help = (
+                set(arguments) == {"help"}
+                and isinstance(noun, str)
+                and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./:-]{0,127}", noun) is not None
+                and action.get("value") == noun
+            )
+        if not valid_help or inputs or action.get("inputs") is not None:
+            raise UguiActionError("action-intent-invalid", "help action is not exactly discovery-bound")
         return CompiledLUCIDAction(
             server_name="LUCID",
             tool_name=tool_name,
-            arguments={},
+            arguments=arguments,
             action_id=action_id,
             provenance_hash=provenance_hash,
         )

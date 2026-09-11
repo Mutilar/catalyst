@@ -461,6 +461,26 @@ def test_effigy_exception_warning_preserves_cause_and_redacts_secrets(plugin, ca
     ]
 
 
+def test_effigy_compound_detail_uses_separate_semantic_atoms(plugin, capsys):
+    root = Path(__file__).parents[3]
+    plugin._emit_effigy_warning(
+        "EM", f"{ROLE_EM}{IDENTITY_PENGUIN}", None,
+        RuntimeError(f"connection refused{DELIMITER_SEGMENT}token=private-value"),
+    )
+    rendered = capsys.readouterr().err.strip()
+    warning = parse_stream(root, rendered)
+    assert warning["evidence"] == ["EFFIGY-SUBMISSION-FAILED: RuntimeError: connection refused"]
+    assert warning["data"] == ["token=[redacted]", f"{ROLE_EM}{IDENTITY_PENGUIN}"]
+    assert " / " not in rendered
+    assert "private-value" not in rendered
+
+
+def test_shared_serializer_refuses_nested_separator_instead_of_rewriting_it():
+    root = Path(__file__).parents[3]
+    with pytest.raises(ValueError, match="canonical separator"):
+        canonical_stream(root, SIGNAL_WARNING, evidence=(f"first{DELIMITER_SEGMENT}second",))
+
+
 def test_canonical_refusal_in_error_field_is_not_flattened_into_slash_prose(plugin, capsys):
     root = Path(__file__).parents[3]
     refusal = {
@@ -507,6 +527,28 @@ def test_post_final_returns_the_exact_typed_effigy_failure(plugin, tmp_path, mon
         "EFFIGY-TRANSFER-TIMEOUT: local transfer exceeded its 2000ms deadline"
     ]
     assert warning["data"] == [f"{ROLE_EM}{IDENTITY_PENGUIN}"]
+
+
+@pytest.mark.parametrize("container", ["error", "model", "content", "exception"])
+def test_transport_coordinate_refusal_is_preserved_without_slash_rewriting(plugin, capsys, container):
+    root = Path(__file__).parents[3]
+    text = canonical_stream(
+        root, SIGNAL_RED, "show", "transport", "MCP-UNAVAILABLE",
+        evidence=("MCP server 'LUCID' is unreachable after 3 connection attempts",),
+    )
+    result = {container: text}
+    cause = None
+    if container == "content":
+        result = {"content": [{"type": "text", "text": text}]}
+    elif container == "exception":
+        result, cause = None, RuntimeError(text)
+    fields = plugin._emit_effigy_warning("EM", f"{ROLE_EM}{IDENTITY_PENGUIN}", result, cause)
+    rendered = capsys.readouterr().err.strip()
+    warning = parse_stream(root, rendered)
+    assert fields[1] == "mcp-unavailable"
+    assert warning["evidence"] == ["MCP-UNAVAILABLE: MCP server 'LUCID' is unreachable after 3 connection attempts"]
+    assert " / " not in rendered
+    assert "EFFIGY-SUBMISSION-FAILED" not in rendered
 
 
 def test_unattested_final_is_never_submitted_to_effigy(plugin, tmp_path, monkeypatch):

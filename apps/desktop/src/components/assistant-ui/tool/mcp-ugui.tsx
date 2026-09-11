@@ -1,5 +1,6 @@
 import {
   type ComponentProps,
+  memo,
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
@@ -16,6 +17,7 @@ import {
   CodeCardTitle
 } from '@/components/chat/code-card'
 import { CompactMarkdown } from '@/components/chat/compact-markdown'
+import { MarkdownTextContent } from '@/components/assistant-ui/markdown-text'
 import { ExpandableBlock } from '@/components/chat/expandable-block'
 import { SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
 import { CopyButton } from '@/components/ui/copy-button'
@@ -111,7 +113,9 @@ export function projectUguiAction(
     ? receipts.map(record).find(item => item?.id === id && item?.provenance_hash === provenanceHash)
     : null
 
-  const helpHandler = handler === 'lucid.help.verb'
+  const verbHelp = handler === 'lucid.help.verb'
+  const nounHelp = handler === 'lucid.help.noun'
+  const helpHandler = verbHelp || nounHelp
   const morphOperation = text(argumentsValue?.operation)
 
   const morphOperationValid =
@@ -120,9 +124,13 @@ export function projectUguiAction(
     READ_MORPH_OPERATIONS.has(morphOperation) ||
     MUTATING_MORPH_OPERATIONS.has(morphOperation)
 
-  const handlerMatches = helpHandler
+  const handlerMatches = verbHelp
     ? LUCID_VERBS.has(verb) && Object.keys(argumentsValue ?? {}).length === 0 && action.value === verb
-    : LUCID_VERBS.has(verb) && handler.startsWith(`lucid.${verb}.`)
+    : nounHelp
+      ? LUCID_VERBS.has(verb) && Object.keys(argumentsValue ?? {}).length === 1 &&
+        typeof argumentsValue?.help === 'string' && argumentsValue.help === action.value &&
+        /^[A-Za-z0-9][A-Za-z0-9_./:-]{0,127}$/.test(argumentsValue.help)
+      : LUCID_VERBS.has(verb) && handler.startsWith(`lucid.${verb}.`)
 
   const choiceTargetValid =
     handler !== 'lucid.morph.choice' ||
@@ -173,8 +181,9 @@ export function projectUguiAction(
   )
 
   const requiresExactConfirmation =
-    MUTATING_LUCID_VERBS.has(verb) ||
-    (verb === 'morph' && MUTATING_MORPH_OPERATIONS.has(morphOperation))
+    !helpHandler &&
+    (MUTATING_LUCID_VERBS.has(verb) ||
+      (verb === 'morph' && MUTATING_MORPH_OPERATIONS.has(morphOperation)))
 
   const confirmationPolicyValid = !requiresExactConfirmation || action.requiresConfirmation === 'exact'
 
@@ -488,7 +497,7 @@ function UgUiImage({ value }: { value: Record<string, unknown> }) {
   )
 }
 
-function UgUiSection({ value }: { value: unknown }) {
+function UguiSectionImpl({ value, presentationOnly = false }: { value: unknown; presentationOnly?: boolean }) {
   const section = record(value)
 
   if (!section) {
@@ -500,7 +509,34 @@ function UgUiSection({ value }: { value: unknown }) {
   const body = text(section.body ?? section.text)
   const signal = text(section.signal)
 
+  if (type === 'nested' && section.layout === 'flow' && Array.isArray(section.sections)) {
+    return (
+      <section className="space-y-1.5" data-ugui-primitive="flow" data-ugui-block={text(section.id)} data-ugui-state={text(section.state)}>
+        {section.sections.map((child, index) => (
+          <UgUiSection key={text(record(child)?.id) || index} presentationOnly={presentationOnly} value={child} />
+        ))}
+      </section>
+    )
+  }
+
+  if (type === 'text' && section.relation === 'continuation') {
+    return (
+      <section className="flex items-start gap-2 text-(--ui-text-secondary)" data-ugui-primitive="continuation">
+        <CompactMarkdown text={body} />
+      </section>
+    )
+  }
+
+  if (presentationOnly && type === 'text') {
+    return (
+      <section data-ugui-primitive="text" data-ugui-relation={text(section.relation)}>
+        <MarkdownTextContent isRunning={section.state === 'pending'} text={body} />
+      </section>
+    )
+  }
+
   if (type === 'app_reference') {
+    if (presentationOnly) {return <CompactMarkdown text={text(section.source)} />}
     return <UgUiResidentAppReference value={section} />
   }
 
@@ -514,7 +550,7 @@ function UgUiSection({ value }: { value: unknown }) {
         {signal && <span className={cn('shrink-0 font-medium', SIGNAL_CLASS[signal])}>{signal}</span>}
         <div className="min-w-0">
           {heading && <p className="font-medium text-(--ui-text-primary)">{heading}</p>}
-          {body && <p className="whitespace-pre-wrap wrap-anywhere text-(--ui-text-secondary)">{body}</p>}
+          {body && <CompactMarkdown className="wrap-anywhere text-(--ui-text-secondary)" text={body} />}
         </div>
       </section>
     )
@@ -574,7 +610,7 @@ function UgUiSection({ value }: { value: unknown }) {
         <summary className="cursor-pointer font-medium text-(--ui-text-primary)">{title}</summary>
         <div className="mt-2 space-y-2">
           {section.sections.slice(0, 64).map((child, index) => (
-            <UgUiSection key={text(record(child)?.id) || index} value={child} />
+            <UgUiSection key={text(record(child)?.id) || index} presentationOnly={presentationOnly} value={child} />
           ))}
         </div>
       </details>
@@ -629,6 +665,14 @@ function UgUiSection({ value }: { value: unknown }) {
   ) : null
 }
 
+const UgUiSection = memo(UguiSectionImpl, (before, after) => {
+  if (before.presentationOnly !== after.presentationOnly) {return false}
+  if (before.value === after.value) {return true}
+  const previous = record(before.value)
+  const next = record(after.value)
+  return Boolean(before.presentationOnly && previous?.revision && previous.id === next?.id && previous.revision === next?.revision)
+})
+
 const UGUI_RESPONSIVE_SPAN: Record<number, string> = {
   1: '@lg:col-span-1',
   2: '@lg:col-span-2',
@@ -652,8 +696,9 @@ function uguiResponsiveSpan(value: unknown): string {
   return UGUI_RESPONSIVE_SPAN[span] ?? '@lg:col-span-12'
 }
 
-export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }) {
-  const [rendered, setRendered] = useState(document)
+export function McpUguiDocument({ document, presentationOnly = false }: { document: McpUguiDocumentValue; presentationOnly?: boolean }) {
+  const [actionDocument, setRendered] = useState(document)
+  const rendered = presentationOnly ? document : actionDocument
   const [pendingAction, setPendingAction] = useState('')
   const [confirmationAction, setConfirmationAction] = useState('')
   const [actionError, setActionError] = useState('')
@@ -664,6 +709,7 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
   const receivedDocumentIdentity = useRef(uguiDocumentIdentity(document))
 
   useEffect(() => {
+    if (presentationOnly) {return}
     const identity = uguiDocumentIdentity(document)
 
     if (receivedDocumentIdentity.current === identity) {
@@ -678,9 +724,10 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
     setActionStatus('')
     setActionInputs({})
     actionInFlight.current = ''
-  }, [document])
+  }, [document, presentationOnly])
 
   useEffect(() => {
+    if (presentationOnly) {return}
     const hostEffect = rendered.hostEffect
     const identity = hostEffect ? JSON.stringify(hostEffect) : ''
 
@@ -691,12 +738,12 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
     if (ingestLucidHostAppearance(hostEffect)) {
       appliedHostEffect.current = identity
     }
-  }, [rendered.hostEffect])
+  }, [rendered.hostEffect, presentationOnly])
 
   const activateAction = async (projected: ProjectedAction) => {
     const { executable, id: actionId, label } = projected
 
-    if (!executable) {
+    if (presentationOnly || !executable) {
       return
     }
 
@@ -756,7 +803,7 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
     .filter(Boolean)
     .join(DELIMITER_SEGMENT)
 
-  const projectedActions = (rendered.actions ?? [])
+  const projectedActions = (presentationOnly ? [] : rendered.actions ?? [])
     .slice(0, 32)
     .map((action, index) => projectUguiAction(rendered, action, index))
 
@@ -765,10 +812,11 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
 
   return (
     <article
-      className="@container space-y-1.5 rounded-[0.3125rem] border border-(--ui-stroke-tertiary) bg-(--ui-bg-elevated) p-2 text-xs"
+      className={cn('@container space-y-1.5 text-xs', !presentationOnly && 'rounded-[0.3125rem] border border-(--ui-stroke-tertiary) bg-(--ui-bg-elevated) p-2')}
       data-mcp-ugui={rendered.schema}
+      data-ugui-authority={presentationOnly ? 'presentation-only' : 'tool'}
     >
-      <header className="flex min-w-0 items-center justify-between gap-2">
+      {(!presentationOnly || heading) && <header className="flex min-w-0 items-center justify-between gap-2">
         <h4 className="min-w-0 truncate font-semibold text-(--ui-text-primary)">{heading || rendered.id}</h4>
         <span className="flex shrink-0 items-center gap-1">
           {rendered.state && (
@@ -789,7 +837,7 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
             </button>
           )}
         </span>
-      </header>
+      </header>}
       <div className="grid grid-cols-12 gap-[var(--ugui-section-gap)]" data-ugui-layout="responsive-grid">
         {rendered.sections.map((section, index) => (
           <div
@@ -797,7 +845,7 @@ export function McpUguiDocument({ document }: { document: McpUguiDocumentValue }
             data-ugui-width={String(record(section)?.width ?? 12)}
             key={text(record(section)?.id) || index}
           >
-            <UgUiSection value={section} />
+            <UgUiSection presentationOnly={presentationOnly} value={section} />
           </div>
         ))}
       </div>

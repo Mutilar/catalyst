@@ -335,6 +335,22 @@ def test_action_provenance_must_match_the_document():
     assert refusal.value.code == "action-stale"
 
 
+@pytest.mark.parametrize("verb", ["show", "get", "set", "morph", "dispatch", "steer", "cancel"])
+def test_noun_help_forwards_exact_discovery_without_confirmation(verb):
+    action = {
+        "id": "help-noun", "action": "lucid.help.noun", "value": "role",
+        "intent": {"verb": verb, "arguments": {"help": "role"}},
+    }
+    compiled = compile_lucid_ugui_action(document(action), action["id"])
+    assert compiled.tool_name == verb
+    assert compiled.arguments == {"help": "role"}
+    for arguments in [{"path": "role"}, {"help": "role", "value": "EM"}, {"help": "other"}, {"help": "--bad"}]:
+        action["intent"]["arguments"] = arguments
+        with pytest.raises(UguiActionError) as refusal:
+            compile_lucid_ugui_action(document(action), action["id"])
+        assert refusal.value.code == "action-intent-invalid"
+
+
 def test_incomplete_steer_compose_is_not_presented_as_executable():
     action = {
         "id": "lucid.response.steer",
