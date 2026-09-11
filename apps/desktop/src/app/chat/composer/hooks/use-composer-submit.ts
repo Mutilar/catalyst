@@ -52,7 +52,6 @@ export function useComposerSubmit({
   activeQueueSessionKeyRef,
   attachments,
   busy,
-  compacting,
   clearDraft,
   disabled,
   draftRef,
@@ -151,18 +150,12 @@ export function useComposerSubmit({
         triggerHaptic('submit')
         clearDraft()
         dispatchSubmit(text)
-      } else if (!compacting && attachments.every(a => a.kind === 'image') && text.trim()) {
-        // Cursor-style stop-and-correct: interrupt the live turn and redirect
-        // it with this text. redirect() preserves the shown reasoning/work; if
-        // the turn already ended, steerDraft re-queues so nothing is lost.
-        // Images ride along as content parts; a @file/@folder/terminal ref
-        // cannot, because it's resolved by the turn-setup path a redirect
-        // bypasses — those fall through to the queue below.
-        steerDraft()
       } else if (payloadPresent) {
-        // A non-image attachment (or a compacting turn) — queue the whole
-        // payload for the next turn.
-        queueCurrentDraft()
+        const submittedAttachments = cloneAttachments(attachments)
+        triggerHaptic('submit')
+        clearDraft()
+        scope.attachments.clear()
+        dispatchSubmit(text, submittedAttachments)
       } else {
         // Stop button (the only way to reach here while busy with an empty
         // composer — empty Enter is short-circuited in the keydown handler).

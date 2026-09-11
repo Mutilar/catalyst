@@ -2,6 +2,7 @@ import { MessagePrimitive, useAuiState } from '@assistant-ui/react'
 import { type FC } from 'react'
 
 import { messageContentText } from '@/components/assistant-ui/thread/content'
+import { DirectOperation } from '@/components/assistant-ui/direct-operation'
 import { Codicon } from '@/components/ui/codicon'
 import { LinkifiedText } from '@/lib/external-link'
 import { cn } from '@/lib/utils'
@@ -14,6 +15,14 @@ export const SystemMessage: FC = () => {
 
   if (!text) {
     return null
+  }
+
+  if (text.startsWith('twitch:')) {
+    return (
+      <MessagePrimitive.Root className="w-full min-w-0" data-role="system">
+        <DirectOperation source={text.slice('twitch:'.length)} />
+      </MessagePrimitive.Root>
+    )
   }
 
   const steerNote = text.match(STEER_NOTE_RE)

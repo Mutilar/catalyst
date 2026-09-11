@@ -110,6 +110,23 @@ describe('assistant canonical UGUI boundary', () => {
     expect(container.querySelector('[data-mcp-ugui="lucid-ugui-response/1"]')).toBeTruthy()
   })
 
+  it('copies the transformation record and cannot submit preparation continuations', async () => {
+    const copy = vi.fn(async () => undefined)
+    vi.stubGlobal('hermesDesktop', { ...window.hermesDesktop, writeClipboard: copy })
+    const record = JSON.stringify({ original_input: 'original', transformed_input: 'GESTALT' })
+    const projected = document('Prepared visual content', 'GESTALT')
+    projected.actions = [{ id: 'choice', type: 'button', label: 'Inspect', value: 'Inspect', action: 'conversation.submit' }]
+    mocks.project.mockResolvedValue(snapshot(projected))
+    render(<UguiTextContent isRunning={false} text="GESTALT" copyText={record} allowContinuations={false} />)
+    await screen.findByText('Prepared visual content')
+    fireEvent.click(screen.getByRole('button', { name: 'Copy output' }))
+    await waitFor(() => expect(copy).toHaveBeenCalledWith(record))
+    const action = screen.queryByRole('button', { name: 'Inspect' })
+    if (action) {fireEvent.click(action)}
+    expect(mocks.submit).not.toHaveBeenCalled()
+    expect(mocks.invoke).not.toHaveBeenCalled()
+  })
+
   it('discards late results after replacement', async () => {
     const old = deferred<ConversationProjection>()
     const next = deferred<ConversationProjection>()

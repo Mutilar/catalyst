@@ -101,6 +101,11 @@ for call-site shadow or border inventions.
 Never hardcode `border-gray-*`, `bg-white`, `text-black`, etc. The white tile in
 `BrandMark` is the one sanctioned literal (the mark needs a fixed backdrop).
 
+The cold-boot identity scene uses `--splash-background` and
+`--splash-foreground`, fixed black and ivory tokens independent of the chat skin.
+Its reference intent is centered serif punctuation, a period-sized identity
+mark, and a shared camera traveling into opaque artwork before the shell fades in.
+
 ## Buttons — one component
 
 `src/components/ui/button.tsx` is the single source. Pick a `variant` + `size`;

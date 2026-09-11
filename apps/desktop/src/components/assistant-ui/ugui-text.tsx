@@ -24,13 +24,15 @@ interface UguiTextContentProps {
   containerProps?: ComponentProps<'div'>
   isRunning: boolean
   text: string
+  copyText?: string
+  allowContinuations?: boolean
 }
 
 /** Source stays in the conversation runtime. Only Rust produces semantic blocks.
  * Coalesce cosmetic streaming updates; settlement projects immediately. An old
  * async result can never repaint a replacement message or an unmounted part.
  */
-export function UguiTextContent({ text, isRunning, containerClassName, containerProps }: UguiTextContentProps) {
+export function UguiTextContent({ text, isRunning, containerClassName, containerProps, copyText, allowContinuations = true }: UguiTextContentProps) {
   const { t } = useI18n()
   const { target } = useComposerScope()
   const submitContinuation = useCallback((prompt: string) => {
@@ -78,22 +80,23 @@ export function UguiTextContent({ text, isRunning, containerClassName, container
     <div {...containerProps} aria-busy={isRunning || !current} className={cn('min-w-0 w-full max-w-full space-y-2', containerClassName)} data-ugui-text="true">
       {error ? (
         <>
-          <McpUguiDocument copyText={text} document={failure} presentationOnly />
+          <McpUguiDocument copyText={copyText ?? text} document={failure} presentationOnly />
           <Button onClick={() => setAttempt(value => value + 1)} size="xs" variant="text">{t.common.retry}</Button>
         </>
       ) : current?.documents ? current.documents.map(document => (
-        <ParagraphDocument document={document} key={document.id} onContinuation={submitContinuation} />
+        <ParagraphDocument document={document} key={document.id} copyText={copyText} onContinuation={allowContinuations ? submitContinuation : undefined} />
       )) : <Loader label={t.common.loading} />}
     </div>
   )
 }
 
-const ParagraphDocument = memo(function ParagraphDocument({ document, onContinuation }: {
+const ParagraphDocument = memo(function ParagraphDocument({ document, onContinuation, copyText }: {
   document: ConversationProjection['documents'][number]
-  onContinuation: (text: string) => void
+  onContinuation?: (text: string) => void
+  copyText?: string
 }) {
-  return <McpUguiDocument copyText={document.source} document={document} onContinuation={onContinuation} presentationOnly />
-}, (before, after) => before.document.id === after.document.id && before.document.revision === after.document.revision && before.onContinuation === after.onContinuation)
+  return <McpUguiDocument copyText={copyText ?? document.source} document={document} onContinuation={onContinuation} presentationOnly />
+}, (before, after) => before.document.id === after.document.id && before.document.revision === after.document.revision && before.onContinuation === after.onContinuation && before.copyText === after.copyText)
 
 export const UguiText = memo(function UguiText() {
   const { text, status } = useMessagePartText()

@@ -42,14 +42,16 @@ export function zoomFrame(
   region: OpaqueRegion,
   progress: number
 ) {
-  const finalSize = Math.max(viewport.width, viewport.height) / region.size
-  const width = start.width + (finalSize - start.width) * progress
+  const time = Math.max(0, Math.min(1, progress))
+  const travel = time < 0.5 ? 4 * time ** 3 : 1 - (-2 * time + 2) ** 3 / 2
+  const finalSize = Math.max(start.width, Math.max(viewport.width, viewport.height) / region.size)
+  const width = start.width * Math.exp(Math.log(finalSize / start.width) * travel)
   const targetX = start.left + start.width * region.x
   const targetY = start.top + start.width * region.y
 
   return {
     width,
-    left: targetX + (viewport.width / 2 - targetX) * progress - width * region.x,
-    top: targetY + (viewport.height / 2 - targetY) * progress - width * region.y
+    left: targetX + (viewport.width / 2 - targetX) * travel - width * region.x,
+    top: targetY + (viewport.height / 2 - targetY) * travel - width * region.y
   }
 }

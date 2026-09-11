@@ -28,6 +28,9 @@ export type ChatMessage = {
 }
 
 export type GatewayEventPayload = {
+  direct_operation?: unknown
+  submission_id?: string
+  agent_running?: boolean
   text?: string
   rendered?: string
   status?: string

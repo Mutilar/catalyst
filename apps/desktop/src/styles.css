@@ -5,6 +5,11 @@
 @import '@vscode/codicons/dist/codicon.css';
 @custom-variant dark (&:is(.dark *));
 
+:root {
+  --splash-background: #000;
+  --splash-foreground: #f5f5f2;
+}
+
 /* Blanket reduced-motion override: kill ALL CSS animations and transitions
    when the user (or the E2E test harness via prefers-reduced-motion) requests
    it. Per-component @media rules below handle specific cases; this catches

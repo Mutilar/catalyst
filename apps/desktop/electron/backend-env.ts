@@ -90,6 +90,13 @@ function normalizeHermesHomeRoot(hermesHome, { pathModule = pathModuleForPlatfor
   return resolved
 }
 
+const witnessDirectEnvironment = {
+  AE_WITNESS_DIRECT_ENDPOINT: process.env.AE_WITNESS_DIRECT_ENDPOINT,
+  AE_WITNESS_DIRECT_TOKEN: process.env.AE_WITNESS_DIRECT_TOKEN
+}
+delete process.env.AE_WITNESS_DIRECT_ENDPOINT
+delete process.env.AE_WITNESS_DIRECT_TOKEN
+
 function buildDesktopBackendEnv({
   hermesHome,
   pythonPathEntries = [],
@@ -103,6 +110,7 @@ function buildDesktopBackendEnv({
   const key = pathEnvKey(currentEnv, platform)
 
   return {
+    ...witnessDirectEnvironment,
     PYTHONPATH: appendUniquePathEntries([...pythonPathEntries, currentPythonPath], { delimiter }),
     [key]: buildDesktopBackendPath({
       hermesHome,

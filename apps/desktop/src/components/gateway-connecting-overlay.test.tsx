@@ -206,34 +206,53 @@ describe('WITNESS splash choreography', () => {
     vi.stubGlobal('hermesDesktop', { getSplashIdentity: vi.fn().mockResolvedValue({ alias: 'brianhu', glyph: '🐧', image: 'data:image/svg+xml;base64,PHN2Zy8+' }) })
     vi.stubGlobal('Image', class { src = ''; decode = vi.fn().mockResolvedValue(undefined) })
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-      drawImage: vi.fn(), getImageData: () => ({ data: new Uint8ClampedArray(128 * 128 * 4).fill(255) })
+      drawImage: vi.fn(), getImageData: () => ({ data: new Uint8ClampedArray(128 * 128 * 4).fill(255) }),
+      measureText: () => ({ actualBoundingBoxAscent: 4, actualBoundingBoxDescent: 0 })
     } as never)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      left: 200, top: 100, width: 8, height: 8, right: 208, bottom: 108, x: 200, y: 100, toJSON: () => ({})
+    })
   })
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
   async function tick(ms: number) { await act(async () => { await vi.advanceTimersByTimeAsync(ms) }) }
+  function visiblePunctuation() {
+    return Array.from(screen.getByLabelText('Connecting').querySelectorAll('span > span'))
+      .filter(mark => (mark as HTMLElement).style.opacity === '1')
+      .map(mark => mark.textContent).join('')
+  }
   async function punctuation() {
-    for (const text of ['.', '..', '...', '...,']) {
-      expect(screen.getByLabelText('Connecting').textContent).toBe(text)
-      await tick(220)
+    for (const text of ['.', '..', '...', '.', '..', '...']) {
+      expect(visiblePunctuation()).toBe(text)
+      await tick(600)
     }
   }
 
-  it('holds punctuation after socket-open until hydration settles, then holds identity for one second', async () => {
+  it('loops dots until hydration settles, holds comma for one second, then holds the revealed identity for one second', async () => {
     await act(async () => { render(<GatewayConnectingOverlay />) })
     await punctuation()
     await act(async () => { setGatewayState('open') })
     await tick(2000)
-    expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('waiting')
+    expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('punctuation')
     await act(async () => { $desktopBoot.set({ ...$desktopBoot.get(), running: false, progress: 100, visible: false }) })
     await tick(40)
+    expect(visiblePunctuation()).toBe('...,')
+    expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('comma')
+    await tick(999)
+    expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('comma')
+    await tick(1)
     expect(screen.getByLabelText('BRIANHU 🐧')).toBeTruthy()
+    await tick(700)
     await tick(999)
     expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('identity')
     await tick(1)
     expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('zoom')
-    await tick(1700)
+    await tick(3700)
     expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('zoom')
+    const alias = screen.getByLabelText('BRIANHU 🐧')
+    expect(alias.style.opacity).not.toBe('0')
+    expect(alias.parentElement?.style.transform).toContain('scale(')
+    expect(alias.querySelector('img')?.style.opacity).toBe('0')
     await tick(180)
     expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('covered')
     await tick(40)
@@ -248,6 +267,8 @@ describe('WITNESS splash choreography', () => {
     await punctuation()
     await act(async () => { setGatewayState('open'); $desktopBoot.set({ ...$desktopBoot.get(), running: false, progress: 100 }) })
     await tick(40)
+    expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('comma')
+    await tick(1000)
     expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('identity')
     await tick(1050)
     expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('fade')
@@ -267,11 +288,29 @@ describe('WITNESS splash choreography', () => {
     await act(async () => { setGatewayState('open'); $desktopBoot.set({ ...$desktopBoot.get(), running: false, progress: 100 }) })
     await tick(40)
     expect(screen.getByLabelText('Connecting').getAttribute('data-splash-identity')).toBe('unavailable')
+    await tick(1000)
     await tick(520)
     expect(isConnectingShown()).toBe(false)
   })
 
-  it('zooms linearly from the measured period into an opaque square covering desktop and mobile', () => {
+  it('restarts the full comma hold if readiness is lost', async () => {
+    await act(async () => { render(<GatewayConnectingOverlay />) })
+    await act(async () => { setGatewayState('open'); $desktopBoot.set({ ...$desktopBoot.get(), running: false, progress: 100 }) })
+    await tick(40)
+    await tick(600)
+    await act(async () => { setGatewayState('closed') })
+    expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('punctuation')
+    await tick(1200)
+    expect(screen.queryByLabelText('BRIANHU 🐧')).toBeNull()
+    await act(async () => { setGatewayState('open') })
+    await tick(40)
+    await tick(999)
+    expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('comma')
+    await tick(1)
+    expect(screen.getByLabelText('BRIANHU 🐧')).toBeTruthy()
+  })
+
+  it('zooms geometrically from the measured period into an opaque square covering desktop and mobile', () => {
     const pixels = new Uint8ClampedArray(16 * 16 * 4)
     for (let row = 4; row < 14; row++) for (let column = 3; column < 13; column++) pixels[(row * 16 + column) * 4 + 3] = 255
     const region = opaqueRegion(pixels, 16)
@@ -279,7 +318,8 @@ describe('WITNESS splash choreography', () => {
     for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
       expect(zoomFrame(start, viewport, region, 0)).toEqual(start)
       const end = zoomFrame(start, viewport, region, 1)
-      expect(zoomFrame(start, viewport, region, 0.5).width).toBe((start.width + end.width) / 2)
+      expect(zoomFrame(start, viewport, region, 0.5).width).toBeCloseTo(Math.sqrt(start.width * end.width))
+      expect(zoomFrame(start, viewport, region, 0.25).width).toBeLessThan(zoomFrame(start, viewport, region, 0.5).width)
       expect(end.left + end.width * (region.x - region.size / 2)).toBeLessThanOrEqual(0.001)
       expect(end.top + end.width * (region.y - region.size / 2)).toBeLessThanOrEqual(0.001)
       expect(end.left + end.width * (region.x + region.size / 2)).toBeGreaterThanOrEqual(viewport.width - 0.001)

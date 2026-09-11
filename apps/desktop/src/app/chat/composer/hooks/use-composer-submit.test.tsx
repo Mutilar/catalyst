@@ -70,7 +70,7 @@ describe('useComposerSubmit busy-turn routing', () => {
     vi.restoreAllMocks()
   })
 
-  it('steers a plain-text follow-up instead of queueing or stopping', async () => {
+  it('submits busy plain-text input to shared admission without steering', async () => {
     const { hook, onCancel, onSteer, onSubmit, queueCurrentDraft } = renderSubmitHook({
       busy: true,
       text: 'change course'
@@ -80,13 +80,13 @@ describe('useComposerSubmit busy-turn routing', () => {
       hook.result.current.submitDraft()
     })
 
-    await waitFor(() => expect(onSteer).toHaveBeenCalledWith('change course', []))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('change course', { attachments: [] }))
     expect(queueCurrentDraft).not.toHaveBeenCalled()
     expect(onCancel).not.toHaveBeenCalled()
-    expect(onSubmit).not.toHaveBeenCalled()
+    expect(onSteer).not.toHaveBeenCalled()
   })
 
-  it('queues a plain-text follow-up while the active turn is compacting', () => {
+  it('submits input for admission while the active turn is compacting', () => {
     const { hook, onCancel, onSteer, onSubmit, queueCurrentDraft } = renderSubmitHook({
       busy: true,
       compacting: true,
@@ -97,9 +97,9 @@ describe('useComposerSubmit busy-turn routing', () => {
       hook.result.current.submitDraft()
     })
 
-    expect(queueCurrentDraft).toHaveBeenCalledTimes(1)
+    expect(queueCurrentDraft).not.toHaveBeenCalled()
     expect(onSteer).not.toHaveBeenCalled()
-    expect(onSubmit).not.toHaveBeenCalled()
+    expect(onSubmit).toHaveBeenCalledWith('wait for the summary', { attachments: [] })
     expect(onCancel).not.toHaveBeenCalled()
   })
 
@@ -120,7 +120,7 @@ describe('useComposerSubmit busy-turn routing', () => {
     expect(onCancel).not.toHaveBeenCalled()
   })
 
-  it('queues an attachment-bearing follow-up while busy', () => {
+  it('submits attachment-bearing input for admission while busy', () => {
     const attachment: ComposerAttachment = { id: 'doc', kind: 'file', label: 'notes.txt' }
 
     const { hook, onCancel, onSteer, onSubmit, queueCurrentDraft } = renderSubmitHook({
@@ -133,19 +133,16 @@ describe('useComposerSubmit busy-turn routing', () => {
       hook.result.current.submitDraft()
     })
 
-    expect(queueCurrentDraft).toHaveBeenCalledTimes(1)
+    expect(queueCurrentDraft).not.toHaveBeenCalled()
     expect(onSteer).not.toHaveBeenCalled()
-    expect(onSubmit).not.toHaveBeenCalled()
+    expect(onSubmit).toHaveBeenCalledWith('read this', { attachments: [attachment] })
     expect(onCancel).not.toHaveBeenCalled()
   })
 
-  it('steers an image-bearing follow-up instead of queueing it', async () => {
-    // Images CAN ride a correction: session.redirect converts them to content
-    // parts. Queueing them (the old behaviour) delivered the screenshot after
-    // the work it was meant to correct.
+  it('submits image-bearing input for admission instead of steering', async () => {
     const image: ComposerAttachment = { id: 'shot', kind: 'image', label: 'screen.png', path: '/tmp/screen.png' }
 
-    const { hook, onSteer, queueCurrentDraft } = renderSubmitHook({
+    const { hook, onSubmit, onSteer, queueCurrentDraft } = renderSubmitHook({
       attachments: [image],
       busy: true,
       text: 'look at this'
@@ -155,18 +152,16 @@ describe('useComposerSubmit busy-turn routing', () => {
       hook.result.current.submitDraft()
     })
 
-    await waitFor(() => expect(onSteer).toHaveBeenCalledWith('look at this', [image]))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('look at this', { attachments: [image] }))
+    expect(onSteer).not.toHaveBeenCalled()
     expect(queueCurrentDraft).not.toHaveBeenCalled()
   })
 
-  it('queues a mixed image + file follow-up rather than steering', () => {
-    // A @file/@folder/terminal ref is resolved by the turn-setup path that a
-    // mid-turn redirect bypasses, so one non-image attachment sends the whole
-    // submission to the queue.
+  it('preserves mixed attachments through shared admission', () => {
     const image: ComposerAttachment = { id: 'shot', kind: 'image', label: 'screen.png' }
     const doc: ComposerAttachment = { id: 'doc', kind: 'file', label: 'notes.txt' }
 
-    const { hook, onSteer, queueCurrentDraft } = renderSubmitHook({
+    const { hook, onSubmit, onSteer, queueCurrentDraft } = renderSubmitHook({
       attachments: [image, doc],
       busy: true,
       text: 'read both'
@@ -176,7 +171,8 @@ describe('useComposerSubmit busy-turn routing', () => {
       hook.result.current.submitDraft()
     })
 
-    expect(queueCurrentDraft).toHaveBeenCalledTimes(1)
+    expect(queueCurrentDraft).not.toHaveBeenCalled()
+    expect(onSubmit).toHaveBeenCalledWith('read both', { attachments: [image, doc] })
     expect(onSteer).not.toHaveBeenCalled()
   })
 

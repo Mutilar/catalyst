@@ -6,12 +6,7 @@ import { type ChatMessage, textPart } from '@/lib/chat-messages'
 import { optimisticAttachmentRef } from '@/lib/chat-runtime'
 import { sanitizeComposerInput } from '@/lib/composer-input-sanitize'
 import { setMutableRef } from '@/lib/mutable-ref'
-import {
-  isVoicePlaybackActive,
-  markVoicePlaybackInterrupted,
-  stopVoicePlayback,
-  takeVoicePlaybackInterrupted
-} from '@/lib/voice-playback'
+import { takeVoicePlaybackInterrupted } from '@/lib/voice-playback'
 import {
   $composerAttachments,
   clearComposerAttachments,
@@ -27,6 +22,7 @@ import { sessionContextDrift } from '../session-context-drift'
 import { resolveSessionProfile } from '../use-session-actions/utils'
 
 import {
+  _activeIntentSubmissions,
   _submitInFlight,
   type GatewayRequest,
   inlineErrorMessage,
@@ -141,34 +137,17 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
         )
       }
 
-      // Queue drains fire on the busy→false settle edge, where busyRef (synced
-      // from $busy by a separate effect) may still read true — honoring it would
-      // bounce the drained send. The drain lock serializes them; the user path
-      // keeps the guard so a stray Enter mid-turn can't double-submit.
       const hasSendable = Boolean(visibleText || terminalContextBlocks || attachments.length || hasImage)
 
-      if (!hasSendable || (!options?.fromQueue && busyRef.current)) {
+      if (!hasSendable) {
         return false
       }
 
-      // Typing barge-in: a new send silences any in-flight spoken reply.
-      if (isVoicePlaybackActive()) {
-        markVoicePlaybackInterrupted()
-        stopVoicePlayback()
+      if (!options?.fromQueue && visibleText && !visibleText.startsWith('/')
+        && !(await prepareSessionForPrompt(visibleText))) {
+        return false
       }
-
-      // Barged mid-speech (here or via the voice loop's VAD)? Flag the submit
-      // so the backend notes the interruption to the model.
       const interrupted = takeVoicePlaybackInterrupted()
-
-      if (
-        !options?.fromQueue &&
-        visibleText &&
-        !visibleText.startsWith('/') &&
-        !(await prepareSessionForPrompt(visibleText))
-      ) {
-        return false
-      }
 
       // Queue drains carry their source session explicitly. A background drain
       // must never inherit the currently selected session after the user moves
@@ -241,13 +220,17 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
       let submitLockReleased = false
 
       const releaseSubmitLock = () => {
+        for (const [runtimeId, activeSubmission] of _activeIntentSubmissions) {
+          if (activeSubmission === submissionId) {_activeIntentSubmissions.delete(runtimeId)}
+        }
         if (!submitLockReleased) {
           submitLockReleased = true
           _submitInFlight.delete(submitLockKey)
         }
       }
 
-      const optimisticId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const submissionId = crypto.randomUUID()
+      const optimisticId = `user-${submissionId}`
 
       const buildUserMessage = (): ChatMessage => ({
         id: optimisticId,
@@ -278,12 +261,12 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
               : [...state.messages, buildUserMessage()],
             busy: true,
             awaitingResponse: true,
-            pendingBranchGroup: null,
-            sawAssistantPayload: false,
+            pendingBranchGroup: state.busy ? state.pendingBranchGroup : null,
+            sawAssistantPayload: state.busy ? state.sawAssistantPayload : false,
             // Fresh submit = new turn — clear any leftover interrupt flag, else
             // mutateStream/completeAssistantMessage drop every delta of this turn
             // (what made drained-after-interrupt sends go silent).
-            interrupted: false
+            interrupted: state.busy ? state.interrupted : false
           }),
           targetStoredSessionId
         )
@@ -523,18 +506,22 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
 
         const submitParams = (targetId: string) => ({
           session_id: targetId,
+          submission_id: submissionId,
           text,
           ...(interrupted && { interrupted })
         })
+        _activeIntentSubmissions.set(sessionId, submissionId)
 
         // On sleep/wake the gateway's in-memory session may have been cleared
         // while the desktop app still holds the old session ID. Detect this,
         // resume the stored session to re-register it, and retry once.
         let submitErr: unknown = null
+        type IntentResponse = { direct_operation?: unknown; agent_running?: boolean }
+        let intentResponse: IntentResponse | undefined
 
         try {
-          await withSessionBusyRetry(() =>
-            requestGateway('prompt.submit', submitParams(sessionId), PROMPT_SUBMIT_REQUEST_TIMEOUT_MS)
+          intentResponse = await withSessionBusyRetry(() =>
+            requestGateway<IntentResponse>('prompt.submit', submitParams(sessionId), PROMPT_SUBMIT_REQUEST_TIMEOUT_MS)
           )
         } catch (firstErr) {
           const recoverStoredSessionId = targetStoredSessionId ?? selectedStoredSessionIdRef.current
@@ -564,13 +551,15 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
             const recoveredId = resumed?.session_id
 
             if (recoveredId) {
+              _activeIntentSubmissions.set(recoveredId, submissionId)
               if (targetIsCurrentView()) {
                 activeSessionIdRef.current = recoveredId
               }
 
-              await withSessionBusyRetry(() =>
-                requestGateway('prompt.submit', submitParams(recoveredId), PROMPT_SUBMIT_REQUEST_TIMEOUT_MS)
+              intentResponse = await withSessionBusyRetry(() =>
+                requestGateway<IntentResponse>('prompt.submit', submitParams(recoveredId), PROMPT_SUBMIT_REQUEST_TIMEOUT_MS)
               )
+              sessionId = recoveredId
             } else {
               submitErr = firstErr
             }
@@ -585,6 +574,27 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
 
         if (usingComposerAttachments) {
           scope.clearAttachments()
+        }
+
+        const directOperation = intentResponse?.direct_operation
+        if (directOperation) {
+          const agentRunning = Boolean(intentResponse?.agent_running)
+          updateSessionState(sessionId, state => ({
+            ...state,
+            messages: [...state.messages.filter(message => message.id !== optimisticId && message.id !== submissionId), {
+              id: submissionId, role: 'system',
+              parts: [textPart(`twitch:${JSON.stringify(directOperation)}`)]
+            }],
+            busy: agentRunning,
+            awaitingResponse: agentRunning
+          }), targetStoredSessionId)
+          releaseSubmitLock()
+          if (targetIsCurrentView()) {
+            setMutableRef(busyRef, agentRunning)
+            scope.setBusy(agentRunning)
+            scope.setAwaitingResponse(agentRunning)
+          }
+          return true
         }
 
         // Submit landed — the turn now runs (busy stays true), but the submit

@@ -29,7 +29,7 @@ from hermes_cli.env_loader import load_hermes_dotenv
 from utils import is_truthy_value
 from tools.environments.local import hermes_subprocess_env
 from agent.replay_cleanup import sanitize_replay_history
-from tui_gateway import git_probe
+from tui_gateway import git_probe, prompt_intent
 from tui_gateway.transport import (
     StdioTransport,
     Transport,
@@ -6924,7 +6924,7 @@ def _(rid, params: dict) -> dict:
         except Exception:
             logger.debug("child-watch display projection read failed", exc_info=True)
             display_history = history
-        messages = _history_to_messages(display_history)
+        messages = _history_to_messages(display_history) + prompt_intent.operation_history(get_hermes_home(), target)
         return _ok(
             rid,
             {
@@ -7007,7 +7007,7 @@ def _(rid, params: dict) -> dict:
         _schedule_agent_build(sid)
         _schedule_session_cap_enforcement()  # trim detached idle sessions over the cap
 
-        messages = _history_to_messages(display_history)
+        messages = _history_to_messages(display_history) + prompt_intent.operation_history(get_hermes_home(), target)
         return _ok(
             rid,
             {
@@ -7059,7 +7059,7 @@ def _(rid, params: dict) -> dict:
         # the WebUI/TUI resume path picking up the same cleanup.
         display_history_prefix = db.get_ancestor_display_prefix(target)
         history = sanitize_replay_history(raw_history)
-        messages = _history_to_messages(display_history)
+        messages = _history_to_messages(display_history) + prompt_intent.operation_history(get_hermes_home(), target)
         tokens = _set_session_context(target)
         try:
             # Pass the profile's db so the agent persists turns to the right
@@ -7391,7 +7391,8 @@ def _live_session_payload(
     payload = {
         "info": _fallback_session_info(session),
         "message_count": len(history),
-        "messages": _history_to_messages(history),
+        "messages": _history_to_messages(history) + prompt_intent.operation_history(
+            get_hermes_home(), _session_lookup_key(session, fallback=sid)),
         "running": running,
         "session_id": sid,
         "session_key": _session_lookup_key(session, fallback=sid),
@@ -9503,7 +9504,8 @@ def _(rid, params: dict) -> dict:
         rid,
         {
             "count": len(history),
-            "messages": _history_to_messages(history),
+            "messages": _history_to_messages(history) + prompt_intent.operation_history(
+                get_hermes_home(), str(session.get("session_key") or params.get("session_id"))),
         },
     )
 
@@ -10351,6 +10353,18 @@ def _(rid, params: dict) -> dict:
 # ── Methods: prompt ──────────────────────────────────────────────────
 
 
+@method("prompt.cancel")
+def _(rid, params: dict) -> dict:
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+    submission = params.get("submission_id")
+    if not isinstance(submission, str):
+        return _err(rid, 4004, "submission_id required")
+    requested = prompt_intent.cancel_intent(submission, str(session.get("session_key") or params.get("session_id")))
+    return _ok(rid, {"cancellation_requested": requested})
+
+
 @method("prompt.submit")
 def _(rid, params: dict) -> dict:
     from hermes_cli.input_sanitize import sanitize_user_prompt_text
@@ -10358,6 +10372,32 @@ def _(rid, params: dict) -> dict:
     sid = params.get("session_id", "")
     raw_text = params.get("text", "")
     text = sanitize_user_prompt_text(raw_text) if isinstance(raw_text, str) else raw_text
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+    submission = params.get("submission_id") or str(uuid.uuid5(uuid.NAMESPACE_URL, f"{sid}:{rid}"))
+    if not isinstance(submission, str) or not 16 <= len(submission) <= 128 or not all(
+        character.isascii() and (character.isalnum() or character == "-") for character in submission
+    ):
+        return _err(rid, 4004, "bounded submission_id required")
+    if not isinstance(text, str):
+        return _err(rid, 4004, "text must be a string")
+    try:
+        intent_result = prompt_intent.admit_prompt(text, submission, str(session.get("session_key") or sid),
+            _session_cwd(session), Path(session.get("profile_home") or get_hermes_home()),
+            on_preparation=lambda preparation: _emit("intent.preparation", sid, {
+                "direct_operation": preparation, "submission_id": submission,
+                "stored_session_id": session.get("session_key")}))
+    except Exception as error:
+        logger.warning("intent admission failed: %s", type(error).__name__)
+        intent_result = {"direct_operation": prompt_intent.operation_document(submission, text,
+            {"refusal": "intent-admission-unavailable", "ran": False, "cause": type(error).__name__})}
+    if "direct_operation" in intent_result:
+        _ensure_session_db_row(session)
+        _emit("intent.operation", sid, {**intent_result, "submission_id": submission,
+            "stored_session_id": session.get("session_key"), "agent_running": bool(session.get("running"))})
+        return _ok(rid, {**intent_result, "agent_running": bool(session.get("running"))})
+    text = intent_result["prepared_text"]
     truncate_user_ordinal = params.get("truncate_before_user_ordinal")
     if params.get("interrupted"):
         # Client-side barge-in (desktop VAD / typing over playback) — latch it

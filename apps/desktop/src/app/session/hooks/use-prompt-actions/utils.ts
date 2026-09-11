@@ -104,6 +104,7 @@ export async function withSessionBusyRetry<T>(call: () => Promise<T>): Promise<T
 // session whose first call hangs) let the SAME prompt launch several real turns
 // at once (the "message stacked 5×" bug). Keyed by stored/active session id.
 export const _submitInFlight = new Set<string>()
+export const _activeIntentSubmissions = new Map<string, string>()
 
 export function base64FromDataUrl(dataUrl: string): string {
   const comma = dataUrl.indexOf(',')

@@ -427,6 +427,31 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
               explicitSid && sessionId ? modelOptionsQueryKey(activeGatewayProfile, sessionId) : ['model-options']
           })
         }
+      } else if (event.type === 'intent.preparation') {
+        if (!sessionId || !payload?.submission_id || !payload.direct_operation) {return}
+        const identity = `${payload.submission_id}-preparation`
+        const source = `twitch:${JSON.stringify(payload.direct_operation)}`
+        updateSessionState(sessionId, state => {
+          const message = { id: identity, role: 'system' as const, parts: [textPart(source)] }
+          return {
+            ...state,
+            messages: state.messages.some(current => current.id === identity)
+              ? state.messages.map(current => current.id === identity ? message : current)
+              : [...state.messages, message]
+          }
+        }, payload.stored_session_id)
+      } else if (event.type === 'intent.operation') {
+        if (!sessionId || !payload?.submission_id || !payload.direct_operation) {return}
+        const submissionId = payload.submission_id
+        const source = `twitch:${JSON.stringify(payload.direct_operation)}`
+        updateSessionState(sessionId, state => ({
+          ...state,
+          messages: [...state.messages.filter(message => message.id !== submissionId && message.id !== `user-${submissionId}` && message.id !== `${submissionId}-preparation`), {
+            id: submissionId, role: 'system', parts: [textPart(source)]
+          }],
+          busy: Boolean(payload.agent_running),
+          awaitingResponse: Boolean(payload.agent_running)
+        }), payload.stored_session_id)
       } else if (event.type === 'message.start') {
         if (!sessionId) {
           return

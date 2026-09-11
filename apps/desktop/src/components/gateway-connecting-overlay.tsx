@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { cn } from '@/lib/utils'
 import { $desktopBoot } from '@/store/boot'
@@ -8,16 +8,19 @@ import { $gatewayState } from '@/store/session'
 
 import { opaqueRegion, type OpaqueRegion, zoomFrame } from './splash-motion'
 
-const PUNCTUATION = ['.', '..', '...', '...,']
-const STEP_MS = 220
+const PUNCTUATION = ['.', '..', '...']
+const STEP_MS = 600
+const COMMA_HOLD_MS = 1000
 const REVEAL_MS = 1000
-const ZOOM_MS = 1800
+const IDENTITY_IN_MS = 700
+const ZOOM_MS = 3800
 const FADE_MS = 520
-type Phase = 'punctuation' | 'waiting' | 'identity' | 'zoom' | 'covered' | 'fade' | 'gone'
+const SPLASH_FONT = '"Iowan Old Style", "Palatino Linotype", Georgia, serif'
+type Phase = 'punctuation' | 'comma' | 'identity' | 'zoom' | 'covered' | 'fade' | 'gone'
 type Identity = { alias: string; glyph: string; image: string; region: OpaqueRegion }
 
 // Dev affordance: a warm Cmd+R reconnects almost instantly, so the overlay
-// only flashes. Load with `?connecting=1` to force a looping preview.
+// only flashes. Load with `?connecting=1` to force a cold-boot preview.
 function forcedPreview(): boolean {
   if (!import.meta.env.DEV || typeof window === 'undefined') {
     return false
@@ -49,6 +52,7 @@ export function GatewayConnectingOverlay() {
   const marker = useRef<HTMLImageElement>(null)
   const zoomImage = useRef<HTMLImageElement>(null)
   const wordmark = useRef<HTMLDivElement>(null)
+  const camera = useRef<HTMLDivElement>(null)
   const coldBootDoneRef = useRef(false)
 
   if (!boot.running && boot.progress >= 100 && !boot.error) {
@@ -160,11 +164,7 @@ export function GatewayConnectingOverlay() {
     }
 
     const timer = window.setTimeout(() => {
-      if (step < PUNCTUATION.length - 1) {
-        setStep(step + 1)
-      } else {
-        setPhase('waiting')
-      }
+      setStep((step + 1) % PUNCTUATION.length)
     }, STEP_MS)
 
     return () => window.clearTimeout(timer)
@@ -190,12 +190,26 @@ export function GatewayConnectingOverlay() {
   }, [ready, previewing, previewReady])
 
   useEffect(() => {
-    if (phase === 'waiting' && prepared && painted) {
-      setPhase(identity ? 'identity' : 'fade')
+    if (phase === 'punctuation' && prepared && painted) {
+      setPhase('comma')
     }
-  }, [phase, prepared, painted, identity])
+  }, [phase, prepared, painted])
 
   useEffect(() => {
+    if (phase !== 'comma' || !visible) {
+      return
+    }
+
+    if (!(previewing ? previewReady : ready)) {
+      setPhase('punctuation')
+      return
+    }
+
+    const timer = window.setTimeout(() => setPhase(identity ? 'identity' : 'fade'), COMMA_HOLD_MS)
+    return () => window.clearTimeout(timer)
+  }, [phase, visible, identity, ready, previewing, previewReady])
+
+  useLayoutEffect(() => {
     if (phase !== 'identity' || !visible) {
       return
     }
@@ -207,26 +221,41 @@ export function GatewayConnectingOverlay() {
     }
 
     const fit = () => {
-      element.style.fontSize = '40px'
+      element.style.fontSize = '46px'
       const width = element.getBoundingClientRect().width
 
-      if (width > window.innerWidth - 48) {
-        element.style.fontSize = `${(40 * (window.innerWidth - 48)) / width}px`
+      if (width > window.innerWidth - 64) {
+        element.style.fontSize = `${(46 * (window.innerWidth - 64)) / width}px`
+      }
+
+      const context = document.createElement('canvas').getContext('2d')
+      if (context && marker.current) {
+        const font = getComputedStyle(element)
+        context.font = `${font.fontWeight} ${font.fontSize} ${font.fontFamily}`
+        const period = context.measureText('.')
+        const size = Math.max(1, period.actualBoundingBoxAscent + period.actualBoundingBoxDescent)
+        marker.current.style.width = `${size}px`
+        marker.current.style.height = `${size}px`
       }
     }
 
     fit()
+    const entrance = reduce ? undefined : element.animate?.([{ opacity: 0 }, { opacity: 1 }], {
+      duration: IDENTITY_IN_MS,
+      easing: 'ease-out'
+    })
     window.addEventListener('resize', fit)
-    const timer = window.setTimeout(() => setPhase(reduce ? 'fade' : 'zoom'), REVEAL_MS)
+    const timer = window.setTimeout(() => setPhase(reduce ? 'fade' : 'zoom'), (reduce ? 0 : IDENTITY_IN_MS) + REVEAL_MS)
 
     return () => {
+      entrance?.cancel()
       window.clearTimeout(timer)
       window.removeEventListener('resize', fit)
     }
   }, [phase, reduce, visible])
 
-  useEffect(() => {
-    if (phase !== 'zoom' || !identity || !marker.current || !zoomImage.current || !visible) {
+  useLayoutEffect(() => {
+    if (phase !== 'zoom' || !identity || !marker.current || !zoomImage.current || !camera.current || !visible) {
       return
     }
 
@@ -237,20 +266,37 @@ export function GatewayConnectingOverlay() {
     }
 
     const start = marker.current.getBoundingClientRect()
+    if (start.width <= 0) {
+      setPhase('fade')
+      return
+    }
     const image = zoomImage.current
+    const scene = camera.current
+    const anchorX = start.left + start.width * identity.region.x
+    const anchorY = start.top + start.width * identity.region.y
+    scene.style.transformOrigin = `${anchorX}px ${anchorY}px`
     let first: number | undefined
     let frame = 0
 
-    const paint = (now: number) => {
-      first ??= now
-      const progress = Math.min(1, (now - first) / ZOOM_MS)
+    const draw = (progress: number) => {
       const rect = zoomFrame(start, { width: window.innerWidth, height: window.innerHeight }, identity.region, progress)
+      const scale = rect.width / start.width
+      const shiftX = rect.left + rect.width * identity.region.x - anchorX
+      const shiftY = rect.top + rect.width * identity.region.y - anchorY
+      scene.style.transform = `translate(${shiftX}px, ${shiftY}px) scale(${scale})`
       Object.assign(image.style, {
         left: `${rect.left}px`,
         top: `${rect.top}px`,
         width: `${rect.width}px`,
         height: `${rect.width}px`
       })
+    }
+
+    draw(0)
+    const paint = (now: number) => {
+      first ??= now
+      const progress = Math.min(1, (now - first) / ZOOM_MS)
+      draw(progress)
 
       if (progress < 1) {
         frame = requestAnimationFrame(paint)
@@ -304,7 +350,7 @@ export function GatewayConnectingOverlay() {
     return null
   }
 
-  const revealed = identity && !['punctuation', 'waiting'].includes(phase)
+  const revealed = identity && !['punctuation', 'comma'].includes(phase)
   const zooming = ['zoom', 'covered', 'fade'].includes(phase) && !reduce && identity
 
   return (
@@ -312,39 +358,53 @@ export function GatewayConnectingOverlay() {
       aria-busy={!painted}
       aria-label="Connecting"
       className={cn(
-        'fixed inset-0 z-[1200] grid place-items-center overflow-hidden bg-(--ui-chat-surface-background)',
+        'fixed inset-0 z-[1200] grid place-items-center overflow-hidden bg-(--splash-background) text-(--splash-foreground)',
         phase === 'fade' && 'pointer-events-none'
       )}
       data-splash-identity={prepared ? (identity ? 'ready' : 'unavailable') : 'loading'}
       data-splash-phase={phase}
       style={{
+        fontFamily: SPLASH_FONT,
         opacity: phase === 'fade' ? 0 : 1,
         transition: phase === 'fade' ? `opacity ${reduce ? 0 : FADE_MS}ms linear` : 'none'
       }}
     >
       {revealed ? (
-        <div
-          aria-label={`${identity.alias.toUpperCase()} ${identity.glyph}`}
-          className="whitespace-nowrap font-mono font-medium text-(--theme-primary)"
-          ref={wordmark}
-          style={{ fontSize: 40, letterSpacing: 0, lineHeight: 1, opacity: zooming ? 0 : 1 }}
-        >
-          {identity.alias.toUpperCase()}
-          <img
-            alt=""
-            className="inline-block"
-            ref={marker}
-            src={identity.image}
-            style={{ width: '0.22em', height: '0.22em', marginLeft: '0.04em', verticalAlign: 'baseline' }}
-          />
+        <div className="pointer-events-none absolute inset-0 grid place-items-center" ref={camera}>
+          <div
+            aria-label={`${identity.alias.toUpperCase()} ${identity.glyph}`}
+            className="whitespace-nowrap font-normal"
+            ref={wordmark}
+            style={{ fontSize: 46, letterSpacing: 0, lineHeight: 1.3 }}
+          >
+            {identity.alias.toUpperCase()}
+            <img
+              alt=""
+              className="inline-block"
+              ref={marker}
+              src={identity.image}
+              style={{ width: '0.1em', height: '0.1em', marginLeft: 1, verticalAlign: 'baseline', opacity: zooming ? 0 : 1 }}
+            />
+          </div>
         </div>
       ) : (
         <span
           aria-hidden="true"
-          className="font-mono text-4xl text-(--theme-primary)"
-          style={{ width: '4ch', letterSpacing: 0 }}
+          className="grid grid-cols-4 items-center"
+          style={{ width: 72, height: 80, fontSize: 72, lineHeight: 1, letterSpacing: 0 }}
         >
-          {PUNCTUATION[step]}
+          {['.', '.', '.', ','].map((mark, index) => (
+            <span
+              key={index}
+              style={{
+                textAlign: 'center',
+                opacity: phase !== 'punctuation' || index <= step ? 1 : 0,
+                transition: reduce ? 'none' : 'opacity 140ms ease-out'
+              }}
+            >
+              {mark}
+            </span>
+          ))}
         </span>
       )}
       {identity && (

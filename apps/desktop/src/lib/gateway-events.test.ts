@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest'
 
 import { gatewayEventRequiresSessionId, resolveGatewayEventSessionId } from './gateway-events'
 
+it('requires an explicit session for preparation and direct-operation events', () => {
+  for (const eventType of ['intent.preparation', 'intent.operation']) {
+    expect(gatewayEventRequiresSessionId(eventType)).toBe(true)
+    expect(resolveGatewayEventSessionId({ activeSessionId: 'other-session', eventType,
+      explicitSessionId: '', unscopedStreamSessionId: null }).drop).toBe(true)
+  }
+})
+
 describe('gateway event routing', () => {
   it('drops only unscoped subagent events (genuinely background work)', () => {
     expect(gatewayEventRequiresSessionId('subagent.progress')).toBe(true)

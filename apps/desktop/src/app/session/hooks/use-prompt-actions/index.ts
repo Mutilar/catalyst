@@ -58,6 +58,7 @@ import {
 import { useSlashCommand } from './slash'
 import { useSubmitPrompt } from './submit'
 import {
+  _activeIntentSubmissions,
   blobToDataUrl,
   delay,
   friendlyRemoteAttachError,
@@ -560,6 +561,12 @@ export function usePromptActions({
     // The ref is updated via useEffect on every activeSessionId change, so it
     // always reflects the current session — same pattern submitText uses.
     const sessionId = activeSessionIdRef.current
+
+    const submissionId = sessionId ? _activeIntentSubmissions.get(sessionId) : undefined
+    if (sessionId && submissionId) {
+      await requestGateway('prompt.cancel', { session_id: sessionId, submission_id: submissionId })
+      return
+    }
 
     const releaseBusy = () => {
       setMutableRef(busyRef, false)
