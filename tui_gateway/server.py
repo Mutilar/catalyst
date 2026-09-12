@@ -10367,11 +10367,9 @@ def _(rid, params: dict) -> dict:
 
 @method("prompt.submit")
 def _(rid, params: dict) -> dict:
-    from hermes_cli.input_sanitize import sanitize_user_prompt_text
-
     sid = params.get("session_id", "")
     raw_text = params.get("text", "")
-    text = sanitize_user_prompt_text(raw_text) if isinstance(raw_text, str) else raw_text
+    text = raw_text
     session, err = _sess_nowait(params, rid)
     if err:
         return err
@@ -10385,6 +10383,7 @@ def _(rid, params: dict) -> dict:
     try:
         intent_result = prompt_intent.admit_prompt(text, submission, str(session.get("session_key") or sid),
             _session_cwd(session), Path(session.get("profile_home") or get_hermes_home()),
+            recovery=params.get("penguin_recovery"),
             on_preparation=lambda preparation: _emit("intent.preparation", sid, {
                 "direct_operation": preparation, "submission_id": submission,
                 "stored_session_id": session.get("session_key")}))

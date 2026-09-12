@@ -75,7 +75,7 @@ export function useComposerSubmit({
 
   // Shared send primitive: fire onSubmit, and if the gateway rejects (accepted
   // === false) or throws, re-load + re-stash the draft so the words survive.
-  const dispatchSubmit = (text: string, attachments?: ComposerAttachment[]) => {
+  const dispatchSubmit = (text: string, attachments?: ComposerAttachment[], penguinRecovery?: NonNullable<Parameters<ChatBarProps['onSubmit']>[1]>['penguinRecovery']) => {
     const submittedScope = activeQueueSessionKeyRef.current
     const submittedAttachments = attachments ?? []
 
@@ -88,7 +88,8 @@ export function useComposerSubmit({
       stashAt(submittedScope, text, submittedAttachments)
     }
 
-    void Promise.resolve(attachments ? onSubmit(text, { attachments }) : onSubmit(text))
+    void Promise.resolve(penguinRecovery ? onSubmit(text, { attachments: [], penguinRecovery })
+      : attachments ? onSubmit(text, { attachments }) : onSubmit(text))
       .then(accepted => void (accepted === false ? restore() : clearSessionDraft(submittedScope)))
       .catch(restore)
   }
@@ -101,9 +102,9 @@ export function useComposerSubmit({
 
   useEffect(
     () =>
-      onComposerSubmitRequest(({ target, text }) => {
+      onComposerSubmitRequest(({ target, text, penguinRecovery }) => {
         if (target === scope.target && !inputDisabled) {
-          dispatchSubmitRef.current(text)
+          dispatchSubmitRef.current(text, undefined, penguinRecovery)
         }
       }),
     [inputDisabled, scope.target]

@@ -131,6 +131,10 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
           .filter(Boolean)
           .join('\n')
 
+        if (!present.length && !terminalContextBlocks) {
+          return rawText
+        }
+
         return (
           [contextRefs, terminalContextBlocks, visibleText].filter(Boolean).join('\n\n') ||
           (present.some(a => a.kind === 'image') ? 'What do you see in this image?' : '')
@@ -508,6 +512,7 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
           session_id: targetId,
           submission_id: submissionId,
           text,
+          ...(options?.penguinRecovery && { penguin_recovery: options.penguinRecovery }),
           ...(interrupted && { interrupted })
         })
         _activeIntentSubmissions.set(sessionId, submissionId)

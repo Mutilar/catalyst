@@ -26,13 +26,14 @@ interface UguiTextContentProps {
   text: string
   copyText?: string
   allowContinuations?: boolean
+  onContinuation?: (text: string) => void
 }
 
 /** Source stays in the conversation runtime. Only Rust produces semantic blocks.
  * Coalesce cosmetic streaming updates; settlement projects immediately. An old
  * async result can never repaint a replacement message or an unmounted part.
  */
-export function UguiTextContent({ text, isRunning, containerClassName, containerProps, copyText, allowContinuations = true }: UguiTextContentProps) {
+export function UguiTextContent({ text, isRunning, containerClassName, containerProps, copyText, allowContinuations = true, onContinuation }: UguiTextContentProps) {
   const { t } = useI18n()
   const { target } = useComposerScope()
   const submitContinuation = useCallback((prompt: string) => {
@@ -84,7 +85,7 @@ export function UguiTextContent({ text, isRunning, containerClassName, container
           <Button onClick={() => setAttempt(value => value + 1)} size="xs" variant="text">{t.common.retry}</Button>
         </>
       ) : current?.documents ? current.documents.map(document => (
-        <ParagraphDocument document={document} key={document.id} copyText={copyText} onContinuation={allowContinuations ? submitContinuation : undefined} />
+        <ParagraphDocument document={document} key={document.id} copyText={copyText} onContinuation={allowContinuations ? onContinuation ?? submitContinuation : undefined} />
       )) : <Loader label={t.common.loading} />}
     </div>
   )

@@ -11,6 +11,7 @@
  */
 
 import type { InlineRefInput } from './inline-refs'
+import type { SubmitTextOptions } from '@/app/session/hooks/use-prompt-actions/utils'
 import { RICH_INPUT_SLOT } from './rich-editor'
 
 /** Composer routing key. The main chat is `'main'`, the edit composer
@@ -44,6 +45,7 @@ const VOICE_TOGGLE_EVENT = 'hermes:composer-voice-toggle'
 interface SubmitDetail {
   target: ComposerTarget
   text: string
+  penguinRecovery?: SubmitTextOptions['penguinRecovery']
 }
 
 let activeTarget: ComposerTarget = 'main'
@@ -127,12 +129,13 @@ export const onComposerInsertRefsRequest = (handler: (detail: InsertRefsDetail) 
  * the agent a task without the user round-tripping through the input. */
 export const requestComposerSubmit = (
   text: string,
-  { target = 'active' }: { target?: ComposerTarget | 'active' } = {}
+  { target = 'active', penguinRecovery }: { target?: ComposerTarget | 'active'; penguinRecovery?: SubmitTextOptions['penguinRecovery'] } = {}
 ) => {
   const trimmed = text.trim()
 
   if (trimmed) {
-    dispatch<SubmitDetail>(SUBMIT_EVENT, { target: resolve(target), text: trimmed })
+    dispatch<SubmitDetail>(SUBMIT_EVENT, { target: resolve(target), text: penguinRecovery ? text : trimmed,
+      ...(penguinRecovery && { penguinRecovery }) })
   }
 }
 

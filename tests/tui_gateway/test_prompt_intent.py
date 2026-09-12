@@ -7,6 +7,7 @@ import pytest
 from tui_gateway import prompt_intent
 from hermes_gestalt import canonical_stream, parse_stream
 from agent.generated.ae_glyphs import SIGNAL_GREEN, SIGNAL_PENDING
+from tui_gateway.lucid_traversal import Traversal, MAX_STEPS
 
 
 SUBMISSION = "submission-000000000001"
@@ -24,6 +25,68 @@ CLI_RESPONSE = "🤖"
 CLI_PROPOSAL = {"classification": "direct", "operation": CLI_OPERATION, "classifier_response": CLI_RESPONSE}
 
 
+@pytest.mark.parametrize("signal", ["🟢", "⏳", "⚠️", "🔴"])
+def test_byte_zero_canonical_signal_skips_all_penguin_work(tmp_path, monkeypatch, signal):
+    text = signal + ' · ◆ Preserve this\n\n| Value | Literal |\n|---|---|\n| 1 | [200~ |\n'
+    forbidden = Mock(side_effect=AssertionError("preprocessing must be bypassed"))
+    for name in ("classify", "format_semantic", "format_lucid", "cached_candidate", "_journal", "execute_direct"):
+        monkeypatch.setattr(prompt_intent, name, forbidden)
+    progress = Mock()
+    result = prompt_intent.admit_prompt(text, SUBMISSION, "session", "/workspace", tmp_path, on_preparation=progress)
+    assert result["prepared_text"] == text
+    assert result["admission"]["penguin_bypassed"] is True
+    assert result["admission"]["stages"] == []
+    forbidden.assert_not_called()
+    progress.assert_not_called()
+
+
+@pytest.mark.parametrize("text", [" 🟢 request", "\n🔴 request", "\ufeff🟢 request", "text 🟢", "🧠", "🤖", "🔎", "⚠", "\x1b[200~🟢 request"])
+def test_nonzero_or_noncanonical_signals_do_not_shortcut(tmp_path, monkeypatch, text):
+    assert not prompt_intent.has_canonical_signal_prefix(text)
+    classifier = Mock(return_value="invalid")
+    monkeypatch.setattr(prompt_intent, "classify", classifier)
+    result = prompt_intent.admit_prompt(text, SUBMISSION, "session", "/workspace", tmp_path)
+    classifier.assert_called_once()
+    assert "prepared_text" not in result
+
+
+def test_canonical_bypass_retains_the_existing_input_bound(tmp_path):
+    result = prompt_intent.admit_prompt("🟢" + "x" * prompt_intent.MAX_INPUT_BYTES,
+        SUBMISSION, "session", "/workspace", tmp_path)
+    assert result["direct_operation"]["diagnostic"]["receipt"]["refusal"] == "input-bound"
+
+
+@pytest.mark.parametrize("bypass", [False, True])
+def test_rpc_passes_untransformed_input_unchanged_to_agent_dispatch(tmp_path, monkeypatch, bypass):
+    import threading
+    from tui_gateway import server
+
+    text = '  Keep literal [200~ content\n' if bypass else '🟢 · ◆ Keep literal [200~ content\n'
+    if bypass:
+        monkeypatch.setattr(prompt_intent, "classify", Mock(side_effect=ValueError("penguin-response-incomplete")))
+        prompt_intent.admit_prompt(text, SUBMISSION, "session", "/workspace", tmp_path)
+    session = {"session_key": "session", "running": False, "history": [], "history_lock": threading.Lock()}
+    monkeypatch.setattr(server, "_sessions", {"runtime": session})
+    monkeypatch.setattr(server, "get_hermes_home", lambda: tmp_path)
+    monkeypatch.setattr(server, "_session_cwd", lambda current: "/workspace")
+    monkeypatch.setattr(server, "_load_dashboard_process_isolation_config", lambda: {})
+    monkeypatch.setattr(server, "_session_uses_compute_host", lambda *args: True)
+    monkeypatch.setattr(server, "current_transport", lambda: None)
+    inflight = Mock()
+    dispatch = Mock(return_value={"result": {"status": "streaming"}})
+    monkeypatch.setattr(server, "_start_inflight_turn", inflight)
+    monkeypatch.setattr(server, "_submit_prompt_to_compute_host", dispatch)
+    classifier = Mock(side_effect=AssertionError("unexpected classification"))
+    monkeypatch.setattr(prompt_intent, "classify", classifier)
+    result = server._methods["prompt.submit"]("request", {
+        "session_id": "runtime", "submission_id": SUBMISSION + "-recovery" if bypass else SUBMISSION, "text": text,
+        **({"penguin_recovery": {"submission_id": SUBMISSION, "action": "bypass"}} if bypass else {})})
+    assert result == dispatch.return_value
+    dispatch.assert_called_once_with("request", "runtime", session, text)
+    inflight.assert_called_once_with(session, text)
+    classifier.assert_not_called()
+
+
 @pytest.mark.parametrize("text,operation", [
     ("git diff --stat", {"channel": "cli", "executable": "git", "argv": ["diff", "--stat"]}),
     ("rg -n TODO src", {"channel": "cli", "executable": "rg", "argv": ["-n", "TODO", "src"]}),
@@ -36,7 +99,6 @@ def test_new_invocations_share_classification_execution_and_inline_results(tmp_p
     monkeypatch.setattr(prompt_intent, "classify", Mock(return_value=response))
     formatter = Mock(side_effect=AssertionError("direct routes must not format"))
     monkeypatch.setattr(prompt_intent, "format_semantic", formatter)
-    monkeypatch.setattr(prompt_intent, "format_lucid", Mock(return_value='➡️ 🧠 · ⚡ SHOW · 🎯 PULSE · 🔎 Show pulse'))
     execute = Mock(return_value={"operation": operation, "ran": True, "exit_code": 0, "stdout": "result"})
     monkeypatch.setattr(prompt_intent, "execute_direct", execute)
     result = prompt_intent.admit_prompt(text, SUBMISSION, "session", "/workspace", tmp_path)
@@ -171,7 +233,8 @@ def test_penguin_progress_precedes_inference_and_exposes_exact_outgoing_wrapper(
     assert diagnostic["proposal"]["gestalt"] == response
     assert diagnostic["authority"] == "none"
     assert diagnostic["origin"] == {"author": "user", "processor": "PENGUIN", "kind": "intent-preparation"}
-    assert events[-1]["document"]["sections"][0]["heading"] == "From user / PENGUIN"
+    assert "document" not in events[-1]
+    assert parse_stream(ROOT, events[-1]["source"].split("\n\n", 1)[0])["service"] == "🐧"
 
 
 def test_semantic_agent_input_contains_only_canonical_streams():
@@ -265,28 +328,127 @@ def test_table_only_gestalt_does_not_require_an_invented_routing_label():
     assert result == {"classification": "semantic", "gestalt": response}
 
 
+def test_local_presentations_emit_canonical_source_and_protect_literal_input():
+    original = '```\n🔴 · 🐧 · 🔎 literal · ➡️ "Help"\n```'
+    result = prompt_intent.preparation_document(SUBMISSION, original, "classification")
+    assert "document" not in result
+    source = result["source"]
+    stream = parse_stream(ROOT, source.split("\n\n", 1)[0])
+    assert stream["signal"] == SIGNAL_PENDING
+    assert stream["service"] == "🐧"
+    assert stream["evidence"] == ["CLASSIFICATION"]
+    assert "````text\n" + original + "\n````" in source
+    assert result["diagnostic"]["original_input"] == original
+    assert "From user / PENGUIN" not in source
+
+
 def test_copied_diagnostics_include_the_actual_canonical_system_instruction(tmp_path, monkeypatch):
     response = gestalt("SEMANTIC", "Compare the approaches.", "OBJECTIVE") + '\n\n➡️ "Explain tradeoffs"\n\n🐧🐧'
     connection = Mock()
     connection.getresponse.return_value.status = 200
     connection.getresponse.return_value.read.side_effect = [json.dumps({"choices": [
-        {"finish_reason": "stop", "message": {"content": content}}]}).encode() for content in ["🔎", response]]
+        {"finish_reason": "stop", "message": {"content": content, "reasoning_content": "Internal reasoning"}}]}).encode()
+        for content in ["🔎", response]]
     monkeypatch.setattr(prompt_intent.http.client, "HTTPConnection", Mock(return_value=connection))
     result = prompt_intent.admit_prompt("Compare approaches", SUBMISSION, "session", "/workspace", tmp_path)
     actual_prompt = json.loads(connection.request.call_args.args[2])["messages"][0]["content"]
     diagnostic = result["preparation"]["diagnostic"]
-    assert diagnostic["penguin_system_prompt"] == actual_prompt
-    assert diagnostic["penguin_system_prompt_hash"] == prompt_intent.input_hash(actual_prompt)
+    assert "penguin_system_prompt" not in diagnostic
+    assert "penguin_system_prompt_hash" not in diagnostic
+    assert diagnostic["stages"][-1]["system_prompt"] == actual_prompt
+    assert diagnostic["stages"][-1]["system_prompt_hash"] == prompt_intent.input_hash(actual_prompt)
     assert diagnostic["penguin_response"] == response
     assert result["prepared_text"] == response
     calls = [json.loads(call.args[2]) for call in connection.request.call_args_list]
     assert len(calls) == 2
     assert calls[0]["messages"][0]["content"] == prompt_intent.classification_instruction()
-    assert calls[0]["max_tokens"] == 8 and calls[1]["max_tokens"] == 8192
+    assert calls[0]["max_tokens"] == 8192 and calls[1]["max_tokens"] == 8192
     assert calls[1]["messages"][0]["content"] == prompt_intent.penguin_instruction(ROOT)
     assert [stage["stage"] for stage in diagnostic["stages"]] == ["classification", "semantic-preparation"]
     assert [stage["response"] for stage in diagnostic["stages"]] == ["🔎", response]
+    assert all(stage["finish_reason"] == "stop" for stage in diagnostic["stages"])
+    assert all(stage["reasoning_chars"] == len("Internal reasoning") for stage in diagnostic["stages"])
+    assert "Internal reasoning" not in json.dumps(diagnostic)
     assert all(stage["input"] == "Compare approaches" for stage in diagnostic["stages"])
+
+
+def test_incomplete_reasoning_response_retains_budget_evidence_without_duplicate_prompt(tmp_path, monkeypatch):
+    connection = Mock()
+    connection.getresponse.return_value.status = 200
+    connection.getresponse.return_value.read.return_value = json.dumps({
+        "choices": [{"finish_reason": "length", "message": {"content": None, "reasoning_content": "Still reasoning"}}],
+        "usage": {"prompt_tokens": 300, "completion_tokens": 8192, "total_tokens": 8492},
+    }).encode()
+    monkeypatch.setattr(prompt_intent.http.client, "HTTPConnection", Mock(return_value=connection))
+    execute = Mock()
+    monkeypatch.setattr(prompt_intent, "execute_direct", execute)
+    events = []
+    result = prompt_intent.admit_prompt("How's your day going", SUBMISSION, "session", "/workspace", tmp_path,
+        on_preparation=events.append)
+    diagnostic = result["direct_operation"]["diagnostic"]
+    assert diagnostic["receipt"]["refusal"] == "penguin-response-incomplete"
+    stage = diagnostic["stages"][0]
+    assert stage["finish_reason"] == "length"
+    assert stage["max_tokens"] == stage["usage"]["completion_tokens"] == 8192
+    assert stage["reasoning_chars"] == len("Still reasoning")
+    assert stage["response"] is None
+    assert "Still reasoning" not in json.dumps(diagnostic)
+    assert "penguin_system_prompt" not in diagnostic
+    assert all("penguin_system_prompt" not in event["diagnostic"] for event in events)
+    source = result["direct_operation"]["source"]
+    assert "document" not in result["direct_operation"]
+    assert '🔎 INTENT ADMISSION REFUSED' in source
+    assert '◆ FINISH REASON "length"' in source
+    assert ' · ➡️ "Retry" · ➡️ "Bypass" · ➡️ "Help"' in source.split("\n\n", 1)[0]
+    assert "```text\nHow's your day going\n```" in source
+    assert '🔎 OUTPUT' not in source and '🔎 DIAGNOSTICS' not in source
+    execute.assert_not_called()
+
+
+@pytest.mark.parametrize("action", ["retry", "bypass", "help"])
+def test_penguin_recovery_uses_retained_original_and_explicit_action(tmp_path, monkeypatch, action):
+    original = "  checking testing\n\n"
+    classifier = Mock(side_effect=ValueError("penguin-response-incomplete"))
+    monkeypatch.setattr(prompt_intent, "classify", classifier)
+    prompt_intent.admit_prompt(original, SUBMISSION, "session", "/workspace", tmp_path)
+    classifier.reset_mock()
+    execute = Mock(return_value={"ran": True, "exit_code": 0})
+    monkeypatch.setattr(prompt_intent, "execute_direct", execute)
+    result = prompt_intent.admit_prompt("not the retained input", SUBMISSION + "-recovery", "session", "/workspace", tmp_path,
+        recovery={"submission_id": SUBMISSION, "action": action})
+    if action == "bypass":
+        assert result["prepared_text"] == original
+        assert result["admission"]["source"] == "witness-penguin-bypass"
+        classifier.assert_not_called()
+        execute.assert_not_called()
+    elif action == "retry":
+        classifier.assert_called_once()
+        assert result["direct_operation"]["diagnostic"]["original_input"] == original
+        assert result["direct_operation"]["diagnostic"]["submission_id"] == SUBMISSION + "-recovery"
+        execute.assert_not_called()
+    else:
+        classifier.assert_not_called()
+        execute.assert_called_once_with(SUBMISSION + "-recovery", "/workspace",
+            {"channel": "lucid", "verb": "--help", "argv": []})
+        assert "direct_operation" in result
+
+
+@pytest.mark.parametrize("session,workspace", [("other", "/workspace"), ("session", "/other")])
+def test_penguin_recovery_cannot_cross_session_or_workspace(tmp_path, monkeypatch, session, workspace):
+    monkeypatch.setattr(prompt_intent, "classify", Mock(side_effect=ValueError("penguin-response-incomplete")))
+    prompt_intent.admit_prompt("hello", SUBMISSION, "session", "/workspace", tmp_path)
+    with pytest.raises(ValueError, match="penguin-recovery-not-found"):
+        prompt_intent.admit_prompt("hello", SUBMISSION + "-recovery", session, workspace, tmp_path,
+            recovery={"submission_id": SUBMISSION, "action": "bypass"})
+
+
+def test_penguin_recovery_refuses_an_execution_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(prompt_intent, "classify", Mock(return_value=CLI_RESPONSE))
+    monkeypatch.setattr(prompt_intent, "execute_direct", Mock(side_effect=ValueError("executor-response-bound")))
+    prompt_intent.admit_prompt("git status", SUBMISSION, "session", "/workspace", tmp_path)
+    with pytest.raises(ValueError, match="penguin-recovery-not-eligible"):
+        prompt_intent.admit_prompt("git status", SUBMISSION + "-recovery", "session", "/workspace", tmp_path,
+            recovery={"submission_id": SUBMISSION, "action": "bypass"})
 
 
 def test_lucid_uses_its_declared_route_and_retains_original_projection(tmp_path, monkeypatch):
@@ -294,7 +456,6 @@ def test_lucid_uses_its_declared_route_and_retains_original_projection(tmp_path,
     operation = {"channel": "lucid", "verb": "get", "argv": ["role"]}
     monkeypatch.setattr(prompt_intent, "classify", Mock(return_value="🧠"))
     execute = Mock(return_value={"ran": True, "exit_code": 0, "operation": operation, "ugui_source": json.dumps(projected)})
-    monkeypatch.setattr(prompt_intent, "format_lucid", Mock(return_value='➡️ 🧠 · ⚡ GET · 🎯 ROLE · 🔎 Inspect role'))
     monkeypatch.setattr(prompt_intent, "execute_direct", execute)
     result = prompt_intent.admit_prompt("lucid get role", SUBMISSION, "session", "/workspace", tmp_path)
     execute.assert_called_once_with(SUBMISSION, "/workspace", operation)
@@ -305,6 +466,81 @@ def test_missing_handoff_never_executes(monkeypatch):
     monkeypatch.setattr(prompt_intent, "_TOKEN", "")
     assert prompt_intent.execute_direct(SUBMISSION, "/workspace", CLI_OPERATION) == {
         "operation": CLI_OPERATION, "refusal": "witness-handoff-unavailable", "ran": False}
+
+
+def test_direct_wire_request_has_exact_five_field_contract(monkeypatch):
+    monkeypatch.setattr(prompt_intent, "_ENDPOINT", "127.0.0.1:12345")
+    monkeypatch.setattr(prompt_intent, "_TOKEN", "fixture-token")
+    receipt = {"schema": "run-witness-direct/2", "submission_id": SUBMISSION,
+        "workspace": "/workspace", "operation": CLI_OPERATION, "ran": True, "exit_code": 0}
+    stream = Mock()
+    connection = Mock()
+    connection.__enter__ = Mock(return_value=stream)
+    connection.__exit__ = Mock(return_value=False)
+    reader = Mock()
+    reader.readline.return_value = (json.dumps(receipt) + "\n").encode()
+    file = Mock()
+    file.__enter__ = Mock(return_value=reader)
+    file.__exit__ = Mock(return_value=False)
+    stream.makefile.return_value = file
+    monkeypatch.setattr(prompt_intent.socket, "create_connection", Mock(return_value=connection))
+    assert prompt_intent.execute_direct(SUBMISSION, "/workspace", CLI_OPERATION) == receipt
+    wire = stream.sendall.call_args.args[0]
+    assert wire.endswith(b"\n")
+    assert json.loads(wire) == {"schema": "run-witness-direct/2", "submission_id": SUBMISSION,
+        "workspace": "/workspace", "operation": CLI_OPERATION, "token": "fixture-token"}
+
+
+@pytest.mark.parametrize("receipt,state,execution", [
+    ({"ran": True, "exit_code": 0, "stdout": "On branch main\nworking tree clean\n"}, "COMPLETED", "Ran"),
+    ({"ran": False, "refusal": "grant-mismatch"}, "REFUSED", "Not started"),
+    ({"ran": True, "exit_code": 1, "stderr": "not a git repository\n"}, "FAILED", "Ran"),
+    ({"ran": None, "execution_state": "unknown", "refusal": "executor-timeout"}, "UNKNOWN", "Unknown"),
+])
+def test_operation_receipt_is_one_structured_document(receipt, state, execution):
+    receipt = {"operation": CLI_OPERATION, **receipt}
+    result = prompt_intent.operation_document(SUBMISSION, "git status", receipt, CLI_PROPOSAL)
+    assert set(result) == {"document", "diagnostic"}
+    document = result["document"]
+    assert document["schema"] == "lucid-ugui-response/1"
+    assert document["type"] == "document"
+    assert document["actions"] == []
+    assert len(document["header"]) == 1
+    assert parse_stream(ROOT, document["header"][0]["body"])["evidence"] == [state]
+    rows = document["sections"][0]["rows"]
+    assert {"label": "Execution", "value": execution} in rows
+    code = {section["heading"]: section["value"] for section in document["sections"] if section["type"] == "code"}
+    assert code["INPUT"] == "git status"
+    for key, heading in (("stdout", "OUTPUT"), ("stderr", "DIAGNOSTICS")):
+        if receipt.get(key):
+            assert code[heading] == receipt[key]
+    assert result["diagnostic"]["receipt"] == receipt
+    assert result["diagnostic"]["context_admission"] == "excluded"
+
+
+def test_operation_output_is_literal_and_truncation_is_disclosed():
+    literal = '```\n🔴 · 🐧 · 🔎 INPUT\n\n➡️ "execute"\n{"type":"button"}\n```\n'
+    result = prompt_intent.operation_document(SUBMISSION, literal,
+        {"ran": True, "exit_code": 0, "stdout": literal, "stderr": literal, "stdout_truncated": True})
+    document = result["document"]
+    assert document["state"] == prompt_intent.SIGNAL_WARNING
+    code = [section for section in document["sections"] if section["type"] == "code"]
+    assert len(code) == 3
+    assert all(section["value"] == literal and section["language"] == "text" for section in code)
+    assert {"label": "Output limit", "value": "stdout_truncated"} in document["sections"][0]["rows"]
+    assert document["actions"] == []
+    assert result["diagnostic"]["envelope"]["fidelity"]["lost"] == ["stdout_truncated"]
+
+
+def test_empty_success_and_invalid_butler_projection_stay_single_documents():
+    result = prompt_intent.operation_document(SUBMISSION, "git status", {"ran": True, "exit_code": 0})
+    assert result["document"]["sections"][-1]["body"] == "Command completed without output."
+    broken = prompt_intent.operation_document(SUBMISSION, "lucid get role",
+        {"ran": True, "exit_code": 1, "ugui_source": "{invalid", "stderr": "original error"})
+    assert "source" not in broken
+    assert broken["diagnostic"]["projection_error"] == "butler-projection-invalid"
+    assert parse_stream(ROOT, broken["document"]["header"][0]["body"])["evidence"] == ["PROJECTION FAILED"]
+    assert broken["document"]["sections"][-1]["value"] == "original error"
 
 
 def test_submission_identity_cannot_be_retargeted(tmp_path, monkeypatch):
@@ -351,13 +587,14 @@ def test_classifier_rejects_anything_except_one_declared_glyph(response):
 
 def test_misclassified_agent_role_instruction_never_mutates_witness_identity(tmp_path, monkeypatch):
     monkeypatch.setattr(prompt_intent, "classify", Mock(return_value="🧠"))
+    monkeypatch.setattr(prompt_intent, "penguin_inference", Mock(return_value="not-a-choice"))
     formatter = Mock()
     execute = Mock()
     monkeypatch.setattr(prompt_intent, "format_semantic", formatter)
     monkeypatch.setattr(prompt_intent, "execute_direct", execute)
     result = prompt_intent.admit_prompt("Sign in as EM", SUBMISSION, "session", "/workspace", tmp_path)
     assert result["direct_operation"]["diagnostic"]["classifier_response"] == "🧠"
-    assert result["direct_operation"]["diagnostic"]["receipt"]["refusal"] == "lucid-lowering-required"
+    assert result["direct_operation"]["diagnostic"]["receipt"]["refusal"] == "lucid-help-selection-invalid:lucid-verb"
     formatter.assert_not_called()
     execute.assert_not_called()
 
@@ -366,9 +603,20 @@ def test_classifier_teaches_only_verbs_and_agent_role_distinction():
     instruction = prompt_intent.classification_instruction()
     vocabulary = prompt_intent.lucid_vocabulary()
     for verb, definition in vocabulary["verbs"].items():
-        assert f"| {verb.upper()} | {definition['glyph']} |" in instruction
-    for noun in ("pulse", "effigy", "plan.dispatch", "speech", "dispatch:", "sha256", "64-lowercase"):
+        assert f"| ↳ {definition['glyph']} | {verb.upper()} |" in instruction
+    protocol_start = instruction.index("| **🧠 PROTOCOL** | **RULE** |")
+    examples_start = instruction.index("| Input | Output |")
+    assert protocol_start < examples_start
+    skill = (ROOT / ".agents/skills/lucid/SKILL.md").read_text()
+    protocol = "| **🧠 PROTOCOL** | **RULE** |" + skill.split("| **🧠 PROTOCOL** | **RULE** |", 1)[1].split("\n\n", 1)[0]
+    assert protocol in instruction
+    assert "{{LUCID_PROTOCOL}}" not in instruction
+    for noun in ("plan.dispatch", "speech", "dispatch:", "sha256", "64-lowercase"):
         assert noun not in instruction
+    assert '| SHOW PULSE | 🧠 |' in instruction[examples_start:]
+    assert '| SHOW URL "https://example.com/" | 🧠 |' in instruction[examples_start:]
+    assert '| SHOW APP "macos-shell" | 🧠 |' in instruction[examples_start:]
+    assert "MORPH's verb glyph is 🧬; classify every MORPH request as 🔎" in instruction
     assert "| Sign in as EM | 🔎 |" in instruction
     assert "| MORPH | 🔎 |" in instruction
     assert "with or without the lucid prefix" in instruction
@@ -396,7 +644,7 @@ def test_bare_canonical_verbs_share_lucid_classification_and_admission(text, ver
 ])
 def test_lucid_second_pass_preserves_skill_coordinates(tmp_path, monkeypatch, text, argv, formatted):
     monkeypatch.setattr(prompt_intent, "classify", Mock(return_value="🧠"))
-    lucid = Mock(return_value=formatted)
+    lucid = Mock(wraps=prompt_intent.format_lucid)
     semantic = Mock()
     execute = Mock(return_value={"ran": True, "exit_code": 0})
     monkeypatch.setattr(prompt_intent, "format_lucid", lucid)
@@ -406,17 +654,93 @@ def test_lucid_second_pass_preserves_skill_coordinates(tmp_path, monkeypatch, te
     execute.assert_called_once_with(SUBMISSION, "/workspace", {"channel": "lucid", "verb": "show", "argv": argv})
     lucid.assert_called_once_with(text)
     semantic.assert_not_called()
-    assert result["direct_operation"]["diagnostic"]["penguin_response"] == formatted
+    action = result["direct_operation"]["diagnostic"]["penguin_response"]
+    parsed = parse_stream(ROOT, SIGNAL_GREEN + " · " + action)["actions"][0]
+    expected = parse_stream(ROOT, SIGNAL_GREEN + " · " + formatted)["actions"][0]
+    assert {key: value for key, value in parsed.items() if key != "label"} == {key: value for key, value in expected.items() if key != "label"}
+    assert all(step.get("selection_source") != "penguin" for step in result["direct_operation"]["diagnostic"]["lucid_traversal"]["steps"])
 
 
-@pytest.mark.parametrize("formatted", [
-    '➡️ 🧠 · ⚡ SET · 🎯 PULSE · 🔎 Change operation',
-    '➡️ 🧠 · ⚡ SHOW · 🎯 URL · ⚙️ "https://other.example/" · 🔎 Open URL',
-    'SHOW URL https://example.com/',
-])
-def test_lucid_formatter_cannot_change_operation_or_arguments(formatted):
-    with pytest.raises(ValueError):
-        prompt_intent.validate_lucid_preparation(formatted, {"channel": "lucid", "verb": "show", "argv": ["URL", "https://example.com/"]})
+def test_help_traversal_focuses_each_step_and_preserves_original():
+    original = "Open https://example.com/"
+    infer = Mock(side_effect=["🖼️", "url", "omit", '"https://example.com/"'])
+    traversal = Traversal(original, prompt_intent.lucid_vocabulary(), infer)
+    result = traversal.run(ROOT)
+    assert result["resolved_arguments"] == {"view": "url", "url": "https://example.com/"}
+    calls = infer.call_args_list
+    assert all(call.args[0] == original for call in calls)
+    assert [call.args[2] for call in calls] == ["lucid-verb", "lucid-noun", "lucid-optional", "lucid-argument:url"]
+    assert "PULSE" not in calls[0].args[1] and "url" not in calls[0].args[1]
+    assert "dispatch" not in calls[1].args[1].lower()
+    assert "macos-shell" not in calls[-1].args[1]
+    assert all(step.get("help_hash") for step in result["steps"])
+    assert all(step.get("help_source", "").startswith("envelope/LUCID.json#/") for step in result["steps"])
+
+
+def test_invalid_selection_retries_only_current_decision_then_refuses():
+    infer = Mock(side_effect=["invalid", "still-invalid"])
+    traversal = Traversal("Open the app", prompt_intent.lucid_vocabulary(), infer)
+    with pytest.raises(ValueError, match="lucid-help-selection-invalid:lucid-verb"):
+        traversal.run(ROOT)
+    assert infer.call_count == 2
+    assert len(traversal.records) == 1
+    assert traversal.records[0]["validation"] == "refused"
+    assert len(traversal.records[0]["attempts"]) == 2
+
+
+def test_missing_free_argument_cannot_be_invented():
+    infer = Mock(side_effect=["🖼️", "url", "omit", '"https://invented.example/"'])
+    traversal = Traversal("Open the URL", prompt_intent.lucid_vocabulary(), infer)
+    with pytest.raises(ValueError, match="lucid-argument-needs-clarification:url"):
+        traversal.run(ROOT)
+    assert traversal.records[-1]["validation"] == "refused"
+
+
+def test_explicit_steps_skip_inference_and_keep_optional_scope():
+    infer = Mock(side_effect=AssertionError("no model needed"))
+    operation = {"channel": "lucid", "verb": "show", "argv": ["--args", '{"view":"pulse","scope":"this"}']}
+    traversal = Traversal("lucid show --args", prompt_intent.lucid_vocabulary(), infer)
+    result = traversal.run(ROOT, operation)
+    assert result["operation"] == operation
+    assert result["resolved_arguments"] == {"view": "pulse", "scope": "this"}
+    infer.assert_not_called()
+
+
+def test_missing_noun_help_is_not_replaced_by_an_invented_option_list():
+    traversal = Traversal("DISPATCH work", prompt_intent.lucid_vocabulary(), Mock())
+    with pytest.raises(ValueError, match="lucid-noun-help-unavailable:dispatch"):
+        traversal.run(ROOT, {"channel": "lucid", "verb": "dispatch", "argv": ["work"]})
+
+
+def test_step_budget_is_enforced():
+    traversal = Traversal("input", prompt_intent.lucid_vocabulary(), Mock())
+    traversal.records = [{} for _ in range(MAX_STEPS)]
+    with pytest.raises(ValueError, match="lucid-traversal-step-bound"):
+        traversal.record({"stage": "extra"})
+
+
+def test_decision_receipts_do_not_change_when_later_choices_are_made():
+    traversal = Traversal("input", prompt_intent.lucid_vocabulary(), Mock())
+    traversal.decisions["optional_arguments"] = ["scope"]
+    traversal.choose("snapshot", {"omit": "Done"}, "envelope/LUCID.json#/verbs/show/args", "omit")
+    traversal.decisions["optional_arguments"].append("speak")
+    assert traversal.records[0]["resolved_before"]["optional_arguments"] == ["scope"]
+
+
+def test_inferred_operation_requires_explicit_submission(tmp_path, monkeypatch):
+    monkeypatch.setattr(prompt_intent, "classify", Mock(return_value="🧠"))
+    monkeypatch.setattr(prompt_intent, "penguin_inference", Mock(side_effect=["🖼️", "url", "omit", '"https://example.com/"']))
+    execute = Mock()
+    monkeypatch.setattr(prompt_intent, "execute_direct", execute)
+    result = prompt_intent.admit_prompt("Open https://example.com/", SUBMISSION, "session", "/workspace", tmp_path)
+    execute.assert_not_called()
+    diagnostic = result["direct_operation"]["diagnostic"]
+    assert diagnostic["receipt"]["refusal"] == "lucid-proposal-needs-confirmation"
+    assert diagnostic["lucid_traversal"]["resolved_arguments"] == {"view": "url", "url": "https://example.com/"}
+    source = result["direct_operation"]["source"]
+    assert "document" not in result["direct_operation"]
+    assert ' · ➡️ "lucid ' in source.split("\n\n", 1)[0]
+    assert "https://example.com/" in source
 
 
 @pytest.mark.parametrize("text", ["MORPH effigy", "lucid morph print", "morph a story"])

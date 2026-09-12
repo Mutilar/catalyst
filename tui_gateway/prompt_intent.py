@@ -5,9 +5,9 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import re
 import socket
 import shlex
-from hermes_gestalt import parse_stream, semantic_action
 import sqlite3
 import time
 import threading
@@ -16,12 +16,14 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agent.generated.ae_glyphs import SIGNAL_GREEN, SIGNAL_RED, SIGNAL_PENDING, IDENTITY_PENGUIN
+from agent.generated.ae_glyphs import SIGNAL_GREEN, SIGNAL_RED, SIGNAL_PENDING, SIGNAL_WARNING, IDENTITY_PENGUIN, DELIMITER_SEGMENT, RELATION_ACTION
 from hermes_penguin import PENGUIN_WIRE_MODEL_ID
+from hermes_gestalt import canonical_stream
 from tui_gateway.intent_admission import (
     MAX_INPUT_BYTES, SCHEMA, catalog_hash, evaluate_twitch, input_hash,
     invocation_tokens, operation_from_tokens,
 )
+from tui_gateway.lucid_traversal import Traversal, receipt_walkthroughs
 
 _ENDPOINT = os.environ.pop("AE_WITNESS_DIRECT_ENDPOINT", "")
 _TOKEN = os.environ.pop("AE_WITNESS_DIRECT_TOKEN", "")
@@ -31,7 +33,7 @@ _ACTIVE_LOCK = threading.Lock()
 _ACTIVE: dict[str, tuple[str, threading.Event, list]] = {}
 _REQUEST = threading.local()
 CLASSIFIER_CHANNELS = {"🧠": "lucid", "🔎": "semantic", "🤖": "cli"}
-STAGE_TOKEN_LIMITS = {"classification": 8, "semantic-preparation": 8192, "lucid-preparation": 1024}
+STAGE_TOKEN_LIMITS = {"classification": 8192, "semantic-preparation": 8192}
 
 
 def lucid_vocabulary() -> dict:
@@ -48,12 +50,22 @@ def classification_instruction() -> str:
     path = Path(__file__).with_name("penguin-classification.md")
     if path.is_symlink() or not 0 < path.stat().st_size <= 8192:
         raise ValueError("classifier-instruction-source-bound")
+    skill_path = Path(__file__).resolve().parents[2] / ".agents/skills/lucid/SKILL.md"
+    if skill_path.is_symlink() or not skill_path.is_file() or not 0 < skill_path.stat().st_size <= 65_536:
+        raise ValueError("classifier-protocol-source-bound")
+    skill = skill_path.read_text(encoding="utf-8")
+    header = "| **🧠 PROTOCOL** | **RULE** |"
+    if skill.count(header) != 1:
+        raise ValueError("classifier-protocol-table-missing")
+    table = header + skill.split(header, 1)[1].split("\n\n", 1)[0]
     vocabulary = lucid_vocabulary()
-    rows = ["| Verb | Glyph |", "|---|---|"]
     for verb, definition in vocabulary["verbs"].items():
-        cells = [verb.upper(), definition["glyph"]]
-        rows.append("| " + " | ".join(cell.replace("|", "\\|").replace("\n", " ") for cell in cells) + " |")
-    return path.read_text(encoding="utf-8") + "\n\n" + "\n".join(rows)
+        if table.count(f"| ↳ {definition['glyph']} | {verb.upper()} |") != 1:
+            raise ValueError("classifier-protocol-vocabulary-mismatch")
+    template = path.read_text(encoding="utf-8")
+    if template.count("{{LUCID_PROTOCOL}}") != 1:
+        raise ValueError("classifier-protocol-slot-invalid")
+    return template.replace("{{LUCID_PROTOCOL}}", table)
 
 
 def decode_classification(text: str, response: str) -> dict:
@@ -73,7 +85,9 @@ def decode_classification(text: str, response: str) -> dict:
     operation = operation_from_tokens(invocation_tokens(text),
         lucid_verbs=lucid_vocabulary()["verbs"] if channel == "lucid" else ())
     if operation["channel"] != channel:
-        raise ValueError("lucid-lowering-required" if channel == "lucid" else "classifier-invocation-mismatch")
+        if channel == "lucid":
+            return {"classification": "lucid", "classifier_response": response}
+        raise ValueError("classifier-invocation-mismatch")
     return {"classification": "direct", "operation": operation, "classifier_response": response}
 
 
@@ -116,7 +130,7 @@ def _cache_identity() -> str:
     return input_hash(json.dumps({"catalog": catalog_hash(), "model": PENGUIN_WIRE_MODEL_ID,
         "instruction": input_hash(penguin_instruction(Path(__file__).resolve().parents[2])),
         "classifier_instruction": input_hash(classification_instruction()),
-        "lucid_instruction": input_hash(lucid_instruction()),
+        "lucid_traversal": input_hash(Path(__file__).with_name("lucid_traversal.py").read_text()),
         "policy": input_hash(Path(__file__).read_text())}, sort_keys=True))
 
 
@@ -257,38 +271,30 @@ def format_semantic(text: str) -> str:
     return penguin_inference(text, penguin_instruction(Path(__file__).resolve().parents[2]), "semantic-preparation", STAGE_TOKEN_LIMITS["semantic-preparation"])
 
 
-def lucid_instruction() -> str:
-    path = Path(__file__).with_name("penguin-lucid.md")
-    if path.is_symlink() or not 0 < path.stat().st_size <= 8192:
-        raise ValueError("lucid-instruction-source-bound")
-    return path.read_text(encoding="utf-8")
-
-
 def format_lucid(text: str) -> str:
-    return penguin_inference(text, lucid_instruction(), "lucid-preparation", STAGE_TOKEN_LIMITS["lucid-preparation"])
+    vocabulary = lucid_vocabulary()
+    tokens = invocation_tokens(text)
+    explicit = operation_from_tokens(tokens, lucid_verbs=vocabulary["verbs"])
+    if explicit["channel"] != "lucid":
+        explicit = None
 
+    def infer(original: str, instruction: str, stage: str, max_tokens: int) -> str:
+        _check_cancelled()
+        callback = getattr(_REQUEST, "progress", None)
+        if callback is not None:
+            callback(stage)
+        response = penguin_inference(original, instruction, stage, max_tokens)
+        _check_cancelled()
+        return response
 
-def validate_lucid_preparation(response: str, operation: dict) -> None:
-    if not isinstance(response, str) or len(response.encode()) > 16_384 or "\n" in response.strip():
-        raise ValueError("lucid-preparation-bound")
-    root = Path(__file__).resolve().parents[2]
-    stream = parse_stream(root, SIGNAL_GREEN + " · " + response.strip())
-    if len(stream["actions"]) != 1 or stream["data"] or stream["verb"] or stream["evidence"] or stream["continuations"] or stream["timing"]:
-        raise ValueError("lucid-preparation-action-required")
-    action = stream["actions"][0]
-    argv = operation["argv"]
-    if argv and argv[0] == "--args" and len(argv) == 2:
-        expected = semantic_action(root, operation["verb"], json.loads(argv[1]), "")
-        expected_noun = expected.get("noun")
-        expected_arguments = shlex.split(expected["argument"]) if expected.get("argument") is not None else []
-    else:
-        expected_noun = argv[0].lower() if argv else None
-        expected_arguments = argv[1:]
-    if not expected_noun or action["verb"] != operation["verb"] or action["noun"] != expected_noun.lower():
-        raise ValueError("lucid-preparation-intent-mismatch")
-    arguments = shlex.split(action["argument"]) if action["argument"] is not None else []
-    if arguments != expected_arguments or not action["label"]:
-        raise ValueError("lucid-preparation-arguments-mismatch")
+    traversal = Traversal(text, vocabulary, infer)
+    try:
+        result = traversal.run(Path(__file__).resolve().parents[2], explicit)
+        _REQUEST.lucid_traversal = result
+        return result.get("gestalt", "")
+    except (ValueError, KeyError, TypeError) as error:
+        _REQUEST.lucid_traversal = {"steps": traversal.records, "refusal": str(error), "executed": False}
+        raise
 
 
 def penguin_request(text: str, instruction: str, max_tokens: int) -> dict:
@@ -303,7 +309,11 @@ def generate_prompt_receipt(root: Path) -> Path:
     sources = [Path(__file__).resolve(), Path(__file__).with_name("penguin-classification.md"),
         Path(__file__).with_name("penguin-preparation.md"), root / "quine/canon/AGENT_INSTRUCTIONS.json",
         root / "catalyst/hermes_penguin.py", root / "catalyst/agent/generated/ae_glyphs.py",
-        root / "envelope/LUCID.json", Path(__file__).with_name("penguin-lucid.md")]
+        root / "envelope/LUCID.json", root / "envelope/GESTALT.json", root / ".agents/skills/lucid/SKILL.md",
+        Path(__file__).with_name("lucid_traversal.py"),
+        root / "catalyst/tests/tui_gateway/test_prompt_intent.py",
+        root / "catalyst/apps/desktop/src/components/assistant-ui/direct-operation.tsx",
+        root / "catalyst/apps/desktop/src/components/assistant-ui/direct-operation.test.tsx"]
 
     def source_hashes() -> dict:
         hashes = {}
@@ -314,7 +324,8 @@ def generate_prompt_receipt(root: Path) -> Path:
         return hashes
 
     before = source_hashes()
-    instructions = {"classification": classification_instruction(), "lucid-preparation": lucid_instruction(), "semantic-preparation": penguin_instruction(root)}
+    instructions = {"classification": classification_instruction(), "semantic-preparation": penguin_instruction(root)}
+    walkthroughs = receipt_walkthroughs(root, lucid_vocabulary())
     stages = []
     for stage, instruction in instructions.items():
         request = penguin_request("", instruction, STAGE_TOKEN_LIMITS[stage])
@@ -326,6 +337,20 @@ def generate_prompt_receipt(root: Path) -> Path:
         raise ValueError("prompt-receipt-source-changed")
     payload = {"schema": "penguin-prompt-generation/1", "generator": "tui_gateway.prompt_intent.generate_prompt_receipt",
         "sources": before, "stages": stages, "inference_ran": False,
+        "lucid_traversal": walkthroughs,
+        "audit": {
+            "generation": "Executed actual prompt assembly and pinned traversal projection; no model or command execution",
+            "design_obligations": ["Original input is supplied to every inference", "Only current-stage choices are shown",
+                "Explicit choices skip inference", "MORPH returns to semantic evaluation",
+                "Inferred requests require confirmation; no execution from a model selection alone"],
+            "bounds": {"steps": 16, "selection_attempts": 2, "choices": 128, "prompt_bytes": 16384},
+            "observations": [{"input": example["input"], "recorded_steps": len(example["result"]["steps"]),
+                "inference_calls": sum(len(step.get("attempts", [])) for step in example["result"]["steps"] if step.get("selection_source") == "penguin"),
+                "semantic_required": example["result"].get("semantic_required", False),
+                "projected_action": example["result"].get("gestalt")} for example in walkthroughs],
+            "qualification": "Tests, compilation, and live model/UI checks not run; QUINE-owned",
+            "open_contracts": ["DISPATCH/STEER/CANCEL noun-specific adapters", "Complex object argument preparation",
+                "Runtime model selection accuracy"]},
         "generation_only": True}
     digest = input_hash(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     directory = root / "run/state/runtime/penguin-prompts"
@@ -333,6 +358,15 @@ def generate_prompt_receipt(root: Path) -> Path:
     stem = digest.removeprefix("sha256:")
     readable = "# Generated PENGUIN Prompts\n\nGeneration only; not an inference or delivery attestation.\n\n"
     readable += "\n\n".join("## " + stage + "\n\n" + instruction for stage, instruction in instructions.items())
+    readable += "\n\n## LUCID Traversal Receipt\n\nGeneration-only walkthroughs; no inference or execution.\n"
+    for walkthrough in walkthroughs:
+        readable += "\n### " + walkthrough["input"] + "\n\n"
+        for step in walkthrough["result"]["steps"]:
+            readable += "#### " + step["stage"] + "\n\n"
+            readable += step.get("system_prompt", "Argument contract resolved without inference.") + "\n\n"
+            readable += "Selection: `" + str(step.get("selected", "")) + "`\n\n"
+        readable += walkthrough["result"].get("gestalt", "Semantic evaluation required.") + "\n"
+    readable += "\n## Audit\n\n" + json.dumps(payload["audit"], indent=2) + "\n"
     readable += "\n"
     envelope = {"intent": {"verb": "get", "args": {"path": "penguin-prompts", "result": payload}},
         "capability": None, "escalation": None,
@@ -365,9 +399,9 @@ def penguin_inference(text: str, instruction: str, stage: str, max_tokens: int) 
     endpoint = urlsplit(PENGUIN_BASE_URL)
     if endpoint.hostname != "127.0.0.1" or endpoint.scheme != "http":
         raise ValueError("penguin-endpoint-not-local")
-    _REQUEST.instruction = instruction
     stages = getattr(_REQUEST, "stages", None)
-    record = {"stage": stage, "system_prompt": instruction, "input": text, "response": None}
+    record = {"stage": stage, "system_prompt": instruction, "system_prompt_hash": input_hash(instruction),
+        "max_tokens": max_tokens, "input": text, "response": None}
     if stages is not None:
         stages.append(record)
     started = time.monotonic()
@@ -383,6 +417,14 @@ def penguin_inference(text: str, instruction: str, stage: str, max_tokens: int) 
         result = json.loads(raw)
         choice = result["choices"][0]
         record["response"] = choice.get("message", {}).get("content")
+        record["finish_reason"] = choice.get("finish_reason")
+        usage = result.get("usage")
+        if isinstance(usage, dict):
+            record["usage"] = {key: usage[key] for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+                if type(usage.get(key)) is int and usage[key] >= 0}
+        reasoning = choice.get("message", {}).get("reasoning_content")
+        if isinstance(reasoning, str):
+            record["reasoning_chars"] = len(reasoning)
         if choice.get("finish_reason") != "stop":
             raise ValueError("penguin-response-incomplete")
         response_text = choice["message"]["content"]
@@ -402,18 +444,27 @@ def prepare_semantic(text: str, candidate: dict, root: Path) -> str:
     return candidate["gestalt"]
 
 
+def presentation_source(signal: str, evidence: str, *, data: tuple[str, ...] = (),
+    blocks: tuple[tuple[str, str], ...] = (), continuations: tuple[str, ...] = ()) -> str:
+    root = Path(__file__).resolve().parents[2]
+    source = canonical_stream(root, signal, service=IDENTITY_PENGUIN,
+        evidence=(evidence,), data=data)
+    source += "".join(DELIMITER_SEGMENT + RELATION_ACTION + " " + json.dumps(label) for label in continuations)
+    for label, value in blocks:
+        if value:
+            source += "\n\n" + canonical_stream(root, signal, service=IDENTITY_PENGUIN, evidence=(label,))
+            fence = "`" * max(3, 1 + max((len(run) for run in re.findall(r"`+", value)), default=0))
+            source += "\n\n" + fence + "text\n" + value + "\n" + fence
+    return source
+
+
 def preparation_document(submission: str, text: str, phase: str, *, transformed: str = "",
     proposal: dict | None = None, source: str | None = None, elapsed_ms: int = 0) -> dict:
     pending = phase not in {"prepared", "refused"}
     signal = SIGNAL_PENDING if pending else SIGNAL_RED if phase == "refused" else SIGNAL_GREEN
     return {
-        "document": {"schema": "lucid-ugui-response/1", "id": submission + "-preparation",
-            "type": "document", "header": [], "actions": [], "sections": [
-                {"id": "phase", "type": "status", "signal": signal,
-                 "heading": "From user / PENGUIN", "body": phase},
-                {"id": "original", "type": "code", "heading": "Original input", "body": text},
-                {"id": "transformed", "type": "code", "heading": "Prepared input", "body": transformed},
-            ]},
+        "source": presentation_source(signal, phase.upper(),
+            blocks=(("INPUT", text), ("PREPARED INPUT", transformed))),
         "diagnostic": {"schema": "catalyst-intent-preparation/1", "submission_id": submission,
             "phase": phase, "pending": pending, "original_input": text, "input_hash": input_hash(text),
             "transformed_input": transformed, "proposal": proposal, "interpretation_source": source,
@@ -478,26 +529,61 @@ def operation_document(submission: str, text: str, receipt: dict, proposal: dict
     }
     body = receipt.get("stdout", "")
     stderr = receipt.get("stderr", "")
-    document = {"schema": "lucid-ugui-response/1", "id": submission, "type": "document",
-        "header": [], "actions": [], "sections": [
-            {"id": "operation", "type": "status", "signal": SIGNAL_GREEN if success else SIGNAL_RED,
-             "heading": "WITNESS / " + str((receipt.get("operation") or {}).get("channel", "intent admission")),
-             "body": receipt.get("refusal") or ("Completed" if success else "Not completed")},
-            {"id": "request", "type": "code", "heading": "Input", "body": text},
-            {"id": "stdout", "type": "code", "heading": "Output", "body": body},
-            {"id": "stderr", "type": "code", "heading": "Diagnostics", "body": stderr},
-        ]}
+    unknown = receipt.get("execution_state") == "unknown" or receipt.get("ran") is None
+    state = "UNKNOWN" if unknown else "COMPLETED" if success else "FAILED" if receipt.get("ran") is True else "REFUSED"
+    signal = SIGNAL_WARNING if unknown or (success and lost) else SIGNAL_GREEN if success else SIGNAL_RED
+    rows = [{"label": "Execution", "value": "Unknown" if unknown else "Ran" if receipt.get("ran") is True else "Not started"}]
+    if receipt.get("exit_code") is not None:
+        rows.append({"label": "Exit code", "value": str(receipt["exit_code"])})
+    if refusal:
+        rows.append({"label": "Refusal", "value": str(refusal)})
+    for field in lost:
+        rows.append({"label": "Output limit", "value": field})
+    document = {"schema": "lucid-ugui-response/1", "type": "document",
+        "id": "direct-" + input_hash(submission).removeprefix("sha256:"), "state": signal,
+        "header": [{"type": "text", "body": presentation_source(signal, state)}],
+        "sections": [{"type": "key_value", "heading": "Execution", "rows": rows}], "actions": []}
+    for label, value in (("INPUT", text), ("OUTPUT", body), ("DIAGNOSTICS", stderr)):
+        if value:
+            document["sections"].append({"type": "code", "heading": label, "language": "text", "value": value})
+    if success and not body and not stderr:
+        document["sections"].append({"type": "text", "body": "Command completed without output."})
     if receipt.get("ugui_source"):
         try:
             projected = json.loads(receipt["ugui_source"])
             if not isinstance(projected, dict) or projected.get("schema") != "lucid-ugui-response/1":
                 raise ValueError("butler-projection-invalid")
-            document = projected
+            return {"document": projected, "diagnostic": diagnostic}
         except (ValueError, TypeError):
             diagnostic["projection_error"] = "butler-projection-invalid"
-            document["sections"].insert(0, {"id": "projection", "type": "status", "signal": SIGNAL_RED,
-                "heading": "Projection failed", "body": "butler-projection-invalid"})
+            document["state"] = SIGNAL_RED
+            document["header"] = [{"type": "text", "body": presentation_source(SIGNAL_RED, "PROJECTION FAILED")}]
+            rows.append({"label": "Projection", "value": "butler-projection-invalid"})
     return {"document": document, "diagnostic": diagnostic}
+
+
+def project_penguin_failure(evidence: dict) -> None:
+    diagnostic = evidence["diagnostic"]
+    receipt = diagnostic["receipt"]
+    if not receipt.get("refusal") or receipt.get("phase") not in {
+        "classification", "semantic-preparation", "lucid-preparation"
+    } or receipt.get("execution_state") != "not-started":
+        return
+    rows = [{"key": "Refusal", "value": receipt["refusal"]},
+        {"key": "Phase", "value": receipt["phase"]},
+        {"key": "Execution", "value": "Not started"},
+        {"key": "Submission", "value": diagnostic["submission_id"]}]
+    for stage in diagnostic.get("stages", [])[-1:]:
+        for field in ("stage", "finish_reason", "max_tokens", "elapsed_ms", "reasoning_chars"):
+            if stage.get(field) is not None:
+                rows.append({"key": field.replace("_", " ").title(), "value": str(stage[field])})
+        for field, value in stage.get("usage", {}).items():
+            rows.append({"key": field.replace("_", " ").title(), "value": str(value)})
+    diagnostic["recovery"] = {"submission_id": diagnostic["submission_id"]}
+    evidence.pop("document", None)
+    evidence["source"] = presentation_source(SIGNAL_RED, "INTENT ADMISSION REFUSED",
+        data=tuple(row["key"].upper() + " " + json.dumps(row["value"]) for row in rows),
+        blocks=(("INPUT", diagnostic["original_input"]),), continuations=("Retry", "Bypass", "Help"))
 
 
 @contextmanager
@@ -516,10 +602,56 @@ def _journal(home: Path):
         connection.close()
 
 
-def admit_prompt(text: str, submission: str, session: str, workspace: str, home: Path, *, on_preparation=None) -> dict:
+def has_canonical_signal_prefix(text: object) -> bool:
+    return isinstance(text, str) and text.startswith((SIGNAL_GREEN, SIGNAL_PENDING, SIGNAL_WARNING, SIGNAL_RED))
+
+
+def recover_prompt(recovery: dict, submission: str, session: str, workspace: str, home: Path, on_preparation=None) -> dict:
+    if not isinstance(recovery, dict) or set(recovery) != {"submission_id", "action"}:
+        raise ValueError("penguin-recovery-invalid")
+    previous_id, action = recovery["submission_id"], recovery["action"]
+    if not isinstance(previous_id, str) or previous_id == submission or action not in ("retry", "bypass", "help"):
+        raise ValueError("penguin-recovery-invalid")
+    with _journal(home) as journal:
+        previous = journal.execute("SELECT session,workspace,result FROM operations WHERE id=?", (previous_id,)).fetchone()
+    if not previous or previous[:2] != (session, workspace) or not previous[2]:
+        raise ValueError("penguin-recovery-not-found")
+    diagnostic = json.loads(previous[2]).get("direct_operation", {}).get("diagnostic", {})
+    receipt = diagnostic.get("receipt", {})
+    if not receipt.get("refusal") or receipt.get("execution_state") != "not-started" or receipt.get("phase") not in {
+        "classification", "semantic-preparation", "lucid-preparation"
+    }:
+        raise ValueError("penguin-recovery-not-eligible")
+    original = diagnostic.get("original_input")
+    if not isinstance(original, str) or not original or len(original.encode()) > MAX_INPUT_BYTES:
+        raise ValueError("penguin-recovery-input-invalid")
+    if action == "retry":
+        return admit_prompt(original, submission, session, workspace, home, on_preparation=on_preparation)
+    if action == "help":
+        operation = {"channel": "lucid", "verb": "--help", "argv": []}
+        return {"direct_operation": operation_document(submission, "lucid --help --modality ugui",
+            execute_direct(submission, workspace, operation))}
+    return {"prepared_text": original, "admission": {
+        "source": "witness-penguin-bypass", "failed_submission_id": previous_id,
+        "input_hash": input_hash(original), "penguin_bypassed": True, "inference_ran": False, "stages": [],
+    }}
+
+
+def admit_prompt(text: str, submission: str, session: str, workspace: str, home: Path, *, on_preparation=None, recovery=None) -> dict:
     started = time.monotonic()
+    if recovery is not None:
+        return recover_prompt(recovery, submission, session, workspace, home, on_preparation)
     if not text or len(text.encode()) > MAX_INPUT_BYTES:
         return {"direct_operation": operation_document(submission, "", {"refusal": "input-bound", "ran": False})}
+    if has_canonical_signal_prefix(text):
+        return {"prepared_text": text, "admission": {
+            "source": "canonical-signal-prefix", "input_hash": input_hash(text),
+            "penguin_bypassed": True, "inference_ran": False, "stages": [],
+        }}
+    from hermes_cli.input_sanitize import sanitize_user_prompt_text
+
+    original_input = text
+    text = sanitize_user_prompt_text(text)
     with _journal(home) as journal:
         journal.execute("BEGIN IMMEDIATE")
         previous = journal.execute("SELECT session,input_hash,workspace,result FROM operations WHERE id=?", (submission,)).fetchone()
@@ -541,8 +673,8 @@ def admit_prompt(text: str, submission: str, session: str, workspace: str, home:
     phase = "classification"
     candidate_source = None
     prepared = None
-    _REQUEST.instruction = None
     _REQUEST.stages = []
+    _REQUEST.lucid_traversal = None
     classifier_response = None
 
     def publish(phase: str, transformed: str = "") -> dict:
@@ -551,10 +683,7 @@ def admit_prompt(text: str, submission: str, session: str, workspace: str, home:
         document["diagnostic"]["penguin_response"] = response_text
         document["diagnostic"]["classifier_response"] = classifier_response
         document["diagnostic"]["stages"] = [dict(stage) for stage in _REQUEST.stages]
-        instruction = getattr(_REQUEST, "instruction", None)
-        if instruction is not None:
-            document["diagnostic"]["penguin_system_prompt"] = instruction
-            document["diagnostic"]["penguin_system_prompt_hash"] = input_hash(instruction)
+        document["diagnostic"]["lucid_traversal"] = getattr(_REQUEST, "lucid_traversal", None)
         if on_preparation is not None:
             on_preparation(document)
         return document
@@ -562,6 +691,7 @@ def admit_prompt(text: str, submission: str, session: str, workspace: str, home:
     with _ACTIVE_LOCK:
         _ACTIVE[submission] = (session, threading.Event(), [])
     _REQUEST.submission = submission
+    _REQUEST.progress = publish
     try:
         publish("classification")
         candidate = cached_candidate(home, text)
@@ -577,6 +707,26 @@ def admit_prompt(text: str, submission: str, session: str, workspace: str, home:
                 "input": text, "response": classifier_response, "elapsed_ms": 0})
         _check_cancelled()
         classification = candidate.get("classification")
+        lucid_result = None
+        if classification == "lucid" or (classification == "direct" and candidate["operation"]["channel"] == "lucid"):
+            phase = "lucid-preparation"
+            publish(phase)
+            response_text = format_lucid(text)
+            lucid_result = getattr(_REQUEST, "lucid_traversal", None)
+            _check_cancelled()
+            if lucid_result is None:
+                raise ValueError("lucid-traversal-receipt-missing")
+            if lucid_result.get("semantic_required"):
+                classification = "semantic"
+            elif classification == "lucid":
+                result = {"direct_operation": operation_document(submission, text,
+                    {"ran": False, "refusal": "lucid-proposal-needs-confirmation", "ugui_source": None},
+                    {"classification": "lucid", "gestalt": response_text})}
+                invocation = shlex.join(["lucid", lucid_result["operation"]["verb"], *lucid_result["operation"]["argv"]])
+                result["direct_operation"].pop("document", None)
+                result["direct_operation"]["source"] = presentation_source(SIGNAL_PENDING, "CONFIRMATION REQUIRED",
+                    blocks=(("INPUT", text), ("PROPOSED ACTION", response_text)), continuations=(invocation,))
+                classification = "proposal"
         if classification == "semantic":
             phase = "semantic-preparation"
             publish(phase)
@@ -593,12 +743,6 @@ def admit_prompt(text: str, submission: str, session: str, workspace: str, home:
             prepared["diagnostic"]["validation_scope"] = "Canonical GESTALT syntax and channel; semantic fidelity is not mechanically proven"
             result["preparation"] = prepared
         elif classification == "direct":
-            if candidate["operation"]["channel"] == "lucid":
-                phase = "lucid-preparation"
-                publish(phase)
-                response_text = format_lucid(text)
-                _check_cancelled()
-                validate_lucid_preparation(response_text, candidate["operation"])
             phase = "twitch-admission"
             if set(candidate) != {"classification", "operation", "classifier_response"}:
                 raise ValueError("direct-proposal-schema")
@@ -615,7 +759,7 @@ def admit_prompt(text: str, submission: str, session: str, workspace: str, home:
             receipt["admission"] = admission.diagnostic()
             receipt["interpretation_source"] = candidate_source
             result = {"direct_operation": operation_document(submission, text, receipt, candidate)}
-        else:
+        elif classification != "proposal":
             reason = "intent-clarification-required"
             result = {"direct_operation": operation_document(submission, text, {"refusal": reason, "ran": False}, candidate)}
     except (OSError, ValueError, KeyError, TypeError, IndexError, http.client.HTTPException) as error:
@@ -624,18 +768,20 @@ def admit_prompt(text: str, submission: str, session: str, workspace: str, home:
             {"refusal": reason[:256], "ran": None if phase == "execution" else False,
              "execution_state": "unknown" if phase == "execution" else "not-started", "phase": phase}, candidate)}
     finally:
-        instruction = getattr(_REQUEST, "instruction", None)
         if result is not None:
             evidence = result.get("preparation") or result.get("direct_operation")
             if evidence is not None:
                 evidence["diagnostic"]["classifier_response"] = classifier_response
                 evidence["diagnostic"]["stages"] = [dict(stage) for stage in _REQUEST.stages]
-                if instruction is not None:
-                    evidence["diagnostic"]["penguin_system_prompt"] = instruction
-                    evidence["diagnostic"]["penguin_system_prompt_hash"] = input_hash(instruction)
+                evidence["diagnostic"]["lucid_traversal"] = getattr(_REQUEST, "lucid_traversal", None)
+                if "direct_operation" in result and evidence["diagnostic"]["receipt"].get("execution_state") == "not-started":
+                    evidence["diagnostic"]["original_input"] = original_input
+                    evidence["diagnostic"]["input_hash"] = input_hash(original_input)
+                    project_penguin_failure(evidence)
         with _ACTIVE_LOCK:
             _ACTIVE.pop(submission, None)
         _REQUEST.submission = None
+        _REQUEST.progress = None
     if "direct_operation" in result:
         result["direct_operation"]["diagnostic"]["admission_elapsed_ms"] = round((time.monotonic() - started) * 1000)
         result["direct_operation"]["diagnostic"]["phase"] = phase
@@ -648,8 +794,8 @@ def admit_prompt(text: str, submission: str, session: str, workspace: str, home:
         else:
             publish("refused" if result["direct_operation"]["diagnostic"]["receipt"].get("refusal") else "prepared",
                 response_text or "")
-    _REQUEST.instruction = None
     _REQUEST.stages = None
+    _REQUEST.lucid_traversal = None
     return result
 
 

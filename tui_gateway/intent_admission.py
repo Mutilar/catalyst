@@ -35,7 +35,7 @@ class Admission:
     def diagnostic(self) -> dict[str, Any]:
         return {
             "schema": SCHEMA,
-            "predicate": "PREDICATE.TWITCH",
+            "predicate": "PREDICATE.TWITCHY",
             "input_hash": self.input_hash,
             "catalog_hash": self.catalog_hash,
             "decision": "REFUSE" if self.refusal else "PASS",

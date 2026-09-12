@@ -3,20 +3,53 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 import { DirectOperation } from './direct-operation'
 
+const mocks = vi.hoisted(() => ({ submit: vi.fn() }))
+vi.mock('@/app/chat/composer/focus', () => ({ requestComposerSubmit: mocks.submit }))
+
 vi.mock('@/components/assistant-ui/ugui-text', () => ({
-  UguiTextContent: ({ text, copyText, allowContinuations }: { text: string; copyText: string; allowContinuations: boolean }) => (
-    <div data-preparation-projection="true" data-copy-payload={copyText} data-continuations={String(allowContinuations)}>{text}</div>
+  UguiTextContent: ({ text, copyText, allowContinuations, onContinuation }: { text: string; copyText: string; allowContinuations: boolean; onContinuation?: (text: string) => void }) => (
+    <div data-preparation-projection="true" data-copy-payload={copyText} data-continuations={String(allowContinuations)}>{text}
+      {allowContinuations && onContinuation && ['Retry', 'Bypass', 'Help'].map(label =>
+        <button key={label} onClick={() => onContinuation(label)}>{label}</button>)}
+    </div>
   )
 }))
 
 vi.mock('@/components/assistant-ui/tool/mcp-ugui', () => ({
-  McpUguiDocument: ({ document }: { document: { id: string } }) => {
+  McpUguiDocument: ({ document, onContinuation }: { document: { id: string; actions?: Array<{ value: string; label?: string }> }; onContinuation?: (text: string) => void }) => {
     if (document.id === 'broken') {throw new Error('projection failed')}
-    return <div>Rendered operation</div>
+    return <div data-operation-projection="true">Rendered operation{document.actions?.map(action => <button key={action.value}
+      onClick={() => onContinuation?.(action.value)}>{action.label ?? 'Confirm proposal'}</button>)}</div>
   }
 }))
 
-afterEach(() => {cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals()})
+afterEach(() => {cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); mocks.submit.mockReset()})
+
+it.each(['COMPLETED', 'REFUSED'])('uses one structured operation view for a %s CLI receipt', state => {
+  const source = JSON.stringify({ document: {
+    schema: 'lucid-ugui-response/1', type: 'document', id: 'direct-fixture',
+    header: [{ type: 'text', body: state }],
+    sections: [
+      { type: 'code', heading: 'INPUT', language: 'text', value: 'git status' },
+      { type: 'code', heading: 'OUTPUT', language: 'text', value: 'On branch main\nworking tree clean\n' }
+    ], actions: []
+  }, diagnostic: { schema: 'catalyst-direct-operation/1', receipt: { ran: state === 'COMPLETED' } } })
+  const { container } = render(<DirectOperation source={source} />)
+  expect(container.querySelectorAll('[data-operation-projection]')).toHaveLength(1)
+  expect(container.querySelector('[data-preparation-projection]')).toBeNull()
+  expect(screen.getAllByRole('button', { name: 'Copy operation diagnostics' })).toHaveLength(1)
+  expect(mocks.submit).not.toHaveBeenCalled()
+})
+
+it.each(['retry', 'bypass', 'help'] as const)('routes %s through typed recovery without changing original input', action => {
+  const original = '  checking testing\n\n'
+  const source = JSON.stringify({ source: '🔴 · 🐧 · 🔎 REFUSED · ➡️ "Retry" · ➡️ "Bypass" · ➡️ "Help"',
+    diagnostic: { original_input: original, recovery: { submission_id: 'failed-submission' } } })
+  render(<DirectOperation source={source} />)
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${action}$`, 'i') }))
+  expect(mocks.submit).toHaveBeenCalledWith(action === 'help' ? 'lucid --help --modality ugui' : original,
+    { target: 'main', penguinRecovery: { submission_id: 'failed-submission', action } })
+})
 
 it.each(['broken', 'valid'])('keeps diagnostic copy available for %s projection', async id => {
   const copy = vi.fn<(text: string) => Promise<void>>(async () => undefined)
@@ -101,4 +134,25 @@ it('distinguishes classification from semantic preparation and retains both stag
   expect(screen.getByLabelText('Selected route').textContent).toBe('🔎')
   fireEvent.click(screen.getByRole('button', { name: /Copy operation diagnostics/i }))
   await waitFor(() => expect(copy).toHaveBeenCalledWith(payload('semantic-preparation')))
+})
+
+it('submits an inferred LUCID proposal only after the user activates its confirmation', () => {
+  const invocation = 'lucid show --args \'{"view":"pulse"}\''
+  const source = JSON.stringify({ document: {
+    schema: 'lucid-ugui-response/1', type: 'document', id: 'proposal', header: [], sections: [],
+    actions: [{ value: invocation }]
+  }, diagnostic: { receipt: { refusal: 'lucid-proposal-needs-confirmation' } } })
+  render(<DirectOperation source={source} />)
+  expect(mocks.submit).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm proposal' }))
+  expect(mocks.submit).toHaveBeenCalledWith(invocation, expect.objectContaining({ target: expect.any(String) }))
+})
+
+it('does not enable proposal submission for an ordinary operation receipt', () => {
+  const source = JSON.stringify({ document: {
+    schema: 'lucid-ugui-response/1', type: 'document', id: 'ordinary', header: [], sections: [], actions: [{ value: 'lucid set role' }]
+  }, diagnostic: { receipt: { ran: true } } })
+  render(<DirectOperation source={source} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm proposal' }))
+  expect(mocks.submit).not.toHaveBeenCalled()
 })

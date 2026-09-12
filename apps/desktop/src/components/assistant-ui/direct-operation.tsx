@@ -1,4 +1,6 @@
 import { Component, type ReactNode, useState } from 'react'
+import { requestComposerSubmit } from '@/app/chat/composer/focus'
+import { useComposerScope } from '@/app/chat/composer/scope'
 
 import { McpUguiDocument } from '@/components/assistant-ui/tool/mcp-ugui'
 import { UguiTextContent } from '@/components/assistant-ui/ugui-text'
@@ -26,20 +28,39 @@ class ProjectionBoundary extends Component<{ children: ReactNode; onFailure: (er
 }
 
 export function DirectOperation({ source }: { source: string }) {
+  const { target } = useComposerScope()
   const [failure, setFailure] = useState<{ source: string; error: string } | null>(null)
   let document: Document | null = null
+  let semanticSource: string | null = null
   let error: string | null = null
   let processing = false
   let processingLabel = 'PENGUIN processing'
   let classifierGlyph: string | null = null
   let preparation = false
   let gestalt: string | null = null
+  let confirmProposal = false
+  let recovery: { submission_id: string; original: string } | null = null
   try {
     const value: unknown = JSON.parse(source)
-    if (!value || typeof value !== 'object' || !('document' in value)) {
+    if (!value || typeof value !== 'object') {
       throw new Error('Direct operation document missing')
     }
-    document = value.document as Document
+    if ('source' in value && typeof value.source === 'string' && value.source.length > 0) {
+      semanticSource = value.source
+    } else if ('document' in value) {
+      document = value.document as Document
+    }
+    if ('diagnostic' in value && value.diagnostic && typeof value.diagnostic === 'object'
+      && 'recovery' in value.diagnostic && value.diagnostic.recovery && typeof value.diagnostic.recovery === 'object'
+      && 'submission_id' in value.diagnostic.recovery && typeof value.diagnostic.recovery.submission_id === 'string'
+      && 'original_input' in value.diagnostic && typeof value.diagnostic.original_input === 'string') {
+      recovery = { submission_id: value.diagnostic.recovery.submission_id, original: value.diagnostic.original_input }
+    }
+    if ('diagnostic' in value && value.diagnostic && typeof value.diagnostic === 'object'
+      && 'receipt' in value.diagnostic && value.diagnostic.receipt && typeof value.diagnostic.receipt === 'object'
+      && 'refusal' in value.diagnostic.receipt) {
+      confirmProposal = value.diagnostic.receipt.refusal === 'lucid-proposal-needs-confirmation'
+    }
     if ('diagnostic' in value && value.diagnostic && typeof value.diagnostic === 'object'
       && 'schema' in value.diagnostic && value.diagnostic.schema === 'catalyst-intent-preparation/1'
     ) {
@@ -54,6 +75,11 @@ export function DirectOperation({ source }: { source: string }) {
         if (diagnostic.phase === 'classification') {processingLabel = 'PENGUIN classifying'}
         if (diagnostic.phase === 'semantic-preparation') {processingLabel = 'PENGUIN preparing GESTALT'}
         if (diagnostic.phase === 'lucid-preparation') {processingLabel = 'PENGUIN formatting LUCID'}
+        if (diagnostic.phase === 'lucid-verb') {processingLabel = 'PENGUIN selecting a verb'}
+        if (diagnostic.phase === 'lucid-noun') {processingLabel = 'PENGUIN selecting a target'}
+        if (diagnostic.phase === 'lucid-optional' || (typeof diagnostic.phase === 'string' && diagnostic.phase.startsWith('lucid-argument:'))) {
+          processingLabel = 'PENGUIN resolving arguments'
+        }
         if (diagnostic.phase === 'execution') {processingLabel = 'Executing request'}
       }
       if ('phase' in diagnostic && diagnostic.phase === 'prepared'
@@ -64,7 +90,7 @@ export function DirectOperation({ source }: { source: string }) {
         gestalt = diagnostic.transformed_input
       }
     }
-    if (document?.schema !== 'lucid-ugui-response/1' || !['document', 'lucid'].includes(document.type)) {
+    if (semanticSource === null && (document?.schema !== 'lucid-ugui-response/1' || !['document', 'lucid'].includes(document.type))) {
       throw new Error('Direct operation document invalid')
     }
   } catch (cause) {
@@ -72,6 +98,14 @@ export function DirectOperation({ source }: { source: string }) {
   }
   const projectionError = error ?? (failure?.source === source ? failure.error : null)
   const copyPayload = projectionError ? JSON.stringify({ source, projection_error: projectionError }) : source
+  const recoveryRequest = recovery
+  const onContinuation = recoveryRequest ? (label: string) => {
+    const action = label.toLowerCase()
+    if (action === 'retry' || action === 'bypass' || action === 'help') {
+      requestComposerSubmit(action === 'help' ? 'lucid --help --modality ugui' : recoveryRequest.original,
+        { target, penguinRecovery: { submission_id: recoveryRequest.submission_id, action } })
+    }
+  } : confirmProposal ? (text: string) => requestComposerSubmit(text, { target }) : undefined
   return (
     <div className="w-full min-w-0 space-y-2" data-direct-operation="true" data-message-origin={preparation ? 'user-penguin' : 'user-operation'} aria-busy={processing}>
       {preparation && <div className="text-xs font-medium text-muted-foreground">From user / PENGUIN</div>}
@@ -85,7 +119,11 @@ export function DirectOperation({ source }: { source: string }) {
         <ProjectionBoundary key={source} onFailure={error => setFailure({ source, error })}>
           {gestalt !== null ? (
             <UguiTextContent text={gestalt} isRunning={false} copyText={copyPayload} allowContinuations={false} />
-          ) : document && <McpUguiDocument document={document} copyText={copyPayload} presentationOnly />}
+          ) : semanticSource !== null ? (
+            <UguiTextContent text={semanticSource} isRunning={processing} copyText={copyPayload}
+              allowContinuations={Boolean(onContinuation)} onContinuation={onContinuation} />
+          ) : document && <McpUguiDocument document={document} copyText={copyPayload} presentationOnly
+            onContinuation={onContinuation} />}
         </ProjectionBoundary>
       )}
     </div>

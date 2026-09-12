@@ -211,6 +211,14 @@ describe('usePromptActions /title', () => {
       vi.restoreAllMocks()
     })
 
+    it.each(['🟢 · ◆ Keep literal [200~ content\n', ' 🟢 · ◆ Leading space stays significant'])('preserves byte-zero eligibility in plain prompt transport: %s', async text => {
+      const requestGateway = vi.fn(async () => ({}) as never)
+      let handle: HarnessHandle | null = null
+      await actRender(<Harness onReady={value => (handle = value)} refreshSessions={async () => undefined} requestGateway={requestGateway} />)
+      expect(await handle!.submitText(text)).toBe(true)
+      expect(requestGateway).toHaveBeenCalledWith('prompt.submit', expect.objectContaining({ text }), expect.any(Number))
+    })
+
     it('prepares the workspace before submitting the prompt', async () => {
       const calls: string[] = []
 

@@ -359,6 +359,7 @@ export function visibleUserIndexAtOrdinal(messages: readonly ChatMessage[], targ
 }
 
 export interface SubmitTextOptions {
+  penguinRecovery?: { submission_id: string; action: 'retry' | 'bypass' | 'help' }
   attachments?: ComposerAttachment[]
   fromQueue?: boolean
   /** Runtime session id to submit into. Queue drains pass this so a

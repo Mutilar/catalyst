@@ -254,9 +254,11 @@ describe('WITNESS splash choreography', () => {
     expect(alias.parentElement?.style.transform).toContain('scale(')
     expect(alias.querySelector('img')?.style.opacity).toBe('0')
     await tick(180)
-    expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('covered')
-    await tick(40)
     expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('fade')
+    const fadeTransform = alias.parentElement?.style.transform
+    await tick(200)
+    expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('fade')
+    expect(alias.parentElement?.style.transform).not.toBe(fadeTransform)
     await tick(520)
     expect(isConnectingShown()).toBe(false)
   })
@@ -318,7 +320,11 @@ describe('WITNESS splash choreography', () => {
     for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
       expect(zoomFrame(start, viewport, region, 0)).toEqual(start)
       const end = zoomFrame(start, viewport, region, 1)
-      expect(zoomFrame(start, viewport, region, 0.5).width).toBeCloseTo(Math.sqrt(start.width * end.width))
+      expect(end.width).toBeCloseTo(1.25 * Math.max(viewport.width, viewport.height) / region.size)
+      expect(zoomFrame(start, viewport, region, 0.5).width).toBeCloseTo(start.width * (end.width / start.width) ** 0.25)
+      const lateTravel = zoomFrame(start, viewport, region, 0.95).width - zoomFrame(start, viewport, region, 0.9).width
+      const finalTravel = end.width - zoomFrame(start, viewport, region, 0.95).width
+      expect(finalTravel).toBeGreaterThan(lateTravel)
       expect(zoomFrame(start, viewport, region, 0.25).width).toBeLessThan(zoomFrame(start, viewport, region, 0.5).width)
       expect(end.left + end.width * (region.x - region.size / 2)).toBeLessThanOrEqual(0.001)
       expect(end.top + end.width * (region.y - region.size / 2)).toBeLessThanOrEqual(0.001)

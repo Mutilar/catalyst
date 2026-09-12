@@ -45,6 +45,20 @@ afterEach(() => {
 })
 
 describe('assistant canonical UGUI boundary', () => {
+  it('routes projected recovery actions through the supplied callback rather than ordinary submission', async () => {
+    const value = document('Evidence')
+    value.actions = [{ id: 'retry', type: 'button', label: 'Retry', value: 'Retry',
+      action: 'conversation.submit', disabled: false }]
+    mocks.project.mockResolvedValue(snapshot(value))
+    const recover = vi.fn()
+    render(<UguiTextContent isRunning={false} text={'🔴 · 🐧 · 🔎 REFUSED · ➡️ "Retry"'} onContinuation={recover} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }))
+    expect(mocks.project).toHaveBeenCalledWith('🔴 · 🐧 · 🔎 REFUSED · ➡️ "Retry"', false)
+    expect(recover).toHaveBeenCalledWith('Retry')
+    expect(mocks.submit).not.toHaveBeenCalled()
+    expect(mocks.invoke).not.toHaveBeenCalled()
+  })
+
   it('renders CYOA from actions[] in the canonical footer and submits to the owning chat', async () => {
     const value = document('Evidence')
     value.actions = [{ id: 'choice', type: 'button', label: 'Inspect', value: 'Inspect',

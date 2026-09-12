@@ -16,7 +16,7 @@ const IDENTITY_IN_MS = 700
 const ZOOM_MS = 3800
 const FADE_MS = 520
 const SPLASH_FONT = '"Iowan Old Style", "Palatino Linotype", Georgia, serif'
-type Phase = 'punctuation' | 'comma' | 'identity' | 'zoom' | 'covered' | 'fade' | 'gone'
+type Phase = 'punctuation' | 'comma' | 'identity' | 'zoom' | 'fade' | 'gone'
 type Identity = { alias: string; glyph: string; image: string; region: OpaqueRegion }
 
 // Dev affordance: a warm Cmd+R reconnects almost instantly, so the overlay
@@ -54,6 +54,7 @@ export function GatewayConnectingOverlay() {
   const wordmark = useRef<HTMLDivElement>(null)
   const camera = useRef<HTMLDivElement>(null)
   const coldBootDoneRef = useRef(false)
+  const zoomActive = !reduce && ['zoom', 'fade'].includes(phase)
 
   if (!boot.running && boot.progress >= 100 && !boot.error) {
     coldBootDoneRef.current = true
@@ -255,13 +256,7 @@ export function GatewayConnectingOverlay() {
   }, [phase, reduce, visible])
 
   useLayoutEffect(() => {
-    if (phase !== 'zoom' || !identity || !marker.current || !zoomImage.current || !camera.current || !visible) {
-      return
-    }
-
-    if (reduce) {
-      setPhase('fade')
-
+    if (!zoomActive || !identity || !marker.current || !zoomImage.current || !camera.current || !visible) {
       return
     }
 
@@ -277,6 +272,7 @@ export function GatewayConnectingOverlay() {
     scene.style.transformOrigin = `${anchorX}px ${anchorY}px`
     let first: number | undefined
     let frame = 0
+    let fading = false
 
     const draw = (progress: number) => {
       const rect = zoomFrame(start, { width: window.innerWidth, height: window.innerHeight }, identity.region, progress)
@@ -295,35 +291,26 @@ export function GatewayConnectingOverlay() {
     draw(0)
     const paint = (now: number) => {
       first ??= now
-      const progress = Math.min(1, (now - first) / ZOOM_MS)
+      const elapsed = now - first
+      const progress = Math.min(1, elapsed / (ZOOM_MS + FADE_MS))
       draw(progress)
+
+      if (!fading && elapsed >= ZOOM_MS) {
+        fading = true
+        setPhase('fade')
+      }
 
       if (progress < 1) {
         frame = requestAnimationFrame(paint)
-      } else {
-        setPhase('covered')
       }
     }
 
     frame = requestAnimationFrame(paint)
 
     return () => cancelAnimationFrame(frame)
-  }, [phase, identity, reduce, visible])
+  }, [zoomActive, identity, reduce, visible])
 
   useEffect(() => {
-    if (phase === 'covered') {
-      let second = 0
-
-      const first = requestAnimationFrame(() => {
-        second = requestAnimationFrame(() => setPhase('fade'))
-      })
-
-      return () => {
-        cancelAnimationFrame(first)
-        cancelAnimationFrame(second)
-      }
-    }
-
     if (phase === 'fade') {
       const timer = window.setTimeout(() => setPhase('gone'), reduce ? 0 : FADE_MS)
 
@@ -351,7 +338,7 @@ export function GatewayConnectingOverlay() {
   }
 
   const revealed = identity && !['punctuation', 'comma'].includes(phase)
-  const zooming = ['zoom', 'covered', 'fade'].includes(phase) && !reduce && identity
+  const zooming = zoomActive && identity
 
   return (
     <div
