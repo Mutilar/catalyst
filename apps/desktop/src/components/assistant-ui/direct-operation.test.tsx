@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { DirectOperation } from './direct-operation'
+import { canonicalGestaltStream } from '@/lib/lucid-gestalt'
+import { DELIMITER_SEGMENT, IDENTITY_PENGUIN, RELATION_ACTION, SIGNAL_GREEN, SIGNAL_RED } from '@/lib/ae-glyphs'
 
 const mocks = vi.hoisted(() => ({ submit: vi.fn() }))
 vi.mock('@/app/chat/composer/focus', () => ({ requestComposerSubmit: mocks.submit }))
@@ -43,7 +45,9 @@ it.each(['COMPLETED', 'REFUSED'])('uses one structured operation view for a %s C
 
 it.each(['retry', 'bypass', 'help'] as const)('routes %s through typed recovery without changing original input', action => {
   const original = '  checking testing\n\n'
-  const source = JSON.stringify({ source: '🔴 · 🐧 · 🔎 REFUSED · ➡️ "Retry" · ➡️ "Bypass" · ➡️ "Help"',
+  const recovery = [canonicalGestaltStream({ signal: SIGNAL_RED, service: IDENTITY_PENGUIN, evidence: ['REFUSED'] }),
+    ...['Retry', 'Bypass', 'Help'].map(label => `${RELATION_ACTION} ${JSON.stringify(label)}`)].join(DELIMITER_SEGMENT)
+  const source = JSON.stringify({ source: recovery,
     diagnostic: { original_input: original, recovery: { submission_id: 'failed-submission' } } })
   render(<DirectOperation source={source} />)
   fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${action}$`, 'i') }))
@@ -100,7 +104,7 @@ it('shows processing before preparation and copies the original and transformed 
 it('projects prepared GESTALT with user/PENGUIN provenance and the full transformation copy payload', async () => {
   const copy = vi.fn<(text: string) => Promise<void>>(async () => undefined)
   vi.stubGlobal('hermesDesktop', { ...window.hermesDesktop, writeClipboard: copy })
-  const transformed = '🟢 · 🧠 · 🔎 OBJECTIVE · ◆ Sign in as EM'
+  const transformed = canonicalGestaltStream({ signal: SIGNAL_GREEN, evidence: ['OBJECTIVE'], data: ['Sign in as EM'] })
   const source = JSON.stringify({
     document: { schema: 'lucid-ugui-response/1', type: 'document', id: 'preparation', header: [], sections: [] },
     diagnostic: { schema: 'catalyst-intent-preparation/1', phase: 'prepared', pending: false,

@@ -13,6 +13,14 @@ PENGUIN_WIRE_MODEL_ID = "mlx-community/Ornith-1.0-35B-4bit"
 PENGUIN_BASE_URL = "http://127.0.0.1:8080/v1"
 PENGUIN_API_MODE = "chat_completions"
 PENGUIN_ROLE = "PENGUIN"
+PENGUIN_TOKEN_BASE = 1024
+PENGUIN_TOKENS_PER_INPUT_BYTE = 2
+
+
+def penguin_max_tokens(text: str) -> int:
+    return PENGUIN_TOKEN_BASE + len(text.encode("utf-8")) * PENGUIN_TOKENS_PER_INPUT_BYTE
+
+
 _MAX_ROLE_BYTES = 8 * 1024
 _MAX_LUCID_BYTES = 512 * 1024
 _PENGUIN_TOOL_NAMES = frozenset({

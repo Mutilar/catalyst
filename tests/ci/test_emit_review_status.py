@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import sys
 from pathlib import Path
 
@@ -27,14 +28,22 @@ def test_ci_review_status_links_to_each_sensitive_file_change():
         head_sha="abc123",
     )
 
-    assert results[0]["detail"] == (
-        "**Sensitive files changed:**\n"
-        "- [`.github/workflows/ci.yml`](https://github.com/nousresearch/hermes-agent/compare/base456...abc123#diff-b803fcb7f17ed9235f1e5cb1fcd2f5d3b2838429d4368ae4c57ce4436577f03f)\n"
-        "- [`apps/desktop/eslint.config.mjs`](https://github.com/nousresearch/hermes-agent/compare/base456...abc123#diff-a45471520795db6e46840d1ba2a82c1f8a2841039bd60fb50624488c5f192438)"
-    )
+    paths = [".github/workflows/ci.yml", "apps/desktop/eslint.config.mjs"]
+    lines = results[0]["detail"].splitlines()
+    assert lines[0] == "**Sensitive files changed:**"
+    assert len(lines) == len(paths) + 1
+    for line, changed_path in zip(lines[1:], paths):
+        expected_anchor = hashlib.sha256(changed_path.encode()).hexdigest()
+        assert line == (
+            f"- [`{changed_path}`](https://github.com/nousresearch/hermes-agent/"
+            f"compare/base456...abc123#diff-{expected_anchor})"
+        )
+    assert lines[1] != lines[2]
 
 
 def test_approved_ci_review_is_visible_info():
+    changed_path = ".github/workflows/ci.yml"
+    expected_anchor = hashlib.sha256(changed_path.encode()).hexdigest()
     results = _mod.build_results(
         ci_review=True,
         mcp_catalog=False,
@@ -55,6 +64,6 @@ def test_approved_ci_review_is_visible_info():
         ),
         "detail": (
             "**Sensitive files changed:**\n"
-            "- [`.github/workflows/ci.yml`](https://github.com/nousresearch/hermes-agent/compare/base456...abc123#diff-b803fcb7f17ed9235f1e5cb1fcd2f5d3b2838429d4368ae4c57ce4436577f03f)"
+            f"- [`{changed_path}`](https://github.com/nousresearch/hermes-agent/compare/base456...abc123#diff-{expected_anchor})"
         ),
     }]

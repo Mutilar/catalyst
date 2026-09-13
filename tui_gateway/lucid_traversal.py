@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shlex
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Callable
 
 from hermes_gestalt import canonical_stream, semantic_action
-from agent.generated.ae_glyphs import SIGNAL_GREEN
+from hermes_penguin import penguin_max_tokens
+from tui_gateway import penguin_funnel
+from agent.generated.ae_glyphs import SIGNAL_GREEN, SIGNAL_PENDING, DELIMITER_SEGMENT
 
 MAX_CHOICES = 128
 MAX_PROMPT_BYTES = 16_384
@@ -19,21 +20,47 @@ MAX_ATTEMPTS = 2
 
 
 def cell(value: str) -> str:
-    return value.replace("|", "\\|").replace("\n", " ")
+    return json.dumps(value, ensure_ascii=False)
 
 
-def decision_table(decisions: dict) -> str:
-    rows = ["| Resolved | Value |", "|---|---|"]
-    for key, glyph in (("verb", "⚡"), ("noun", "🎯")):
-        if key in decisions:
-            rows.append(f"| {glyph} | {cell(decisions[key])} |")
-    for key in decisions.get("optional_arguments", []):
-        rows.append(f"| ⚙️ | {cell(key)} |")
-    return "\n".join(rows)
+def choice_labels(choices: dict[str, str]) -> dict[str, str]:
+    labels = {}
+    for value in choices:
+        label = value.upper()
+        if label == SIGNAL_PENDING or label in labels:
+            raise ValueError("lucid-help-choice-collision")
+        labels[label] = value
+    return labels
+
+
+def choice_instruction(stage: str, choices: dict[str, str], decisions: dict) -> str:
+    choice_labels(choices)
+    return penguin_funnel.project(stage, decisions, choices=choices)["prompt"]
+
+
+def literal_instruction(key: str, schema: dict, decisions: dict) -> str:
+    return penguin_funnel.project("lucid-argument:" + key, decisions, schema=schema)["prompt"]
 
 
 def digest(value: object) -> str:
     return "sha256:" + hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def prompt_hash(prompt: str) -> str:
+    return "sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+
+
+def selection_retry(prompt: str) -> str:
+    return prompt + "\n\n**FEEDBACK** · **RULE**\nINVALID LABEL · RETURN ONE DECLARED LABEL OR " + SIGNAL_PENDING
+
+
+def noun_choices(targets: dict) -> dict[str, str]:
+    return {name: target.get("meaning", name) for name, target in targets.items()}
+
+
+def optional_choices(target: dict, selected: list[str]) -> dict[str, str]:
+    return {"omit": "NO FURTHER REQUESTED OPTIONAL FIELDS",
+        **{key: key for key in target["optional"] if key not in selected}}
 
 
 @dataclass
@@ -53,44 +80,47 @@ class Traversal:
     def choose(self, stage: str, choices: dict[str, str], source: str, pinned: str | None = None) -> str:
         if not choices or len(choices) > MAX_CHOICES or len(self.records) >= MAX_STEPS:
             raise ValueError("lucid-help-choice-bound")
-        prompt = "Select one exact choice for the original request. Return only the choice.\n\n"
-        prompt += "| Choice | Meaning |\n|---|---|\n"
-        prompt += "\n".join(f"| {cell(key)} | {cell(value)} |" for key, value in choices.items())
-        prompt += "\n\n" + decision_table(self.decisions)
+        if SIGNAL_PENDING in choices:
+            raise ValueError("lucid-help-choice-collision")
+        labels = choice_labels(choices)
+        prompt = choice_instruction(stage, choices, self.decisions)
         if len(prompt.encode()) > MAX_PROMPT_BYTES:
             raise ValueError("lucid-help-prompt-bound")
         record = {"stage": stage, "help_source": source, "help_hash": digest(choices), "system_prompt": prompt,
-            "choices": dict(choices), "resolved_before": deepcopy(self.decisions), "selection_source": "explicit" if pinned is not None else "penguin"}
+            "system_prompt_hash": prompt_hash(prompt),
+            "choices": dict(choices), "output_labels": labels, "resolved_before": deepcopy(self.decisions), "selection_source": "explicit" if pinned is not None else "penguin"}
         self.record(record)
         record["attempts"] = []
         for attempt in range(1 if pinned is not None else MAX_ATTEMPTS):
-            selected = pinned if pinned is not None else self.infer(self.original, prompt, stage, 64).strip()
-            record["attempts"].append({"selection": selected, "accepted": selected in choices})
-            record["selected"] = selected
-            if selected in choices:
+            if len(prompt.encode("utf-8")) > MAX_PROMPT_BYTES:
+                record["validation"] = "prompt-bound"
+                raise ValueError("lucid-help-prompt-bound")
+            attempt_record = {"system_prompt": prompt, "system_prompt_hash": prompt_hash(prompt),
+                "input": self.original, "max_tokens": penguin_max_tokens(self.original),
+                "selection": None, "accepted": False, "inference_ran": pinned is None}
+            record["attempts"].append(attempt_record)
+            selected = pinned if pinned is not None else self.infer(self.original, prompt, stage, penguin_max_tokens(self.original)).strip()
+            wire_value = selected if pinned is not None and selected in choices else labels.get(selected.upper()) if pinned is None else None
+            attempt_record.update(selection=selected, accepted=wire_value is not None, wire_value=wire_value)
+            record["selected"] = wire_value if wire_value is not None else selected
+            if wire_value is not None:
+                selected = wire_value
                 break
+            if selected == SIGNAL_PENDING:
+                record["validation"] = "missing-or-ambiguous"
+                raise ValueError("lucid-help-selection-unresolved:" + stage)
             if pinned is not None or attempt == MAX_ATTEMPTS - 1:
                 record["validation"] = "refused"
                 raise ValueError("lucid-help-selection-invalid:" + stage)
-            prompt += "\nPrevious selection was not a declared choice. Select exactly one listed choice."
+            prompt = selection_retry(prompt)
         record["validation"] = "accepted"
         return selected
-
-    def verb(self, pinned: str | None = None) -> str:
-        if pinned is not None and pinned not in self.vocabulary["verbs"]:
-            raise ValueError("lucid-verb-not-declared")
-        choices = {value["glyph"]: name.upper() for name, value in self.vocabulary["verbs"].items()}
-        selected = self.choose("lucid-verb", choices, "envelope/LUCID.json#/verbs",
-            self.vocabulary["verbs"].get(pinned, {}).get("glyph") if pinned else None)
-        verb = next(name for name, value in self.vocabulary["verbs"].items() if value["glyph"] == selected)
-        self.decisions["verb"] = verb
-        return verb
 
     def targets(self, verb: str) -> dict[str, dict]:
         schema = self.vocabulary["verbs"][verb]["args"]
         if verb == "show":
             views = schema.get("x-attention-views", {}).get("views", {})
-            return {name: {"selector": "view", "required": contract.get("required", []),
+            return {name: {"selector": "view", "meaning": SHOW_NOUN_PROMPTS.get(name, (name.replace("-", " "), ""))[0], "required": contract.get("required", []),
                 "optional": contract.get("optional", [])} for name, contract in views.items()
                 if not any("id" in key or "hash" in key for key in contract.get("required", []))}
         if verb in {"get", "set"}:
@@ -101,6 +131,7 @@ class Traversal:
                 if selector.get("kind") != "exact" or any("hash" in key for key in target.get("preconditions", [])):
                     continue
                 projected[selector["value"]] = {"selector": "path",
+                    "meaning": target.get("materializer", target["id"]).replace("-", " "),
                     "required": ["path"] + (["value"] if verb == "set" else []),
                     "optional": [key for key in target.get("arguments", {}).get("allowed", []) if key != "path"],
                     "contract": target}
@@ -109,7 +140,7 @@ class Traversal:
 
     def noun(self, verb: str, pinned: str | None = None) -> tuple[str, dict]:
         targets = self.targets(verb)
-        choices = {name: " / ".join(targets[name]["required"]) for name in targets}
+        choices = noun_choices(targets)
         source = f"envelope/LUCID.json#/verbs/{verb}/args/x-attention-views/views" if verb == "show" else f"envelope/LUCID.json#/{verb}_registry/targets"
         selected = self.choose("lucid-noun", choices, source, pinned)
         self.records[-1]["contract_hash"] = digest(targets[selected])
@@ -125,16 +156,16 @@ class Traversal:
                 raise ValueError("lucid-target-argument-not-declared")
             result[key] = value
         requested = list(target["required"])
-        if not supplied and any(self.records[index].get("selection_source") == "penguin" for index in range(len(self.records))):
-            optional = {key: key for key in target["optional"]}
-            while optional:
-                selected = self.choose("lucid-optional", {"omit": "No further explicitly requested optional arguments", **optional},
+        if not supplied and any(self.records[index].get("selection_source") in {"penguin", "classifier"} for index in range(len(self.records))):
+            selected_optional = []
+            while any(key not in selected_optional for key in target["optional"]):
+                selected = self.choose("lucid-optional", optional_choices(target, selected_optional),
                     f"envelope/LUCID.json#/verbs/{verb}/args")
                 if selected == "omit":
                     break
                 requested.append(selected)
                 self.decisions.setdefault("optional_arguments", []).append(selected)
-                del optional[selected]
+                selected_optional.append(selected)
         for key in requested:
             if key in result:
                 continue
@@ -146,24 +177,25 @@ class Traversal:
             else:
                 if schema.get("type") != "string":
                     raise ValueError("lucid-required-argument-missing:" + key)
-                prompt = "Return the exact requested literal value, quoted as a string, or ⏳ if missing.\n\n"
-                prompt += f"| Argument | Type | Maximum length |\n|---|---|---|\n| {key} | string | {schema.get('maxLength', 16384)} |"
-                prompt += "\n\n" + decision_table(self.decisions)
+                prompt = literal_instruction(key, schema, self.decisions)
                 if len(prompt.encode()) > MAX_PROMPT_BYTES:
                     raise ValueError("lucid-help-prompt-bound")
                 record = self.record({"stage": "lucid-argument:" + key, "help_source": f"envelope/LUCID.json#/verbs/{verb}/args/properties/{key}",
-                    "help_hash": digest(schema), "system_prompt": prompt, "resolved_before": deepcopy(self.decisions)})
-                selected = self.infer(self.original, prompt, record["stage"], 512).strip()
+                    "help_hash": digest(schema), "system_prompt": prompt, "system_prompt_hash": prompt_hash(prompt),
+                    "input": self.original, "max_tokens": penguin_max_tokens(self.original),
+                    "selection_source": "penguin", "selected": None,
+                    "resolved_before": deepcopy(self.decisions)})
+                selected = self.infer(self.original, prompt, record["stage"], penguin_max_tokens(self.original)).strip()
                 record["selected"] = selected
                 try:
-                    values = shlex.split(selected)
-                except ValueError:
+                    value = json.loads(selected)
+                except (ValueError, TypeError):
                     record["validation"] = "refused"
                     raise ValueError("lucid-argument-needs-clarification:" + key) from None
-                if len(values) != 1 or not values[0] or selected == "⏳" or values[0] not in self.original:
+                if not isinstance(value, str) or not value or (value not in self.original and cell(value) not in self.original):
                     record["validation"] = "refused"
                     raise ValueError("lucid-argument-needs-clarification:" + key)
-                result[key] = values[0]
+                result[key] = value
                 record["validation"] = "source-literal-present"
         for key, value in result.items():
             schema = properties.get(key, {})
@@ -191,8 +223,19 @@ class Traversal:
             "validation": "accepted-structural-only; Butler preflight remains required"})
         return result
 
-    def run(self, root, operation: dict | None = None) -> dict:
-        verb = self.verb(operation["verb"] if operation else None)
+    def run(self, root, operation: dict | None = None, *, classified_verb: str) -> dict:
+        if classified_verb not in self.vocabulary["verbs"]:
+            raise ValueError("lucid-verb-not-declared")
+        if operation and operation["verb"] != classified_verb:
+            raise ValueError("classifier-verb-mismatch")
+        verb = classified_verb
+        self.decisions["verb"] = verb
+        self.decisions["verb_glyph"] = self.vocabulary["verbs"][verb]["glyph"]
+        self.record({"stage": "lucid-verb", "help_source": "envelope/LUCID.json#/verbs",
+            "help_hash": digest(self.vocabulary["verbs"]), "selected": verb,
+            "selection_source": "explicit" if operation else "classifier",
+            "classification_selection": self.vocabulary["verbs"][verb]["glyph"], "inference_ran": False,
+            "attempts": [], "validation": "accepted-classifier-verb"})
         if verb == "morph":
             return {"semantic_required": True, "steps": self.records}
         argv = operation["argv"] if operation else []
@@ -246,5 +289,61 @@ def receipt_walkthroughs(root, vocabulary: dict) -> list[dict]:
     for original, operation in examples:
         traversal = Traversal(original, vocabulary, no_inference)
         results.append({"input": original, "inference_ran": False, "execution_ran": False,
-            "result": traversal.run(root, operation)})
+            "result": traversal.run(root, operation, classified_verb=operation["verb"])})
     return results
+
+
+def receipt_selection_prompts(vocabulary: dict) -> list[dict]:
+    def no_inference(*args):
+        raise ValueError("generation-must-not-infer")
+
+    traversal = Traversal("", vocabulary, no_inference)
+    records = []
+    inputs = {"show": "Open https://example.com/ with scope this.",
+        "get": "Retrieve runtime logs.", "set": "Change the radio settings."}
+
+    def capture(stage, prompt, decisions, source, contract, original):
+        if len(prompt.encode("utf-8")) > MAX_PROMPT_BYTES:
+            raise ValueError("lucid-help-prompt-bound")
+        records.append({"stage": stage, "system_prompt": prompt, "system_prompt_hash": prompt_hash(prompt),
+            "resolved_before": deepcopy(decisions), "help_source": source, "help_hash": digest(contract),
+            "input": original, "input_hash": prompt_hash(original),
+            "input_source": "unchanged original request for this generation-only case",
+            "inference_ran": False, "execution_ran": False})
+
+    for verb in ("show", "get", "set"):
+        targets = traversal.targets(verb)
+        source = f"envelope/LUCID.json#/verbs/{verb}/args/x-attention-views/views" if verb == "show" else f"envelope/LUCID.json#/{verb}_registry/targets"
+        decisions = {"verb": verb, "verb_glyph": vocabulary["verbs"][verb]["glyph"]}
+        choices = noun_choices(targets)
+        capture("lucid-noun", choice_instruction("lucid-noun", choices, decisions), decisions,
+            source, choices, inputs[verb])
+    targets = traversal.targets("show")
+    decisions = {"verb": "show", "verb_glyph": vocabulary["verbs"]["show"]["glyph"], "noun": "url"}
+    choices = optional_choices(targets["url"], [])
+    source = "envelope/LUCID.json#/verbs/show/args"
+    prompt = choice_instruction("lucid-optional", choices, decisions)
+    capture("lucid-optional", prompt, decisions, source, choices, inputs["show"])
+    capture("lucid-optional:retry", selection_retry(prompt), decisions, source, choices, inputs["show"])
+    properties = vocabulary["verbs"]["show"]["args"]["properties"]
+    decisions["optional_arguments"] = ["scope"]
+    capture("lucid-argument:url", literal_instruction("url", properties["url"], decisions), decisions,
+        source + "/properties/url", properties["url"], inputs["show"])
+    capture("lucid-argument:scope", literal_instruction("scope", properties["scope"], decisions), decisions,
+        source + "/properties/scope", properties["scope"], inputs["show"])
+    for noun, target in targets.items():
+        for key in target["required"] + target["optional"]:
+            options = properties.get(key, {}).get("enum")
+            if key == target["selector"] or not options or not all(isinstance(value, str) for value in options):
+                continue
+            original = "Open " + options[0] + "."
+            decisions = {"verb": "show", "verb_glyph": vocabulary["verbs"]["show"]["glyph"]}
+            capture("lucid-noun", choice_instruction("lucid-noun", noun_choices(targets), decisions), decisions,
+                "envelope/LUCID.json#/verbs/show/args/x-attention-views/views", noun_choices(targets), original)
+            decisions["noun"] = noun
+            choices = {value: key for value in options}
+            stage = "lucid-argument:" + key
+            capture(stage, choice_instruction(stage, choices, decisions), decisions,
+                source + "/properties/" + key, choices, original)
+            return records
+    return records

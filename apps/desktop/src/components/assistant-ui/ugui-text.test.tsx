@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ComposerScopeProvider, MAIN_COMPOSER_SCOPE } from '@/app/chat/composer/scope'
 import { McpUguiDocument } from '@/components/assistant-ui/tool/mcp-ugui'
-import { SIGNAL_GREEN } from '@/lib/ae-glyphs'
+import { DELIMITER_SEGMENT, IDENTITY_PENGUIN, RELATION_ACTION, SIGNAL_GREEN, SIGNAL_RED } from '@/lib/ae-glyphs'
+import { canonicalGestaltStream } from '@/lib/lucid-gestalt'
 import type { ConversationProjection } from '@/lib/ugui-engine'
 import { $pendingModeApply, __resetBackendSkinSync } from '@/themes/backend-sync'
 
@@ -51,9 +52,11 @@ describe('assistant canonical UGUI boundary', () => {
       action: 'conversation.submit', disabled: false }]
     mocks.project.mockResolvedValue(snapshot(value))
     const recover = vi.fn()
-    render(<UguiTextContent isRunning={false} text={'🔴 · 🐧 · 🔎 REFUSED · ➡️ "Retry"'} onContinuation={recover} />)
+    const source = [canonicalGestaltStream({ signal: SIGNAL_RED, service: IDENTITY_PENGUIN, evidence: ['REFUSED'] }),
+      `${RELATION_ACTION} ${JSON.stringify('Retry')}`].join(DELIMITER_SEGMENT)
+    render(<UguiTextContent isRunning={false} text={source} onContinuation={recover} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Retry' }))
-    expect(mocks.project).toHaveBeenCalledWith('🔴 · 🐧 · 🔎 REFUSED · ➡️ "Retry"', false)
+    expect(mocks.project).toHaveBeenCalledWith(source, false)
     expect(recover).toHaveBeenCalledWith('Retry')
     expect(mocks.submit).not.toHaveBeenCalled()
     expect(mocks.invoke).not.toHaveBeenCalled()
