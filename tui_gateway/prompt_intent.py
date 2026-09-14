@@ -27,6 +27,7 @@ from tui_gateway.intent_admission import (
     invocation_tokens, operation_from_tokens,
 )
 from tui_gateway.lucid_traversal import Traversal, receipt_walkthroughs, receipt_selection_prompts
+from tui_gateway import penguin_funnel
 
 _ENDPOINT = os.environ.pop("AE_WITNESS_DIRECT_ENDPOINT", "")
 _TOKEN = os.environ.pop("AE_WITNESS_DIRECT_TOKEN", "")
@@ -63,18 +64,8 @@ def classifier_choices() -> dict[str, str]:
 
 
 def classification_instruction() -> str:
-    path = Path(__file__).with_name("penguin-classification.md")
-    if path.is_symlink() or not 0 < path.stat().st_size <= 8192:
-        raise ValueError("classifier-instruction-source-bound")
-    template = path.read_text(encoding="utf-8")
-    for label, verb in classifier_verbs().items():
-        slot = "{{" + verb + "}}"
-        if slot not in template:
-            raise ValueError("classifier-protocol-slot-invalid")
-        template = template.replace(slot, label)
-    if "{{" in template or "}}" in template:
-        raise ValueError("classifier-protocol-slot-invalid")
-    return template
+    classifier_verbs()
+    return penguin_funnel.project("classification")["prompt"]
 
 
 def decode_classification(text: str, response: str) -> dict:
@@ -188,32 +179,7 @@ def retain_candidate(home: Path, text: str, candidate: dict) -> None:
 
 
 def penguin_instruction(root: Path) -> str:
-    def read_source(path: Path) -> str:
-        metadata = path.lstat()
-        if path.is_symlink() or not path.is_file() or not 0 < metadata.st_size <= 65_536:
-            raise ValueError("penguin-instruction-source-bound")
-        return path.read_text(encoding="utf-8")
-
-    grammar = json.loads(read_source(root / "envelope/GESTALT.json"))["segments"]
-    glyphs = grammar["glyphs"]
-    separator = grammar["separator"]
-    legend = "\n".join([
-        separator.join(("**PREFIX GLYPH**", "**RULE**")),
-        *(separator.join((signal, meaning)) for signal, meaning in (
-            (SIGNAL_GREEN, "NOMINAL, OK"), (SIGNAL_PENDING, "WAITING, PENDING"),
-            (SIGNAL_WARNING, "UNCERTAIN, CAUTION"), (SIGNAL_RED, "FAILED, BLOCKED, ERROR"))),
-        "", f"{glyphs['datum']} START WITH A PREFIX GLYPH; DESCRIBE INPUT STATE, NOT CONFIDENCE",
-        "", separator.join(("**SEGMENT GLYPH**", "**RULE**")),
-        *(separator.join((glyphs[field], meaning)) for field, meaning in (
-            ("evidence", "EVIDENCE FROM INPUT"), ("datum", "DATUM"),
-            ("timing", "TIMING: ELAPSED, ETA, AGE (OPTIONAL)"),
-            ("action", 'CYOA (OPTIONAL): `<CLI>` OR "<SEMANTIC TEXT>"; ONLY REQUESTED CONTINUATIONS; KEEP CONDITIONS'))),
-        "", f'{glyphs["datum"]} REPEAT SEGMENTS AS NEEDED; SEPARATE STRICTLY WITH "{separator}"; EVIDENCE FIRST, DATA FOLLOWS, THEN TIMING AND CYOA LAST',
-    ])
-    template = read_source(Path(__file__).with_name("penguin-preparation.md"))
-    if template.count("{{GESTALT_LEGEND}}") != 1:
-        raise ValueError("preparation-legend-slot-invalid")
-    return template.replace("{{GESTALT_LEGEND}}", legend)
+    return penguin_funnel.owner.load_projection(root, "semantic-preparation")["prompt"]
 
 
 def preparation_blocks(response: str) -> tuple[list[str], bool]:
@@ -320,23 +286,72 @@ def format_lucid(text: str, selected_verb: str) -> str:
         raise
 
 
-def penguin_request(text: str, instruction: str, max_tokens: int) -> dict:
+def penguin_request(text: str, instruction: str, max_tokens: int, *, stage: str,
+                    history: list[dict] | None = None) -> dict:
     if max_tokens != penguin_max_tokens(text):
         raise ValueError("penguin-input-budget-mismatch")
-    return {
+    selection = stage in {"classification", "lucid-noun", "lucid-optional", "lucid-noun:retry", "lucid-optional:retry"} or stage.startswith("lucid-argument:")
+    if not selection and stage != "semantic-preparation":
+        raise ValueError("penguin-request-stage-invalid")
+    request = {
         "model": PENGUIN_WIRE_MODEL_ID, "temperature": 0, "max_tokens": max_tokens,
         "tools": [], "tool_choice": "none",
+        "chat_template_kwargs": {"enable_thinking": False},
         "messages": [{"role": "system", "content": instruction}, {"role": "user", "content": text}],
     }
+    if selection:
+        previous = history or []
+        if len(previous) >= 64 or len(previous) % 2:
+            raise ValueError("penguin-context-turn-bound")
+        for index, message in enumerate(previous):
+            if (not isinstance(message, dict) or set(message) != {"role", "content"} or not isinstance(message["content"], str)
+                or message["role"] != ("user", "assistant")[index % 2]):
+                raise ValueError("penguin-context-message-invalid")
+            if index % 2 == 0 and message["content"] != text:
+                raise ValueError("penguin-context-input-mismatch")
+        request["messages"] = [request["messages"][0], *(dict(message) for message in previous), request["messages"][1]]
+        if len(json.dumps(request["messages"], ensure_ascii=False).encode("utf-8")) > 262_144:
+            raise ValueError("penguin-context-byte-bound")
+    elif history:
+        raise ValueError("penguin-semantic-context-forbidden")
+    return request
+
+
+def semantic_thinking_comparison(root: Path) -> dict:
+    projection = penguin_funnel.owner.load_projection(root, "semantic-preparation")
+    corpus = penguin_funnel.owner.strict_json(penguin_funnel.owner.read(root, penguin_funnel.owner.CORPUS))
+    cases = {case["id"]: case for case in corpus["cases"]}
+    pairs = []
+    for index, identity in enumerate(projection["case_ids"]):
+        case = cases[identity]
+        base = penguin_request(case["input"], projection["prompt"], penguin_max_tokens(case["input"]), stage="semantic-preparation")
+        variants = []
+        for thinking in (False, True):
+            request = {**base, "chat_template_kwargs": {"enable_thinking": thinking}}
+            variants.append({"enable_thinking": thinking, "request": request,
+                "request_hash": input_hash(json.dumps(request, ensure_ascii=False, sort_keys=True, separators=(",", ":"))),
+                "response": None, "finish_reason": None, "usage": None, "elapsed_ms": None, "witness": None})
+        pairs.append({"case_id": identity, "input": case["input"], "input_hash": input_hash(case["input"]),
+            "expected_output": case["semantic"], "expected_is_observed": False,
+            "suggested_order": [False, True] if index % 2 == 0 else [True, False], "variants": variants})
+    return {"schema": "penguin-thinking-comparison/1", "inference_ran": False,
+        "few_shots": penguin_funnel.receipt(projection), "pairs": pairs,
+        "live_semantic_policy": "enable_thinking=false",
+        "comparison": "Only enable_thinking varies; identical model, messages, temperature, budget and tools",
+        "measurements": ["response", "finish_reason", "completion_tokens", "reasoning_tokens when reported",
+            "cached_tokens when reported", "elapsed_ms", "witness fidelity: negation, conditions, uncertainty, quotes and literals"],
+        "qualification": "Corpus examples are in-prompt checks, not held-out generalization evidence; measure warm/cold cache separately and witness fidelity before changing live semantic policy"}
 
 
 def generate_prompt_receipt(root: Path) -> Path:
     root = root.resolve()
-    sources = [Path(__file__).resolve(), Path(__file__).with_name("penguin-classification.md"),
-        Path(__file__).with_name("penguin-preparation.md"), root / "quine/canon/AGENT_INSTRUCTIONS.json",
+    sources = [Path(__file__).resolve(), Path(__file__).with_name("penguin_funnel.py"),
+        *(root / name for name in penguin_funnel.owner.SOURCES), root / penguin_funnel.owner.ARTIFACT,
+        root / "quine/canon/AGENT_INSTRUCTIONS.json",
         root / "catalyst/hermes_penguin.py", root / "catalyst/agent/generated/ae_glyphs.py",
         root / "envelope/LUCID.json", root / "envelope/GESTALT.json", root / ".agents/skills/lucid/SKILL.md",
         Path(__file__).with_name("lucid_traversal.py"),
+        root / "butler/src/penguin_host/funnel.rs", root / "butler/tests/test_penguin_funnel.py",
         root / "catalyst/tests/tui_gateway/test_prompt_intent.py",
         root / "catalyst/apps/desktop/src/components/assistant-ui/direct-operation.tsx",
         root / "catalyst/apps/desktop/src/components/assistant-ui/direct-operation.test.tsx"]
@@ -355,21 +370,25 @@ def generate_prompt_receipt(root: Path) -> Path:
     selection_prompts = receipt_selection_prompts(lucid_vocabulary())
     input_cases = {}
     for record in selection_prompts:
-        request = penguin_request(record["input"], record["system_prompt"], penguin_max_tokens(record["input"]))
+        request = penguin_request(record["input"], record["system_prompt"], penguin_max_tokens(record["input"]), stage=record["stage"])
         record["request"] = request
+        record["context_basis"] = "Standalone request with no prior turns; live follow-ups append completed selection attempts from this submission"
         record["request_hash"] = input_hash(json.dumps(request, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
         identity = record["input_hash"]
         if identity not in input_cases:
             input_cases[identity] = {"original_input": record["input"], "input_hash": identity,
                 "inference_ran": False, "stage_requests": {stage:
-                    penguin_request(record["input"], instruction, penguin_max_tokens(record["input"]))
+                    penguin_request(record["input"], instruction, penguin_max_tokens(record["input"]), stage=stage)
                     for stage, instruction in instructions.items()},
                 "routing_note": "Same original user message in every request. Semantic and verb traversal are alternative routes, not a rewrite chain."}
     stages = []
     for stage, instruction in instructions.items():
-        request = penguin_request("", instruction, penguin_max_tokens(""))
+        request = penguin_request("", instruction, penguin_max_tokens(""), stage=stage)
         stages.append({"stage": stage, "system_message": request["messages"][0],
-            "system_prompt_hash": input_hash(instruction),
+            "request_messages": request["messages"], "stage_prompt": instruction,
+            "stage_prompt_hash": input_hash(instruction),
+            "few_shots": penguin_funnel.receipt(penguin_funnel.project(stage)),
+            "system_prompt_hash": input_hash(request["messages"][0]["content"]),
             "prompt_size": {"utf8_bytes": len(instruction.encode("utf-8")), "characters": len(instruction),
                 "token_count": None, "token_count_basis": "No runtime tokenizer invoked"},
             "request_settings": {key: value for key, value in request.items() if key != "messages"},
@@ -378,6 +397,18 @@ def generate_prompt_receipt(root: Path) -> Path:
                 "encoding": "utf-8", "user_input_bytes": 0,
                 "binding": "Recomputed from the actual inference user message; empty-input settings shown here"},
             "user_message_binding": "The submitted input is supplied verbatim at inference time; no user input was supplied for this generation."})
+    thinking_comparison = semantic_thinking_comparison(root)
+    selection = next(record for record in selection_prompts if record["stage"] == "lucid-noun")
+    initial_request = penguin_request(selection["input"], instructions["classification"],
+        penguin_max_tokens(selection["input"]), stage="classification")
+    expected_label = next(label for label, verb in classifier_verbs().items() if verb == selection["resolved_before"]["verb"])
+    followup_request = penguin_request(selection["input"], selection["system_prompt"],
+        penguin_max_tokens(selection["input"]), stage=selection["stage"],
+        history=[initial_request["messages"][-1], {"role": "assistant", "content": expected_label}])
+    context_example = {"input_case_id": selection["input_case_id"], "inference_ran": False,
+        "expected_classifier_reply": expected_label, "expected_is_observed": False,
+        "initial_request": initial_request, "followup_request": followup_request,
+        "followup_request_hash": input_hash(json.dumps(followup_request, ensure_ascii=False, sort_keys=True, separators=(",", ":")))}
     if source_hashes() != before:
         raise ValueError("prompt-receipt-source-changed")
     payload = {"schema": "penguin-prompt-generation/1", "generator": "tui_gateway.prompt_intent.generate_prompt_receipt",
@@ -390,15 +421,27 @@ def generate_prompt_receipt(root: Path) -> Path:
         "lucid_traversal": walkthroughs,
         "selection_prompts": selection_prompts,
         "selection_input_cases": list(input_cases.values()),
+        "semantic_thinking_comparison": thinking_comparison,
+        "selection_context_example": context_example,
         "audit": {
+            "selection_context": {"policy": "submission-local-selection",
+                "instruction_binding": "Exact authored stage prompt as system message; unchanged original input as user message; no wrapper instruction",
+                "lifetime": "Created per admission and cleared in finally; no cross-submission conversation history",
+                "history": "Completed selection attempts only, including invalid selections before retry; no reasoning or tool outputs",
+                "semantic": "Isolated, unchanged messages; enable_thinking=false",
+                "bounds": {"requests": 32, "serialized_message_utf8_bytes": 262144, "overflow": "refuse; never silently truncate"},
+                "cache": "Stage system prompts change; conversational context retained, full-prefix KV reuse not guaranteed"},
+            "thinking_policy": {"classification_and_selection": "enable_thinking=false",
+                "semantic_preparation": "enable_thinking=false", "semantic_comparison": "prepared only; no inference",
+                "adapter": "Catalyst MLX chat_template_kwargs; not a portable OpenAI or Ollama setting"},
             "generation": "Executed actual prompt assembly and pinned traversal projection; no model or command execution",
             "token_budget": {"formula": "max_tokens = base_tokens + tokens_per_user_input_byte * UTF8(inference_user_message).bytes",
                 "base_tokens": PENGUIN_TOKEN_BASE, "tokens_per_user_input_byte": PENGUIN_TOKENS_PER_INPUT_BYTE,
                 "scope": "classification, semantic preparation and LUCID traversal inference",
                 "system_prompt_bytes_included": False,
                 "generation_settings": "Top-level prompts use empty input; selection prompt examples bind their declared illustrative input; actual requests recompute the budget"},
-            "design_obligations": ["Original input is supplied to every inference", "Only current-stage choices are shown",
-                "Host request supplies tools=[] and tool_choice=none; no tool catalog or conversation history is injected",
+            "design_obligations": ["Original input is supplied to every inference", "Current-stage choices are scoped; history retains earlier user inputs and selection replies, not earlier system prompts",
+                "Host request supplies tools=[] and tool_choice=none; no tool catalog or cross-submission conversation history is injected",
                 "Host rejects tool/function-call outputs; preprocessing has no model tool-dispatch loop",
                 "Preparation preserves speech acts and does not answer the user or invent continuations",
                 "State glyphs describe the input; non-green restatements are not preparation failures",
@@ -408,6 +451,8 @@ def generate_prompt_receipt(root: Path) -> Path:
                 "Explicit choices skip inference", "MORPH returns to semantic evaluation",
                 "Classification selects CLI, semantic or a declared verb; traversal never reselects the verb",
                 "Noun, optional-field, enum and literal prompts use bold headers, segmented rows and scoped delimited few-shots",
+                "Butler owns one canonical corpus and filtering projector; both hosts consume the same context-keyed artifact",
+                "Corpus expectations are not inference observations; uncovered contexts refuse without unrelated fallback examples",
                 "Each selection attempt retains its exact prompt/hash and input-sized budget; retry feedback is bounded",
                 "Literal selection returns one JSON string sourced from the input; uncertainty refuses without guessing",
                 "Inferred requests require confirmation; no execution from a model selection alone"],
@@ -425,8 +470,10 @@ def generate_prompt_receipt(root: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     stem = digest.removeprefix("sha256:")
     readable = "# Generated PENGUIN Prompts\n\nGeneration only; not an inference or delivery attestation.\n\n"
+    readable += "## Selection Context Example\n\nExpected classifier reply, not an inference observation.\n\n"
+    readable += "```json\n" + json.dumps(context_example, ensure_ascii=False, indent=2) + "\n```\n\n"
     readable += "\n\n".join("## " + stage + "\n\n" + instruction for stage, instruction in instructions.items())
-    readable += "\n\n## Selection Prompts\n\nProduction builders; generation-only cases, no inference. Each stage receives the unchanged original user message. Few-shots are system-prompt examples, not replacement user messages. Semantic preparation and verb traversal are alternative routes.\n"
+    readable += "\n\n## Selection Prompts\n\nGeneration-only standalone requests with no prior turns. Live selection requests retain completed user/reply turns from the same submission beneath the current stage's exact authored system prompt. The original input remains the latest user message, without wrapper prose. Semantic preparation remains isolated.\n"
     for record in selection_prompts:
         readable += "\n### " + record["stage"] + " / " + record["resolved_before"]["verb"] + "\n\n"
         readable += "**USER MESSAGE (UNCHANGED)**\n" + json.dumps(record["input"], ensure_ascii=False) + "\n\n"
@@ -442,6 +489,10 @@ def generate_prompt_receipt(root: Path) -> Path:
             readable += "Selection: `" + str(step.get("selected", "")) + "`\n\n"
         readable += walkthrough["result"].get("gestalt", "Semantic evaluation required.") + "\n"
     readable += "\n## Classification Contract\n\n" + json.dumps(payload["classification_contract"], ensure_ascii=False, indent=2) + "\n"
+    readable += "\n## Semantic Thinking Comparison\n\nGeneration only; neither variant has been run. Exact paired requests are in the JSON receipt.\n\n"
+    readable += "**CASE** · **THINKING OFF REQUEST HASH** · **THINKING ON REQUEST HASH**\n"
+    for pair in thinking_comparison["pairs"]:
+        readable += pair["case_id"] + " · " + " · ".join(variant["request_hash"] for variant in pair["variants"]) + "\n"
     readable += "\n## Audit\n\n" + json.dumps(payload["audit"], indent=2) + "\n"
     readable += "\n"
     envelope = {"intent": {"verb": "get", "args": {"path": "penguin-prompts", "result": payload}},
@@ -476,9 +527,18 @@ def penguin_inference(text: str, instruction: str, stage: str, max_tokens: int) 
     if endpoint.hostname != "127.0.0.1" or endpoint.scheme != "http":
         raise ValueError("penguin-endpoint-not-local")
     stages = getattr(_REQUEST, "stages", None)
-    request = penguin_request(text, instruction, max_tokens)
-    record = {"stage": stage, "system_prompt": instruction, "system_prompt_hash": input_hash(instruction),
+    context = getattr(_REQUEST, "selection_context", None) if stage != "semantic-preparation" else None
+    if context is not None and context["input"] != text:
+        raise ValueError("penguin-context-input-mismatch")
+    request = penguin_request(text, instruction, max_tokens, stage=stage,
+        history=context["messages"] if context is not None else None)
+    record = {"stage": stage, "system_prompt_hash": input_hash(instruction),
+        "system_prompt_message_index": 0,
         "max_tokens": max_tokens, "input": text, "response": None,
+        "request_messages": request["messages"],
+        "context": {"policy": "submission-local-selection" if stage != "semantic-preparation" else "isolated-semantic",
+            "prior_turns": len(context["messages"]) // 2 if context is not None else 0,
+            "stage_instruction_binding": "system message"},
         "token_budget": {"base_tokens": PENGUIN_TOKEN_BASE,
             "tokens_per_user_input_byte": PENGUIN_TOKENS_PER_INPUT_BYTE,
             "encoding": "utf-8", "user_input_bytes": len(text.encode("utf-8"))},
@@ -486,6 +546,11 @@ def penguin_inference(text: str, instruction: str, stage: str, max_tokens: int) 
         "request_hash": input_hash(json.dumps(request, ensure_ascii=False, sort_keys=True, separators=(",", ":")))}
     if stages is not None:
         stages.append(record)
+    if stage in {"classification", "semantic-preparation"}:
+        projection = penguin_funnel.project(stage)
+        if instruction != projection["prompt"]:
+            raise ValueError("funnel-request-prompt-drift")
+        record["few_shots"] = penguin_funnel.receipt(projection)
     started = time.monotonic()
     body = json.dumps(request).encode()
     connection = http.client.HTTPConnection(endpoint.hostname, endpoint.port, timeout=30)
@@ -514,6 +579,10 @@ def penguin_inference(text: str, instruction: str, stage: str, max_tokens: int) 
         if isinstance(usage, dict):
             record["usage"] = {key: usage[key] for key in ("prompt_tokens", "completion_tokens", "total_tokens")
                 if type(usage.get(key)) is int and usage[key] >= 0}
+            for field, key in (("prompt_tokens_details", "cached_tokens"), ("completion_tokens_details", "reasoning_tokens")):
+                details = usage.get(field)
+                if isinstance(details, dict) and type(details.get(key)) is int and details[key] >= 0:
+                    record["usage"][field] = {key: details[key]}
         reasoning = message.get("reasoning_content")
         if isinstance(reasoning, str):
             record["reasoning_chars"] = len(reasoning)
@@ -522,6 +591,9 @@ def penguin_inference(text: str, instruction: str, stage: str, max_tokens: int) 
         response_text = choice["message"]["content"]
         if not isinstance(response_text, str):
             raise ValueError("penguin-gestalt-string-required")
+        if context is not None:
+            context["messages"].extend([dict(request["messages"][-1]),
+                {"role": "assistant", "content": response_text}])
         return response_text
     finally:
         record["elapsed_ms"] = round((time.monotonic() - started) * 1000)
@@ -536,11 +608,11 @@ def prepare_semantic(text: str, candidate: dict, root: Path) -> str:
     return text
 
 
-def presentation_source(signal: str, evidence: str, *, data: tuple[str, ...] = (),
+def presentation_source(signal: str, evidence: str, *, data: tuple[str, ...] = (), timing: tuple[str, ...] = (),
     blocks: tuple[tuple[str, str], ...] = (), continuations: tuple[str, ...] = ()) -> str:
     root = Path(__file__).resolve().parents[2]
     source = canonical_stream(root, signal, service=IDENTITY_PENGUIN,
-        evidence=(evidence,), data=data)
+        evidence=(evidence,), data=data, timing=timing)
     source += "".join(DELIMITER_SEGMENT + RELATION_ACTION + " " + json.dumps(label) for label in continuations)
     for label, value in blocks:
         if value:
@@ -661,6 +733,33 @@ def project_penguin_failure(evidence: dict) -> None:
         "classification", "semantic-preparation", "lucid-preparation"
     } or receipt.get("execution_state") != "not-started":
         return
+    diagnostic["recovery"] = {"submission_id": diagnostic["submission_id"]}
+    evidence.pop("document", None)
+    stages = diagnostic.get("stages", [])
+    stage = stages[-1] if stages else {}
+    if receipt["refusal"] == "penguin-response-incomplete" and stage.get("finish_reason") == "length":
+        facts = [receipt["phase"].replace("-", " ").upper()]
+        usage = stage.get("usage", {})
+        completed, maximum = usage.get("completion_tokens"), stage.get("max_tokens")
+        if type(maximum) is int and maximum > 0:
+            facts.append(f"{completed}/{maximum} completion tokens" if type(completed) is int and completed >= 0
+                else f"{maximum}-token response limit")
+        facts.append("Incomplete response withheld" if isinstance(stage.get("response"), str) and stage["response"]
+            else "No response text returned")
+        thinking = stage.get("request_settings", {}).get("chat_template_kwargs", {}).get("enable_thinking")
+        facts.append("Thinking disabled requested" if thinking is False else "Thinking enabled requested" if thinking is True
+            else "Thinking mode unspecified")
+        reasoning_tokens = usage.get("completion_tokens_details", {}).get("reasoning_tokens")
+        if type(reasoning_tokens) is int and reasoning_tokens > 0:
+            facts.append(f"{reasoning_tokens} reasoning tokens reported")
+        elif type(stage.get("reasoning_chars")) is int and stage["reasoning_chars"] > 0:
+            facts.append(f"{stage['reasoning_chars']} reasoning characters reported")
+        facts.append("Execution not started")
+        elapsed = stage.get("elapsed_ms")
+        timing = (f"Elapsed {elapsed / 1000:.1f}s",) if type(elapsed) is int and elapsed >= 0 else ()
+        evidence["source"] = presentation_source(SIGNAL_RED, "RESPONSE TOKEN LIMIT", data=tuple(facts), timing=timing,
+            blocks=(("INPUT", diagnostic["original_input"]),), continuations=("Retry", "Bypass", "Help"))
+        return
     rows = [{"key": "Refusal", "value": receipt["refusal"]},
         {"key": "Phase", "value": receipt["phase"]},
         {"key": "Execution", "value": "Not started"},
@@ -671,8 +770,6 @@ def project_penguin_failure(evidence: dict) -> None:
                 rows.append({"key": field.replace("_", " ").title(), "value": str(stage[field])})
         for field, value in stage.get("usage", {}).items():
             rows.append({"key": field.replace("_", " ").title(), "value": str(value)})
-    diagnostic["recovery"] = {"submission_id": diagnostic["submission_id"]}
-    evidence.pop("document", None)
     evidence["source"] = presentation_source(SIGNAL_RED, "INTENT ADMISSION REFUSED",
         data=tuple(row["key"].upper() + " " + json.dumps(row["value"]) for row in rows),
         blocks=(("INPUT", diagnostic["original_input"]),), continuations=("Retry", "Bypass", "Help"))
@@ -767,6 +864,7 @@ def admit_prompt(text: str, submission: str, session: str, workspace: str, home:
     prepared = None
     _REQUEST.stages = []
     _REQUEST.lucid_traversal = None
+    _REQUEST.selection_context = {"input": text, "messages": []}
     classifier_response = None
     classification = None
 
@@ -803,6 +901,7 @@ def admit_prompt(text: str, submission: str, session: str, workspace: str, home:
         lucid_result = None
         if classification == "lucid" or (classification == "direct" and candidate["operation"]["channel"] == "lucid"):
             phase = "lucid-preparation"
+            response_text = None
             publish(phase)
             response_text = format_lucid(text, candidate.get("selected_verb") or candidate["operation"]["verb"])
             lucid_result = getattr(_REQUEST, "lucid_traversal", None)
@@ -822,6 +921,7 @@ def admit_prompt(text: str, submission: str, session: str, workspace: str, home:
                 classification = "proposal"
         if classification == "semantic":
             phase = "semantic-preparation"
+            response_text = None
             publish(phase)
             response_text = format_semantic(text)
             _check_cancelled()
@@ -869,6 +969,7 @@ def admit_prompt(text: str, submission: str, session: str, workspace: str, home:
             {"refusal": reason[:256], "ran": None if phase == "execution" else False,
              "execution_state": "unknown" if phase == "execution" else "not-started", "phase": phase}, candidate)}
     finally:
+        _REQUEST.selection_context = None
         if result is not None:
             evidence = result.get("preparation") or result.get("direct_operation")
             if evidence is not None:

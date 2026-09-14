@@ -121,23 +121,25 @@ def test_formatter_prompt_selects_only_protocol_and_gestalt_behavior(monkeypatch
     body = json.loads(connection.request.call_args.args[2])
     instruction = body["messages"][0]["content"]
     assert "response_format" not in body
-    delta = Path(prompt_intent.__file__).with_name("penguin-preparation.md").read_text()
-    prefix, suffix = delta.split("{{GESTALT_LEGEND}}")
-    assert instruction.startswith(prefix)
-    assert instruction.endswith(suffix)
+    from tui_gateway import penguin_funnel
+    delta = (ROOT / "butler/canon/penguin/semantic.md").read_text()
+    prefix, suffix = delta.split("{{FEW_SHOTS}}")
+    assert instruction.startswith(prefix) and instruction.endswith(suffix)
     assert instruction == prompt_intent.penguin_instruction(ROOT)
-    legend = instruction[len(prefix):-len(suffix)]
     segments = json.loads((ROOT / "envelope/GESTALT.json").read_text())["segments"]
-    assert "{{GESTALT_LEGEND}}" not in instruction
-    for token in [*segments["signals"], *segments["glyphs"].values()]:
-        assert token in legend
+    assert "{{FEW_SHOTS}}" not in instruction
+    assert instruction == penguin_funnel.project("semantic-preparation")["prompt"]
+    for token in segments["signals"]:
+        assert token in instruction
     assert "SYS" not in instruction and "HATS" not in instruction
     assert "LUCID SHOW/GET ONLY" not in instruction
     assert "json" not in instruction.lower()
     assert "permission" not in instruction.lower()
     assert "CLI, LUCID, SEMANTIC" not in instruction
-    assert glyph.DELIMITER_SEGMENT.join(("POSITION", "GLYPH", "MEANING", "RULE")) in legend
-    assert "git status" in suffix and "Restate, never reply" in prefix
+    for heading in ("**SEMANTIC PROTOCOL**", "**PREFIX GLYPH**", "**SEGMENT GLYPH**"):
+        assert glyph.DELIMITER_SEGMENT.join((heading, "**RULE**")) in prefix
+    assert "RESTATE · REFORMAT THE ENTIRE INPUT; DO NOT ANSWER IT" in prefix
+    assert "git status" in instruction
     assert "lucid get role" not in instruction
     assert body["messages"][1]["content"] == "custom-cli"
     connection.close.assert_called_once()
@@ -329,7 +331,7 @@ def test_reported_greeting_failure_retains_actual_prompt_and_raw_response(tmp_pa
     assert diagnostic["receipt"]["refusal"] == "penguin-unsupported-lucid-verb"
     assert diagnostic["stages"][-1]["response"] == response
     actual = json.loads(connection.request.call_args.args[2])
-    assert diagnostic["stages"][-1]["system_prompt"] == actual["messages"][0]["content"]
+    assert diagnostic["stages"][-1]["request_messages"] == actual["messages"]
     assert diagnostic["input_normalization"]["submitted_input"] == "Hi"
     assert diagnostic["input_normalization"]["changed"] is False
     execute.assert_not_called()
@@ -338,14 +340,17 @@ def test_reported_greeting_failure_retains_actual_prompt_and_raw_response(tmp_pa
 def test_preparation_prompt_preserves_speech_acts_without_lucid_teaching():
     instruction = prompt_intent.penguin_instruction(ROOT)
     assert "RESTATE · REFORMAT THE ENTIRE INPUT; DO NOT ANSWER IT" in instruction
-    assert "ONLY REQUESTED CONTINUATIONS; KEEP CONDITIONS" in instruction
+    assert "EXPLICIT NEXT STEPS ARE CONTINUATIONS, NOT DATA" in instruction
+    assert "OMIT ONLY WHEN NONE REQUESTED; KEEP CONDITIONS" in instruction
     for excluded in ("LUCID", "GESTALT", "signature", "whitespace", "wrapper",
         glyph.IDENTITY_LUCID, glyph.RELATION_VERB, glyph.RELATION_NOUN, glyph.RELATION_ARGUMENT):
         assert excluded not in instruction
     assert "{{GESTALT_LEGEND}}" not in instruction
     assert "=>" not in instruction
     rows = instruction.split("**PROMPT** · **EXPECTED OUTPUT**\n", 1)[1].strip().splitlines()
-    assert len(rows) == 13
+    from tui_gateway import penguin_funnel
+    selected = [case for case in penguin_funnel.corpus()["cases"] if case["classification"] in {"semantic", "morph"}]
+    assert len(rows) == len(selected)
     states = set()
     for row in rows:
         original, end = json.JSONDecoder().raw_decode(row)
@@ -373,11 +378,65 @@ def test_preparation_prompt_preserves_speech_acts_without_lucid_teaching():
     assert "EVIDENCE FIRST, DATA FOLLOWS, THEN TIMING AND CYOA LAST" in instruction
 
 
+def test_canonical_stream_builds_service_free_intent_and_cli_without_changing_defaults():
+    assert canonical_stream(ROOT, SIGNAL_GREEN) == glyph.DELIMITER_SEGMENT.join((SIGNAL_GREEN, glyph.IDENTITY_LUCID))
+    assert canonical_stream(ROOT, SIGNAL_GREEN, without_identity=True, data=("ok",), intents=("try",)) == glyph.DELIMITER_SEGMENT.join((
+        SIGNAL_GREEN, f"{glyph.RELATION_DATUM} ok", f'{glyph.RELATION_ACTION} "try"',
+    ))
+    assert canonical_stream(ROOT, SIGNAL_GREEN, without_identity=True, data=("check",), cli=("git status",)) == glyph.DELIMITER_SEGMENT.join((
+        SIGNAL_GREEN, f"{glyph.RELATION_DATUM} check", f"{glyph.RELATION_ACTION} `git status`",
+    ))
+    for field, invalid in [("intents", 'nested " quote'), ("cli", "nested ` quote"), ("intents", ""),
+        ("cli", "new\nline"), ("intents", "\x7f"), ("cli", "é" * 513)]:
+        with pytest.raises(ValueError, match="CYOA continuation is invalid"):
+            canonical_stream(ROOT, SIGNAL_GREEN, **{field: (invalid,)})
+    with pytest.raises(ValueError, match="conflicts"):
+        canonical_stream(ROOT, SIGNAL_GREEN, without_identity=True, service=glyph.IDENTITY_LUCID)
+
+
+def test_canonical_quoted_continuations_round_trip_without_promoting_literal_actions():
+    intent = f"inspect{glyph.DELIMITER_SEGMENT}{glyph.RELATION_ACTION} literally; A=B"
+    command = f"printf 'a{glyph.DELIMITER_SEGMENT}b' | head"
+    text = canonical_stream(ROOT, SIGNAL_GREEN, without_identity=True,
+        data=("check",), intents=(intent, "try"), cli=(command, "git status"))
+    parsed = parse_stream(ROOT, text)
+    assert parsed["service"] is None
+    assert parsed["data"] == ["check"]
+    assert parsed["intents"] == [intent, "try"]
+    assert parsed["cli"] == [command, "git status"]
+    assert parsed["actions"] == []
+    assert parsed["continuations"] == []
+    for malformed in ['"unclosed', '`unclosed', '"nested " quote"', '"try" unsegmented', '""', '`\x00`']:
+        with pytest.raises(ValueError):
+            parse_stream(ROOT, glyph.DELIMITER_SEGMENT.join((SIGNAL_GREEN, f"{glyph.RELATION_ACTION} {malformed}")))
+    service = parse_stream(ROOT, canonical_stream(ROOT, SIGNAL_GREEN, continuations=(glyph.IDENTITY_PENGUIN,)))
+    assert service["continuations"] == [glyph.IDENTITY_PENGUIN]
+    assert service["intents"] == [] and service["cli"] == []
+
+
+def test_witnessed_greeting_status_and_next_step_are_preserved_in_canonical_semantic_case():
+    from tui_gateway import penguin_funnel
+
+    cases = {case["id"]: case for case in penguin_funnel.corpus()["cases"]}
+    case = cases["greeting-status-continuation"]
+    assert case["input"] == "Hello, how are we doing today, this is a status and protocol check. Next steps: Sign in as EM"
+    assert case["classification"] == "semantic"
+    assert case["semantic"] == canonical_stream(ROOT, SIGNAL_GREEN, without_identity=True,
+        data=("Hello", "How are we doing today?", "This is a status and protocol check"), intents=("Sign in as EM",))
+    projection = penguin_funnel.project("semantic-preparation")
+    assert case["id"] in projection["case_ids"]
+    assert case["semantic"] in projection["prompt"]
+    assert "EXPLICIT NEXT STEPS ARE CONTINUATIONS, NOT DATA" in projection["prompt"]
+    assert cases["agent-role"]["semantic"] == canonical_stream(ROOT, SIGNAL_GREEN, without_identity=True, data=("Sign in as EM",))
+    candidate = prompt_intent.decode_preparation(case["input"], case["semantic"], ROOT)
+    assert prompt_intent.prepare_semantic(case["input"], candidate, ROOT) == case["input"]
+
+
 @pytest.mark.parametrize("stage", ["classification", "semantic-preparation"])
-def test_preprocessing_request_has_no_tool_surface_or_conversation_history(stage):
+def test_preprocessing_request_has_no_tool_surface_or_prior_submission_history(stage):
     instruction = (prompt_intent.classification_instruction() if stage == "classification"
         else prompt_intent.penguin_instruction(ROOT))
-    request = prompt_intent.penguin_request("Hi", instruction, prompt_intent.penguin_max_tokens("Hi"))
+    request = prompt_intent.penguin_request("Hi", instruction, prompt_intent.penguin_max_tokens("Hi"), stage=stage)
     assert request["tools"] == []
     assert request["tool_choice"] == "none"
     assert "functions" not in request
@@ -394,10 +453,160 @@ def test_preprocessing_request_has_no_tool_surface_or_conversation_history(stage
 def test_budget_is_base_plus_twice_utf8_user_bytes(text, expected):
     assert prompt_intent.penguin_max_tokens(text) == expected
     for instruction in ["Short", "Long system instruction " * 100]:
-        request = prompt_intent.penguin_request(text, instruction, expected)
+        request = prompt_intent.penguin_request(text, instruction, expected, stage="classification")
         assert request["max_tokens"] == expected
     with pytest.raises(ValueError, match="penguin-input-budget-mismatch"):
-        prompt_intent.penguin_request(text, "instruction", expected - 1)
+        prompt_intent.penguin_request(text, "instruction", expected - 1, stage="classification")
+
+
+@pytest.mark.parametrize("stage", ["classification", "semantic-preparation", "lucid-noun", "lucid-optional",
+    "lucid-noun:retry", "lucid-optional:retry", "lucid-argument:url", "lucid-argument:app:retry"])
+def test_bounded_preprocessing_disables_thinking_without_prompt_instructions(stage):
+    request = prompt_intent.penguin_request("Hi", "unchanged instructions", 1028, stage=stage)
+    assert request["chat_template_kwargs"] == {"enable_thinking": False}
+    assert request["messages"] == [
+        {"role": "system", "content": "unchanged instructions"}, {"role": "user", "content": "Hi"}]
+    assert request["max_tokens"] == 1028
+    assert request["tools"] == [] and request["tool_choice"] == "none"
+
+
+def test_selection_context_uses_current_authored_prompt_and_preserves_original_input_without_mutating_history():
+    initial = prompt_intent.penguin_request("Hi", "classify", 1028, stage="classification")
+    history = [initial["messages"][-1], {"role": "assistant", "content": "SHOW"}]
+    followup = prompt_intent.penguin_request("Hi", "select noun", 1028, stage="lucid-noun", history=history)
+    assert followup["messages"][0] == {"role": "system", "content": "select noun"}
+    assert followup["messages"][1:3] == history
+    assert followup["messages"][2] == history[-1]
+    assert followup["messages"][3:] == [{"role": "user", "content": "Hi"}]
+    assert len(history) == 2
+    assert followup["messages"][1] is not history[0]
+    assert followup["max_tokens"] == initial["max_tokens"] == 1028
+    assert followup["tools"] == [] and followup["tool_choice"] == "none"
+    with pytest.raises(ValueError, match="penguin-context-input-mismatch"):
+        prompt_intent.penguin_request("Other", "select noun", 1034, stage="lucid-noun", history=history)
+    with pytest.raises(ValueError, match="penguin-semantic-context-forbidden"):
+        prompt_intent.penguin_request("Hi", "semantic", 1028, stage="semantic-preparation", history=history)
+    with pytest.raises(ValueError, match="penguin-context-turn-bound"):
+        prompt_intent.penguin_request("Hi", "select noun", 1028, stage="lucid-noun", history=history * 32)
+    history[-1]["content"] = "x" * 262144
+    with pytest.raises(ValueError, match="penguin-context-byte-bound"):
+        prompt_intent.penguin_request("Hi", "select noun", 1028, stage="lucid-noun", history=history)
+
+
+@pytest.mark.parametrize("finish,extra", [("stop", {}), ("length", {}),
+    ("stop", {"tool_calls": [{"id": "forbidden"}]})])
+def test_selection_context_retains_only_completed_text_and_receipts_exact_messages(monkeypatch, finish, extra):
+    context = {"input": "Hi", "messages": []}
+    records = []
+    monkeypatch.setattr(prompt_intent._REQUEST, "selection_context", context, raising=False)
+    monkeypatch.setattr(prompt_intent._REQUEST, "stages", records, raising=False)
+    monkeypatch.setattr(prompt_intent._REQUEST, "submission", None, raising=False)
+    connection = Mock()
+    connection.getresponse.return_value.status = 200
+    connection.getresponse.return_value.read.return_value = json.dumps({"choices": [{
+        "finish_reason": finish, "message": {"content": "INVALID", "reasoning_content": "private", **extra}}]}).encode()
+    monkeypatch.setattr(prompt_intent.http.client, "HTTPConnection", Mock(return_value=connection))
+    if finish == "stop" and not extra:
+        prompt_intent.penguin_inference("Hi", "select noun", "lucid-noun", 1028)
+        prompt_intent.penguin_inference("Hi", "retry noun", "lucid-noun", 1028)
+        outgoing = [json.loads(call.args[2]) for call in connection.request.call_args_list]
+        assert outgoing[1]["messages"][0] == {"role": "system", "content": "retry noun"}
+        assert outgoing[1]["messages"][1] == outgoing[0]["messages"][1]
+        assert outgoing[1]["messages"][2] == {"role": "assistant", "content": "INVALID"}
+        assert [record["context"]["prior_turns"] for record in records] == [0, 1]
+        assert len(context["messages"]) == 4
+        assert "private" not in json.dumps(context)
+        for record, request in zip(records, outgoing):
+            assert record["request_messages"] == request["messages"]
+            assert "system_prompt" not in record and "stage_prompt" not in record
+            assert record["system_prompt_message_index"] == 0
+            instruction = record["request_messages"][record["system_prompt_message_index"]]["content"]
+            assert record["system_prompt_hash"] == prompt_intent.input_hash(instruction)
+            assert sum(message["content"] == instruction for message in record["request_messages"]) == 1
+            assert record["request_hash"] == prompt_intent.input_hash(json.dumps(
+                request, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    else:
+        with pytest.raises(ValueError, match="penguin-tool-output-forbidden" if extra else "penguin-response-incomplete"):
+            prompt_intent.penguin_inference("Hi", "select noun", "lucid-noun", 1028)
+        assert context["messages"] == []
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_admissions_clear_selection_context_on_success_and_failure(tmp_path, monkeypatch, fail):
+    contexts = []
+
+    def classify(text):
+        context = prompt_intent._REQUEST.selection_context
+        assert context == {"input": text, "messages": []}
+        contexts.append(context)
+        context["messages"].append({"role": "assistant", "content": "previous submission marker"})
+        if fail:
+            raise ValueError("context-cleanup-probe")
+        return "🧠"
+
+    monkeypatch.setattr(prompt_intent, "classify", classify)
+    monkeypatch.setattr(prompt_intent, "format_semantic", Mock(return_value=gestalt("SEMANTIC", "Hello")))
+    for suffix in ("-first", "-second"):
+        prompt_intent.admit_prompt("Hello", SUBMISSION + suffix, "session", "/workspace", tmp_path)
+        assert prompt_intent._REQUEST.selection_context is None
+    assert contexts[0] is not contexts[1]
+
+
+def test_live_semantic_thinking_is_disabled_and_unknown_stage_refuses():
+    request = prompt_intent.penguin_request("Hi", "instruction", 1028, stage="semantic-preparation")
+    assert request["chat_template_kwargs"] == {"enable_thinking": False}
+    assert request["messages"] == [{"role": "system", "content": "instruction"}, {"role": "user", "content": "Hi"}]
+    assert request["max_tokens"] == 1028
+    assert request["tools"] == [] and request["tool_choice"] == "none"
+    with pytest.raises(ValueError, match="penguin-request-stage-invalid"):
+        prompt_intent.penguin_request("Hi", "instruction", 1028, stage="unregistered")
+
+
+def test_semantic_comparison_pairs_change_only_thinking_and_keep_results_unobserved():
+    from tui_gateway import penguin_funnel
+
+    comparison = prompt_intent.semantic_thinking_comparison(ROOT)
+    projection = penguin_funnel.project("semantic-preparation")
+    cases = {case["id"]: case for case in penguin_funnel.corpus()["cases"]}
+    assert comparison["inference_ran"] is False
+    assert comparison["live_semantic_policy"] == "enable_thinking=false"
+    assert [pair["case_id"] for pair in comparison["pairs"]] == projection["case_ids"]
+    for pair in comparison["pairs"]:
+        assert pair["input"] == cases[pair["case_id"]]["input"]
+        assert pair["expected_output"] == cases[pair["case_id"]]["semantic"]
+        assert pair["expected_is_observed"] is False
+        off, on = pair["variants"]
+        assert off["request"]["chat_template_kwargs"] == {"enable_thinking": False}
+        assert on["request"]["chat_template_kwargs"] == {"enable_thinking": True}
+        assert {key: value for key, value in off["request"].items() if key != "chat_template_kwargs"} == {
+            key: value for key, value in on["request"].items() if key != "chat_template_kwargs"}
+        for variant in pair["variants"]:
+            request = variant["request"]
+            assert request["messages"][1] == {"role": "user", "content": pair["input"]}
+            assert request["messages"][0]["content"] == projection["prompt"]
+            assert variant["request_hash"] == prompt_intent.input_hash(json.dumps(
+                request, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+            assert all(variant[field] is None for field in ("response", "usage", "elapsed_ms", "witness"))
+
+
+@pytest.mark.parametrize("details", [None, {"cached_tokens": 12}, {"cached_tokens": -1}, {"cached_tokens": True}])
+def test_cached_usage_is_retained_only_when_reported_as_nonnegative_integer(monkeypatch, details):
+    connection = Mock()
+    connection.getresponse.return_value.status = 200
+    usage = {"prompt_tokens": 20, "completion_tokens": 3, "total_tokens": 23}
+    if details is not None:
+        usage["prompt_tokens_details"] = details
+    connection.getresponse.return_value.read.return_value = json.dumps({"choices": [{
+        "finish_reason": "stop", "message": {"content": "🧠"}}], "usage": usage}).encode()
+    monkeypatch.setattr(prompt_intent.http.client, "HTTPConnection", Mock(return_value=connection))
+    records = []
+    monkeypatch.setattr(prompt_intent._REQUEST, "stages", records, raising=False)
+    prompt_intent.penguin_inference("Hi", prompt_intent.classification_instruction(), "classification", 1028)
+    assert records[0]["request_settings"]["chat_template_kwargs"] == {"enable_thinking": False}
+    if details == {"cached_tokens": 12}:
+        assert records[0]["usage"]["prompt_tokens_details"] == details
+    else:
+        assert "prompt_tokens_details" not in records[0]["usage"]
 
 
 def test_classification_and_rewrite_use_the_same_input_sized_budget(monkeypatch):
@@ -428,8 +637,10 @@ def test_preprocessing_rejects_tool_outputs_even_with_valid_text(stage, extra, f
     monkeypatch.setattr(prompt_intent.http.client, "HTTPConnection", Mock(return_value=connection))
     execute = Mock()
     monkeypatch.setattr(prompt_intent, "execute_direct", execute)
+    instruction = (prompt_intent.classification_instruction() if stage == "classification"
+        else prompt_intent.penguin_instruction(ROOT))
     with pytest.raises(ValueError, match="penguin-tool-output-forbidden"):
-        prompt_intent.penguin_inference("Hi", "Classify input", stage, prompt_intent.penguin_max_tokens("Hi"))
+        prompt_intent.penguin_inference("Hi", instruction, stage, prompt_intent.penguin_max_tokens("Hi"))
     outgoing = json.loads(connection.request.call_args.args[2])
     assert outgoing["tools"] == [] and outgoing["tool_choice"] == "none"
     connection.close.assert_called_once()
@@ -537,13 +748,15 @@ def test_copied_diagnostics_include_the_actual_canonical_system_instruction(tmp_
     diagnostic = result["preparation"]["diagnostic"]
     assert "penguin_system_prompt" not in diagnostic
     assert "penguin_system_prompt_hash" not in diagnostic
-    assert diagnostic["stages"][-1]["system_prompt"] == actual_prompt
+    assert diagnostic["stages"][-1]["request_messages"][0]["content"] == actual_prompt
+    assert all("system_prompt" not in stage and "stage_prompt" not in stage for stage in diagnostic["stages"])
     assert diagnostic["stages"][-1]["system_prompt_hash"] == prompt_intent.input_hash(actual_prompt)
     assert diagnostic["penguin_response"] == response
     assert result["prepared_text"] == "Compare approaches"
     calls = [json.loads(call.args[2]) for call in connection.request.call_args_list]
     assert len(calls) == 2
     assert calls[0]["messages"][0]["content"] == prompt_intent.classification_instruction()
+    assert calls[0]["messages"][1]["content"] == "Compare approaches"
     assert calls[0]["max_tokens"] == calls[1]["max_tokens"] == 1024 + 2 * len("Compare approaches".encode("utf-8"))
     assert calls[1]["messages"][0]["content"] == prompt_intent.penguin_instruction(ROOT)
     assert [stage["stage"] for stage in diagnostic["stages"]] == ["classification", "semantic-preparation"]
@@ -556,8 +769,87 @@ def test_copied_diagnostics_include_the_actual_canonical_system_instruction(tmp_
         assert stage["token_budget"] == {"base_tokens": 1024, "tokens_per_user_input_byte": 2,
             "encoding": "utf-8", "user_input_bytes": len("Compare approaches".encode("utf-8"))}
         assert stage["request_settings"] == {key: value for key, value in request.items() if key != "messages"}
+        assert stage["request_messages"] == request["messages"]
         assert stage["request_hash"] == prompt_intent.input_hash(
             json.dumps(request, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+
+
+@pytest.mark.parametrize("partial", [None, "unfinished response"])
+def test_rewrite_exhaustion_does_not_report_classifier_output_as_rewrite(tmp_path, monkeypatch, partial):
+    text = 'This is an introduction into the LUCID system.\n\nLUCID has been alive for 5 minutes.\n\nThe system is awaiting your sign in, use value "EM"'
+    budget = prompt_intent.penguin_max_tokens(text)
+    assert budget == 1296
+    monkeypatch.setattr(prompt_intent.time, "monotonic", lambda: 0)
+    connection = Mock()
+    connection.getresponse.return_value.status = 200
+    connection.getresponse.return_value.read.side_effect = [
+        json.dumps({"choices": [{"finish_reason": "stop", "message": {"content": "\n\n🧠"}}]}).encode(),
+        json.dumps({"choices": [{"finish_reason": "length", "message": {"content": partial}}],
+            "usage": {"completion_tokens": budget}}).encode(),
+    ]
+    monkeypatch.setattr(prompt_intent.http.client, "HTTPConnection", Mock(return_value=connection))
+    execute = Mock()
+    monkeypatch.setattr(prompt_intent, "execute_direct", execute)
+    events = []
+    result = prompt_intent.admit_prompt(text, SUBMISSION, "session", "/workspace", tmp_path,
+        on_preparation=events.append)
+    diagnostic = result["direct_operation"]["diagnostic"]
+    assert diagnostic["classifier_response"] == "\n\n🧠"
+    assert diagnostic["penguin_response"] is None
+    assert diagnostic["receipt"]["phase"] == "semantic-preparation"
+    assert diagnostic["receipt"]["refusal"] == "penguin-response-incomplete"
+    assert diagnostic["stages"][-1]["response"] == partial
+    assert diagnostic["stages"][-1]["usage"]["completion_tokens"] == budget
+    assert diagnostic["receipt"]["ran"] is False
+    assert "prepared_text" not in result
+    semantic_event = next(event for event in events if event["diagnostic"]["phase"] == "semantic-preparation")
+    assert semantic_event["diagnostic"]["penguin_response"] is None
+    request = json.loads(connection.request.call_args.args[2])
+    assert request["messages"] == [
+        {"role": "system", "content": prompt_intent.penguin_instruction(ROOT)},
+        {"role": "user", "content": text},
+    ]
+    assert request["chat_template_kwargs"] == {"enable_thinking": False}
+    assert request["max_tokens"] == budget
+    assert connection.request.call_count == 2
+    source = result["direct_operation"]["source"]
+    projected = parse_stream(ROOT, source.split("\n\n", 1)[0])
+    assert projected["evidence"] == ["RESPONSE TOKEN LIMIT"]
+    assert projected["data"] == [
+        "SEMANTIC PREPARATION", "1296/1296 completion tokens",
+        "No response text returned" if partial is None else "Incomplete response withheld",
+        "Thinking disabled requested", "Execution not started",
+    ]
+    assert projected["timing"] == ["Elapsed 0.0s"]
+    assert source.endswith("```text\n" + text + "\n```")
+    if partial is not None:
+        assert partial not in source
+    execute.assert_not_called()
+
+
+@pytest.mark.parametrize("usage,expected", [
+    ({}, ["1028-token response limit"]),
+    ({"completion_tokens": 1028, "completion_tokens_details": {"reasoning_tokens": 1028},
+        "prompt_tokens_details": {"cached_tokens": 0}}, ["1028/1028 completion tokens", "1028 reasoning tokens reported"]),
+])
+def test_token_limit_projection_does_not_invent_usage_or_backend_reasoning(usage, expected):
+    evidence = {"diagnostic": {
+        "submission_id": SUBMISSION, "original_input": "Hi",
+        "receipt": {"refusal": "penguin-response-incomplete", "phase": "semantic-preparation",
+            "ran": False, "execution_state": "not-started"},
+        "stages": [{"stage": "semantic-preparation", "finish_reason": "length", "max_tokens": 1028,
+            "response": None, "usage": usage, "request_settings": {}}],
+    }}
+    original = json.dumps(evidence["diagnostic"], sort_keys=True)
+    prompt_intent.project_penguin_failure(evidence)
+    projected = parse_stream(ROOT, evidence["source"].split("\n\n", 1)[0])
+    assert projected["evidence"] == ["RESPONSE TOKEN LIMIT"]
+    assert projected["data"] == ["SEMANTIC PREPARATION", expected[0], "No response text returned",
+        "Thinking mode unspecified", *expected[1:], "Execution not started"]
+    assert projected["timing"] == []
+    assert "cached_tokens" not in evidence["source"]
+    assert "response" not in evidence["diagnostic"]["receipt"]
+    assert json.dumps({key: value for key, value in evidence["diagnostic"].items() if key != "recovery"}, sort_keys=True) == original
 
 
 def test_incomplete_reasoning_response_retains_budget_evidence_without_duplicate_prompt(tmp_path, monkeypatch):
@@ -587,8 +879,12 @@ def test_incomplete_reasoning_response_retains_budget_evidence_without_duplicate
     assert all("penguin_system_prompt" not in event["diagnostic"] for event in events)
     source = result["direct_operation"]["source"]
     assert "document" not in result["direct_operation"]
-    assert '🔎 INTENT ADMISSION REFUSED' in source
-    assert '◆ FINISH REASON "length"' in source
+    projected = parse_stream(ROOT, source.split("\n\n", 1)[0])
+    assert projected["evidence"] == ["RESPONSE TOKEN LIMIT"]
+    assert projected["data"][0] == "CLASSIFICATION"
+    assert f"{budget}/{budget} completion tokens" in projected["data"]
+    assert "Thinking disabled requested" in projected["data"]
+    assert f"{len('Still reasoning')} reasoning characters reported" in projected["data"]
     assert f'{glyph.DELIMITER_SEGMENT}{glyph.RELATION_ACTION} "Retry"{glyph.DELIMITER_SEGMENT}{glyph.RELATION_ACTION} "Bypass"{glyph.DELIMITER_SEGMENT}{glyph.RELATION_ACTION} "Help"' in source.split("\n\n", 1)[0]
     assert "```text\nHow's your day going\n```" in source
     assert '🔎 OUTPUT' not in source and '🔎 DIAGNOSTICS' not in source
@@ -862,7 +1158,9 @@ def test_classifier_teaches_glyph_intents_without_protocol_routing_details():
     assert "**OUTPUT LABEL** · **RULE**" in instruction
     assert "=>" not in instruction
     rows = instruction.split(header + "\n", 1)[1].strip().splitlines()
-    assert len(rows) == 28
+    from tui_gateway import penguin_funnel
+    cases = penguin_funnel.corpus()["cases"]
+    assert len(rows) == len(cases)
     examples = {}
     for row in rows:
         original, end = json.JSONDecoder().raw_decode(row)
@@ -875,7 +1173,7 @@ def test_classifier_teaches_glyph_intents_without_protocol_routing_details():
         examples[original] = output
     assert sum(output == "🤖" for output in examples.values()) == 10
     assert examples['SHOW PULSE'] == vocabulary["verbs"]["show"]["glyph"]
-    assert examples['Open https://example.com/'] == vocabulary["verbs"]["show"]["glyph"]
+    assert examples['Open https://example.com/Path?q=Case%20A'] == vocabulary["verbs"]["show"]["glyph"]
     assert examples['GET role'] == vocabulary["verbs"]["get"]["glyph"]
     assert examples['echo "SHOW PULSE"'] == "🤖"
     assert examples["MORPH"] == examples["Turn this idea into a comic"] == vocabulary["verbs"]["morph"]["glyph"]
@@ -994,7 +1292,7 @@ def test_selection_prompt_receipts_use_production_builders_and_canonical_rows():
                 value = json.loads(expected)
                 assert isinstance(value, str)
                 assert value in original or json.dumps(value, ensure_ascii=False) in original
-        request = prompt_intent.penguin_request(record["input"], instruction, prompt_intent.penguin_max_tokens(record["input"]))
+        request = prompt_intent.penguin_request(record["input"], instruction, prompt_intent.penguin_max_tokens(record["input"]), stage=record["stage"])
         assert request["tools"] == [] and request["tool_choice"] == "none"
 
 
@@ -1012,11 +1310,10 @@ def test_optional_prompt_excludes_already_selected_fields_without_mutating_contr
 
     target = {"optional": ["scope", "speak"]}
     choices = optional_choices(target, ["scope"])
-    assert choices == {"omit": "NO FURTHER REQUESTED OPTIONAL FIELDS", "speak": "speak"}
-    prompt = choice_instruction("lucid-optional", choices,
-        {"verb": "show", "noun": "pulse", "optional_arguments": ["scope"]})
-    labels = prompt.split("**OUTPUT LABEL** · **MEANING**\n", 1)[1].split("\n\n", 1)[0]
-    assert 'SCOPE · ' not in labels
+    assert choices == {"omit": "NO FURTHER REQUESTED OPTIONAL FIELDS", "speak": "SPEAK"}
+    with pytest.raises(ValueError, match="funnel-coverage-gap"):
+        choice_instruction("lucid-optional", choices,
+            {"verb": "show", "noun": "pulse", "optional_arguments": ["scope"]})
     assert target["optional"] == ["scope", "speak"]
 
 
@@ -1062,23 +1359,26 @@ def test_generated_selection_cases_keep_the_original_request_across_stages():
     from tui_gateway.lucid_traversal import receipt_selection_prompts
 
     records = receipt_selection_prompts(prompt_intent.lucid_vocabulary())
-    original = "Open https://example.com/ with scope this."
-    stages = [record for record in records if record["input"] == original]
+    from tui_gateway import penguin_funnel
+    cases = {case["id"]: case for case in penguin_funnel.corpus()["cases"]}
+    stages = records
     assert {record["stage"] for record in stages} >= {
         "lucid-noun", "lucid-optional", "lucid-argument:url", "lucid-argument:scope",
     }
-    assert all(record["input_hash"] == prompt_intent.input_hash(original) for record in stages)
+    assert all(record["input"] == cases[record["input_case_id"]]["input"] for record in stages)
+    assert all(record["input_hash"] == prompt_intent.input_hash(record["input"]) for record in stages)
     assert all('Target: ' not in record["input"] for record in records)
 
 
 def test_retry_prompt_is_bounded_before_another_inference(monkeypatch):
     from tui_gateway import lucid_traversal
 
-    choices = {"url": "url"}
-    instruction = lucid_traversal.choice_instruction("lucid-noun", choices, {})
+    traversal = Traversal("Open URL", prompt_intent.lucid_vocabulary(), Mock(return_value="invalid"))
+    choices = lucid_traversal.noun_choices(traversal.targets("show"))
+    traversal.decisions = {"verb": "show"}
+    instruction = lucid_traversal.choice_instruction("lucid-noun", choices, traversal.decisions)
     monkeypatch.setattr(lucid_traversal, "MAX_PROMPT_BYTES", len(instruction.encode("utf-8")))
-    infer = Mock(return_value="invalid")
-    traversal = Traversal("Open URL", prompt_intent.lucid_vocabulary(), infer)
+    infer = traversal.infer
     with pytest.raises(ValueError, match="lucid-help-prompt-bound"):
         traversal.choose("lucid-noun", choices, "fixture")
     assert infer.call_count == 1
@@ -1100,6 +1400,7 @@ def test_json_literal_selection_preserves_exact_source_value(value):
 @pytest.mark.parametrize("response", ['unquoted', "'single quoted'", '[]', '42', 'null', '""', '"invented"', '"first" "second"'])
 def test_literal_selection_rejects_non_json_strings_and_unsourced_values(response):
     traversal = Traversal("url missing", prompt_intent.lucid_vocabulary(), Mock(return_value=response))
+    traversal.decisions = {"verb": "show", "noun": "url"}
     with pytest.raises(ValueError, match="lucid-argument-needs-clarification:url"):
         traversal.arguments("show", "url", traversal.targets("show")["url"], {"view": "url"})
 

@@ -50,17 +50,13 @@ def prompt_hash(prompt: str) -> str:
     return "sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
 
-def selection_retry(prompt: str) -> str:
-    return prompt + "\n\n**FEEDBACK** · **RULE**\nINVALID LABEL · RETURN ONE DECLARED LABEL OR " + SIGNAL_PENDING
-
-
 def noun_choices(targets: dict) -> dict[str, str]:
     return {name: target.get("meaning", name) for name, target in targets.items()}
 
 
 def optional_choices(target: dict, selected: list[str]) -> dict[str, str]:
     return {"omit": "NO FURTHER REQUESTED OPTIONAL FIELDS",
-        **{key: key for key in target["optional"] if key not in selected}}
+        **{key: key.upper() for key in target["optional"] if key not in selected}}
 
 
 @dataclass
@@ -83,11 +79,22 @@ class Traversal:
         if SIGNAL_PENDING in choices:
             raise ValueError("lucid-help-choice-collision")
         labels = choice_labels(choices)
-        prompt = choice_instruction(stage, choices, self.decisions)
+        if pinned is not None:
+            accepted = pinned in choices
+            self.record({"stage": stage, "help_source": source, "help_hash": digest(choices),
+                "choices": dict(choices), "resolved_before": deepcopy(self.decisions),
+                "selection_source": "explicit", "selected": pinned, "attempts": [],
+                "inference_ran": False, "validation": "accepted" if accepted else "refused"})
+            if not accepted:
+                raise ValueError("lucid-help-selection-invalid:" + stage)
+            return pinned
+        projection = penguin_funnel.project(stage, self.decisions, choices=choices)
+        prompt = projection["prompt"]
         if len(prompt.encode()) > MAX_PROMPT_BYTES:
             raise ValueError("lucid-help-prompt-bound")
         record = {"stage": stage, "help_source": source, "help_hash": digest(choices), "system_prompt": prompt,
             "system_prompt_hash": prompt_hash(prompt),
+            "few_shots": penguin_funnel.receipt(projection),
             "choices": dict(choices), "output_labels": labels, "resolved_before": deepcopy(self.decisions), "selection_source": "explicit" if pinned is not None else "penguin"}
         self.record(record)
         record["attempts"] = []
@@ -96,6 +103,7 @@ class Traversal:
                 record["validation"] = "prompt-bound"
                 raise ValueError("lucid-help-prompt-bound")
             attempt_record = {"system_prompt": prompt, "system_prompt_hash": prompt_hash(prompt),
+                "few_shots": penguin_funnel.receipt(projection),
                 "input": self.original, "max_tokens": penguin_max_tokens(self.original),
                 "selection": None, "accepted": False, "inference_ran": pinned is None}
             record["attempts"].append(attempt_record)
@@ -112,31 +120,22 @@ class Traversal:
             if pinned is not None or attempt == MAX_ATTEMPTS - 1:
                 record["validation"] = "refused"
                 raise ValueError("lucid-help-selection-invalid:" + stage)
-            prompt = selection_retry(prompt)
+            prompt = projection["retry_prompt"]
+            if prompt is None:
+                raise ValueError("funnel-retry-unavailable")
         record["validation"] = "accepted"
         return selected
 
     def targets(self, verb: str) -> dict[str, dict]:
-        schema = self.vocabulary["verbs"][verb]["args"]
-        if verb == "show":
-            views = schema.get("x-attention-views", {}).get("views", {})
-            return {name: {"selector": "view", "meaning": SHOW_NOUN_PROMPTS.get(name, (name.replace("-", " "), ""))[0], "required": contract.get("required", []),
-                "optional": contract.get("optional", [])} for name, contract in views.items()
-                if not any("id" in key or "hash" in key for key in contract.get("required", []))}
+        if verb not in {"show", "get", "set"}:
+            raise ValueError("lucid-noun-help-unavailable:" + verb)
+        targets = penguin_funnel.owner.targets(self.vocabulary, verb)
         if verb in {"get", "set"}:
-            targets = self.vocabulary[verb + "_registry"]["targets"]
-            projected = {}
-            for target in targets:
+            for target in self.vocabulary[verb + "_registry"]["targets"]:
                 selector = target.get("selector" if verb == "get" else "path", {})
-                if selector.get("kind") != "exact" or any("hash" in key for key in target.get("preconditions", [])):
-                    continue
-                projected[selector["value"]] = {"selector": "path",
-                    "meaning": target.get("materializer", target["id"]).replace("-", " "),
-                    "required": ["path"] + (["value"] if verb == "set" else []),
-                    "optional": [key for key in target.get("arguments", {}).get("allowed", []) if key != "path"],
-                    "contract": target}
-            return projected
-        raise ValueError("lucid-noun-help-unavailable:" + verb)
+                if selector.get("value") in targets:
+                    targets[selector["value"]]["contract"] = target
+        return targets
 
     def noun(self, verb: str, pinned: str | None = None) -> tuple[str, dict]:
         targets = self.targets(verb)
@@ -172,16 +171,18 @@ class Traversal:
             schema = properties.get(key, {})
             options = schema.get("enum")
             if options and all(isinstance(value, str) for value in options):
-                result[key] = self.choose("lucid-argument:" + key, {value: key for value in options},
+                result[key] = self.choose("lucid-argument:" + key, {value: key.upper() for value in options},
                     f"envelope/LUCID.json#/verbs/{verb}/args/properties/{key}")
             else:
                 if schema.get("type") != "string":
                     raise ValueError("lucid-required-argument-missing:" + key)
-                prompt = literal_instruction(key, schema, self.decisions)
+                projection = penguin_funnel.project("lucid-argument:" + key, self.decisions, schema=schema)
+                prompt = projection["prompt"]
                 if len(prompt.encode()) > MAX_PROMPT_BYTES:
                     raise ValueError("lucid-help-prompt-bound")
                 record = self.record({"stage": "lucid-argument:" + key, "help_source": f"envelope/LUCID.json#/verbs/{verb}/args/properties/{key}",
                     "help_hash": digest(schema), "system_prompt": prompt, "system_prompt_hash": prompt_hash(prompt),
+                    "few_shots": penguin_funnel.receipt(projection),
                     "input": self.original, "max_tokens": penguin_max_tokens(self.original),
                     "selection_source": "penguin", "selected": None,
                     "resolved_before": deepcopy(self.decisions)})
@@ -274,76 +275,53 @@ class Traversal:
 
 
 def receipt_walkthroughs(root, vocabulary: dict) -> list[dict]:
-    examples = [
-        ("SHOW PULSE", {"channel": "lucid", "verb": "show", "argv": ["PULSE"]}),
-        ('SHOW URL "https://example.com/"', {"channel": "lucid", "verb": "show", "argv": ["URL", "https://example.com/"]}),
-        ('SHOW APP "macos-shell"', {"channel": "lucid", "verb": "show", "argv": ["APP", "macos-shell"]}),
-        ("GET role", {"channel": "lucid", "verb": "get", "argv": ["role"]}),
-        ("MORPH", {"channel": "lucid", "verb": "morph", "argv": []}),
-    ]
+    from tui_gateway.intent_admission import invocation_tokens, operation_from_tokens
 
     def no_inference(*args):
         raise ValueError("generation-must-not-infer")
 
     results = []
-    for original, operation in examples:
+    for case in penguin_funnel.corpus()["cases"]:
+        if case["classification"] not in {"show", "get", "morph"}:
+            continue
+        original = case["input"]
+        try:
+            operation = operation_from_tokens(invocation_tokens(original), lucid_verbs=vocabulary["verbs"])
+        except ValueError:
+            continue
+        if operation["channel"] != "lucid" or operation["verb"] != case["classification"]:
+            continue
+        if operation["verb"] != "morph" and not operation["argv"]:
+            continue
+        if operation["verb"] != "morph":
+            noun = next((step["answer"].get("choice") for step in case.get("steps", [])
+                if step["stage"] == "lucid-noun"), None)
+            if operation["argv"][0].lower() != noun:
+                continue
         traversal = Traversal(original, vocabulary, no_inference)
-        results.append({"input": original, "inference_ran": False, "execution_ran": False,
+        results.append({"input": original, "case_id": case["id"], "inference_ran": False, "execution_ran": False,
             "result": traversal.run(root, operation, classified_verb=operation["verb"])})
     return results
 
 
 def receipt_selection_prompts(vocabulary: dict) -> list[dict]:
-    def no_inference(*args):
-        raise ValueError("generation-must-not-infer")
-
-    traversal = Traversal("", vocabulary, no_inference)
+    artifact = penguin_funnel.owner.strict_json(penguin_funnel.owner.read(penguin_funnel.ROOT, penguin_funnel.owner.ARTIFACT))
+    cases = {case["id"]: case for case in penguin_funnel.corpus()["cases"]}
     records = []
-    inputs = {"show": "Open https://example.com/ with scope this.",
-        "get": "Retrieve runtime logs.", "set": "Change the radio settings."}
-
-    def capture(stage, prompt, decisions, source, contract, original):
-        if len(prompt.encode("utf-8")) > MAX_PROMPT_BYTES:
-            raise ValueError("lucid-help-prompt-bound")
-        records.append({"stage": stage, "system_prompt": prompt, "system_prompt_hash": prompt_hash(prompt),
-            "resolved_before": deepcopy(decisions), "help_source": source, "help_hash": digest(contract),
-            "input": original, "input_hash": prompt_hash(original),
-            "input_source": "unchanged original request for this generation-only case",
-            "inference_ran": False, "execution_ran": False})
-
-    for verb in ("show", "get", "set"):
-        targets = traversal.targets(verb)
-        source = f"envelope/LUCID.json#/verbs/{verb}/args/x-attention-views/views" if verb == "show" else f"envelope/LUCID.json#/{verb}_registry/targets"
-        decisions = {"verb": verb, "verb_glyph": vocabulary["verbs"][verb]["glyph"]}
-        choices = noun_choices(targets)
-        capture("lucid-noun", choice_instruction("lucid-noun", choices, decisions), decisions,
-            source, choices, inputs[verb])
-    targets = traversal.targets("show")
-    decisions = {"verb": "show", "verb_glyph": vocabulary["verbs"]["show"]["glyph"], "noun": "url"}
-    choices = optional_choices(targets["url"], [])
-    source = "envelope/LUCID.json#/verbs/show/args"
-    prompt = choice_instruction("lucid-optional", choices, decisions)
-    capture("lucid-optional", prompt, decisions, source, choices, inputs["show"])
-    capture("lucid-optional:retry", selection_retry(prompt), decisions, source, choices, inputs["show"])
-    properties = vocabulary["verbs"]["show"]["args"]["properties"]
-    decisions["optional_arguments"] = ["scope"]
-    capture("lucid-argument:url", literal_instruction("url", properties["url"], decisions), decisions,
-        source + "/properties/url", properties["url"], inputs["show"])
-    capture("lucid-argument:scope", literal_instruction("scope", properties["scope"], decisions), decisions,
-        source + "/properties/scope", properties["scope"], inputs["show"])
-    for noun, target in targets.items():
-        for key in target["required"] + target["optional"]:
-            options = properties.get(key, {}).get("enum")
-            if key == target["selector"] or not options or not all(isinstance(value, str) for value in options):
-                continue
-            original = "Open " + options[0] + "."
-            decisions = {"verb": "show", "verb_glyph": vocabulary["verbs"]["show"]["glyph"]}
-            capture("lucid-noun", choice_instruction("lucid-noun", noun_choices(targets), decisions), decisions,
-                "envelope/LUCID.json#/verbs/show/args/x-attention-views/views", noun_choices(targets), original)
-            decisions["noun"] = noun
-            choices = {value: key for value in options}
-            stage = "lucid-argument:" + key
-            capture(stage, choice_instruction(stage, choices, decisions), decisions,
-                source + "/properties/" + key, choices, original)
-            return records
+    for entry in artifact["projections"]:
+        ctx = entry["context"]
+        if not ctx["stage"].startswith("lucid-"):
+            continue
+        projection = penguin_funnel.project(ctx["stage"], ctx)
+        case = cases[projection["case_ids"][0]]
+        for retry in (False, True) if projection["retry_prompt"] else (False,):
+            prompt = projection["retry_prompt" if retry else "prompt"]
+            records.append({"stage": ctx["stage"] + (":retry" if retry else ""),
+                "system_prompt": prompt, "system_prompt_hash": prompt_hash(prompt),
+                "resolved_before": {key: value for key, value in ctx.items() if key != "stage"},
+                "help_source": penguin_funnel.owner.CORPUS, "help_hash": projection["corpus_hash"],
+                "few_shots": penguin_funnel.receipt(projection), "input_case_id": case["id"],
+                "input": case["input"], "input_hash": prompt_hash(case["input"]),
+                "input_source": "canonical corpus case; expected answers are not model observations",
+                "inference_ran": False, "execution_ran": False})
     return records

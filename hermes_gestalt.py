@@ -16,10 +16,13 @@ def canonical_stream(
     argument: str | None = None,
     *,
     service: str | None = None,
+    without_identity: bool = False,
     evidence: tuple[str, ...] = (),
     data: tuple[str, ...] = (),
     timing: tuple[str, ...] = (),
     continuations: tuple[str, ...] = (),
+    intents: tuple[str, ...] = (),
+    cli: tuple[str, ...] = (),
     actions: tuple[dict[str, str | None], ...] = (),
 ) -> str:
     path = root / "envelope/GESTALT.json"
@@ -51,6 +54,8 @@ def canonical_stream(
     if not all(isinstance(field, str) and field for field in glyph_values):
         raise ValueError("GESTALT segment glyphs are invalid")
     default_service, verb_glyph, noun_glyph, argument_glyph, evidence_glyph, datum_glyph, timing_glyph, action_glyph = glyph_values
+    if without_identity and service is not None:
+        raise ValueError("GESTALT service conflicts with without_identity")
     service = default_service if service is None else service
     _validate_service(service)
     canonical_argument = (
@@ -60,7 +65,7 @@ def canonical_stream(
     )
     if verb is None and (noun is not None or argument is not None) or noun is None and argument is not None:
         raise ValueError("GESTALT coordinate dependencies are invalid")
-    segments = [signal, service]
+    segments = [signal] if without_identity else [signal, service]
     if verb is not None:
         segments.append(f"{verb_glyph} {verb.upper()}")
     if noun is not None:
@@ -80,6 +85,10 @@ def canonical_stream(
     for continuation in continuations:
         _validate_service(continuation)
         segments.append(f"{action_glyph} {continuation}")
+    for delimiter, values in (('"', intents), ('`', cli)):
+        for value in values:
+            _validate_continuation(value, delimiter)
+            segments.append(f"{action_glyph} {delimiter}{value}{delimiter}")
     for action in actions:
         action_verb = action.get("verb")
         action_noun = action.get("noun")
@@ -102,7 +111,7 @@ def parse_stream(root: Path, value: str) -> dict[str, object]:
     contract = _segments_contract(root)
     separator = contract["separator"]
     glyphs = contract["glyphs"]
-    parts = [part.strip() for part in value.split(separator)]
+    parts = _stream_parts(value, separator, glyphs["action"])
     if not parts or parts[0] not in contract["signals"]:
         raise ValueError("GESTALT signal is invalid")
     stream: dict[str, object] = {
@@ -115,6 +124,8 @@ def parse_stream(root: Path, value: str) -> dict[str, object]:
         "data": [],
         "timing": [],
         "continuations": [],
+        "intents": [],
+        "cli": [],
         "actions": [],
     }
     index = 1
@@ -125,6 +136,16 @@ def parse_stream(root: Path, value: str) -> dict[str, object]:
     while index < len(parts):
         part = parts[index]
         action_prefix = f'{glyphs["action"]} '
+        if part.startswith(action_prefix):
+            payload = part[len(action_prefix):]
+            if payload.startswith(('"', '`')):
+                delimiter = payload[0]
+                if len(payload) < 2 or not payload.endswith(delimiter):
+                    raise ValueError("GESTALT CYOA quote is unclosed")
+                _validate_continuation(payload[1:-1], delimiter)
+                stream["intents" if delimiter == '"' else "cli"].append(payload[1:-1])
+                index += 1
+                continue
         if part.startswith(action_prefix) and _is_service(part[len(action_prefix):]):
             action_service = part[len(action_prefix):]
             verb_prefix = f'{glyphs["verb"]} '
@@ -177,6 +198,43 @@ def parse_stream(root: Path, value: str) -> dict[str, object]:
         stream[field].append(part[len(glyph) + 1:])
         index += 1
     return stream
+
+
+def _stream_parts(value: str, separator: str, action_glyph: str) -> list[str]:
+    if "\r" in value or "\n" in value:
+        raise ValueError("GESTALT stream must be one physical line")
+    remaining = value
+    parts = []
+    action_prefix = f"{action_glyph} "
+    while True:
+        trimmed = remaining.lstrip()
+        payload = trimmed[len(action_prefix):] if trimmed.startswith(action_prefix) else ""
+        if payload.startswith(('"', '`')):
+            closing = payload.find(payload[0], 1)
+            if closing < 0:
+                raise ValueError("GESTALT CYOA quote is unclosed")
+            end = len(remaining) - len(trimmed) + len(action_prefix) + closing + 1
+            suffix = remaining[end:]
+            if not suffix.strip():
+                parts.append(remaining.strip())
+                return parts
+            boundary = suffix.find(separator)
+            if boundary < 0 or suffix[:boundary].strip():
+                raise ValueError("GESTALT CYOA has trailing unsegmented text")
+            boundary += end
+        else:
+            boundary = remaining.find(separator)
+            if boundary < 0:
+                parts.append(remaining.strip())
+                return parts
+        parts.append(remaining[:boundary].strip())
+        remaining = remaining[boundary + len(separator):]
+
+
+def _validate_continuation(value: str, delimiter: str) -> None:
+    if (not isinstance(value, str) or not value or len(value.encode("utf-8")) > 1024
+        or delimiter in value or any(ord(character) < 32 or 127 <= ord(character) <= 159 for character in value)):
+        raise ValueError("GESTALT CYOA continuation is invalid")
 
 
 def _validate_service(value: str) -> None:
