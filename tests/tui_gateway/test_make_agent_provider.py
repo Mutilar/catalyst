@@ -9,6 +9,41 @@ import os
 from unittest.mock import MagicMock, patch
 
 
+def test_make_agent_penguin_loads_current_repository_vocabulary():
+    from hermes_penguin import (
+        PENGUIN_BASE_URL,
+        PENGUIN_MODEL_ID,
+        PENGUIN_PROVIDER_ID,
+        PENGUIN_WIRE_MODEL_ID,
+        penguin_role_document,
+    )
+
+    with (
+        patch("tui_gateway.server._load_cfg", return_value={"agent": {}}),
+        patch("tui_gateway.server._get_db", return_value=MagicMock()),
+        patch("tui_gateway.server._load_reasoning_config", return_value=None),
+        patch("tui_gateway.server._load_service_tier", return_value=None),
+        patch("tui_gateway.server._load_enabled_toolsets", return_value=None),
+        patch("run_agent.AIAgent") as constructor,
+    ):
+        from tui_gateway.server import _make_agent
+
+        agent = _make_agent(
+            "sid-penguin-vocabulary",
+            "key-penguin-vocabulary",
+            model_override={"provider": PENGUIN_PROVIDER_ID, "model": PENGUIN_MODEL_ID},
+        )
+
+        constructor.assert_called_once()
+        arguments = constructor.call_args.kwargs
+        assert arguments["model"] == PENGUIN_MODEL_ID
+        assert arguments["base_url"] == PENGUIN_BASE_URL
+        assert arguments["ephemeral_system_prompt"] == penguin_role_document()
+        assert len(arguments["ephemeral_system_prompt"].encode("utf-8")) < 8 * 1024
+        assert agent._prompt_profile == "penguin"
+        assert agent._wire_model == PENGUIN_WIRE_MODEL_ID
+
+
 def test_make_agent_passes_resolved_provider():
     """_make_agent forwards provider/base_url/api_key/api_mode from
     resolve_runtime_provider to AIAgent."""

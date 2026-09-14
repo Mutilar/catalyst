@@ -22,7 +22,7 @@ def penguin_max_tokens(text: str) -> int:
 
 
 _MAX_ROLE_BYTES = 8 * 1024
-_MAX_LUCID_BYTES = 512 * 1024
+_MAX_LUCID_BYTES = 4 * 1024 * 1024
 _PENGUIN_TOOL_NAMES = frozenset({
     "mcp__lucid__get",
     "mcp__lucid__show",
@@ -115,9 +115,12 @@ def penguin_role_document() -> str:
     lucid_path = path.parent / "envelope" / "LUCID.json"
     if lucid_path.is_symlink() or not lucid_path.is_file():
         raise ValueError("LUCID vocabulary is unavailable")
-    lucid_content = lucid_path.read_bytes()
+    with lucid_path.open("rb") as source:
+        lucid_content = source.read(_MAX_LUCID_BYTES + 1)
     if not lucid_content or len(lucid_content) > _MAX_LUCID_BYTES:
-        raise ValueError("LUCID vocabulary is outside its byte bound")
+        raise ValueError(
+            f"LUCID vocabulary is outside its byte bound (1..{_MAX_LUCID_BYTES} bytes)"
+        )
     lucid = json.loads(lucid_content)
     verbs = lucid.get("verbs")
     if not isinstance(verbs, dict) or len(verbs) != 7:

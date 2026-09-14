@@ -1,8 +1,11 @@
 from __future__ import annotations
 from agent.generated.ae_glyphs import DELIMITER_SEGMENT, IDENTITY_PENGUIN
 
+import json
+
 import pytest
 
+import hermes_penguin
 from hermes_penguin import (
     PENGUIN_BASE_URL,
     PENGUIN_MODEL_ID,
@@ -17,6 +20,49 @@ from hermes_penguin import (
     penguin_runtime,
 )
 from hermes_cli.inventory import ConfigContext, build_models_payload
+
+
+@pytest.fixture
+def penguin_vocabulary_source(tmp_path, monkeypatch):
+    monkeypatch.setattr(hermes_penguin, "__file__", str(tmp_path / "catalyst/hermes_penguin.py"))
+    (tmp_path / "PENGUIN.md").write_text(
+        "<!-- GENERATED -->\n"
+        f"| **{IDENTITY_PENGUIN}{IDENTITY_PENGUIN} PROTOCOL** | **RULE** |\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "envelope").mkdir()
+    source = tmp_path / "envelope/LUCID.json"
+    source.write_text(json.dumps({
+        "verbs": {verb: {} for verb in ["show", "get", "set", "morph", "dispatch", "steer", "cancel"]},
+        "get_registry": {"targets": [{"id": "role"}, {"id": "pulse"}]},
+    }), encoding="utf-8")
+    return source
+
+
+def test_penguin_vocabulary_formatting_above_old_cap_preserves_prompt(penguin_vocabulary_source) -> None:
+    expected = penguin_role_document()
+    source = penguin_vocabulary_source.read_bytes()
+    penguin_vocabulary_source.write_bytes(b" " * (512 * 1024) + source)
+
+    assert penguin_role_document() == expected
+
+
+def test_penguin_vocabulary_accepts_exact_source_limit(penguin_vocabulary_source) -> None:
+    expected = penguin_role_document()
+    source = penguin_vocabulary_source.read_bytes()
+    penguin_vocabulary_source.write_bytes(
+        source + b" " * (hermes_penguin._MAX_LUCID_BYTES - len(source))
+    )
+
+    assert penguin_role_document() == expected
+
+
+@pytest.mark.parametrize("size", [0, hermes_penguin._MAX_LUCID_BYTES + 1])
+def test_penguin_vocabulary_rejects_empty_and_oversized_sources(penguin_vocabulary_source, size) -> None:
+    penguin_vocabulary_source.write_bytes(b" " * size)
+
+    with pytest.raises(ValueError, match=rf"outside its byte bound.*{hermes_penguin._MAX_LUCID_BYTES}"):
+        penguin_role_document()
 
 
 def test_picker_row_is_one_authenticated_closed_penguin_model() -> None:
