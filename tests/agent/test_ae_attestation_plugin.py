@@ -245,7 +245,7 @@ def test_missing_live_role_binding_allows_one_bounded_recovery_turn(plugin, tmp_
     )
     recover = next(action for action in stream["actions"] if action["verb"] == "set")
     assert recover["noun"] == "role"
-    assert recover["argument"] == "RECOVER"
+    assert recover["arguments"] == ["RECOVER"]
     for leaked in ["lucid://", "envelope/", "QUINE", "WITNESS", "mcp__"]:
         assert leaked not in result["message"]
 
@@ -598,7 +598,7 @@ def test_missing_suffix_reinjects_canonical_onboarding_then_requires_signout(plu
     assert signout_stream["data"] == [IDENTITY_QUINE]
     assert signout_stream["actions"][0]["verb"] == "set"
     assert signout_stream["actions"][0]["noun"] == "role"
-    assert signout_stream["actions"][0]["argument"] == "SIGNOUT"
+    assert signout_stream["actions"][0]["arguments"] == ["SIGNOUT"]
     for leaked in ["lucid://", "envelope/", "QUINE", "WITNESS", "mcp__"]:
         assert leaked not in signout["message"]
 

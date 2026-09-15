@@ -1,4 +1,4 @@
-<!-- GENERATED · SOT: CANON.json -->
+<!-- GENERATED; SOT: CANON.json -->
 # 🚀 Catalyst
 
 Catalyst is the desktop executive shell that packages Hermes Agent, hosts Electron and React interaction surfaces, and connects user intent to canonical RUN, Butler, and UGUI owners without assuming their authority.
@@ -30,6 +30,6 @@ Catalyst is the desktop executive shell that packages Hermes Agent, hosts Electr
 | Fact | Value |
 |---|---|
 | Source | `catalyst/CANON.json` |
-| Source SHA-256 | `sha256:d0ee3bf0ebe2a5b982fa26a8a4a60c1c69510161773d60a436ff2559df671c49` |
+| Source SHA-256 | `sha256:47698db7c093f944f6c48e82118d21b63aced7409841816ac6733b8db7466fa6` |
 | Generator | `quine/src/project_readmes.rs` |
 | Schema | `rust-quine-project-readmes/1` |

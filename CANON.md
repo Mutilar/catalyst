@@ -1,4 +1,4 @@
-<!-- GENERATED · SOT: CANON.json -->
+<!-- GENERATED; SOT: CANON.json -->
 # 🚀 CATALYST CANON
 
 Catalyst is the desktop executive shell that packages Hermes Agent, hosts Electron and React interaction surfaces, and connects user intent to canonical RUN, Butler, and UGUI owners without assuming their authority.

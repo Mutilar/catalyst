@@ -10,8 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+from pathlib import Path
 import re
 from typing import Any, Mapping
+from uuid import uuid4
 
 _MAX_DOCUMENT_BYTES = 262_144
 _MAX_ACTIONS = 32
@@ -294,7 +296,7 @@ def execute_lucid_ugui_action(
     confirmed: bool = False,
     inputs: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Compile and invoke one action through Catalyst's existing MCP transport."""
+    """Invoke a user-selected action through RUN's launch-bound witness bridge."""
 
     compiled = compile_lucid_ugui_action(
         document,
@@ -302,22 +304,41 @@ def execute_lucid_ugui_action(
         confirmed=confirmed,
         inputs=inputs,
     )
-    from tools.mcp_tool import invoke_registered_mcp_tool
+    from tui_gateway.prompt_intent import execute_direct
 
-    result = invoke_registered_mcp_tool(
-        compiled.server_name,
-        compiled.tool_name,
-        compiled.arguments,
+    operation = {
+        "channel": "lucid",
+        "verb": compiled.tool_name,
+        "argv": [
+            "--args",
+            json.dumps(compiled.arguments, ensure_ascii=False, separators=(",", ":"), allow_nan=False),
+        ]
+        if compiled.arguments else [],
+    }
+    if confirmed:
+        operation["argv"].append("--confirm")
+    receipt = execute_direct(
+        uuid4().hex,
+        str(Path(__file__).resolve().parents[2]),
+        operation,
     )
-    ok = "error" not in result
-    if result.get("schema") == "hermes-tool-result-channels/1":
-        presentation = result.get("presentation")
-        if not isinstance(presentation, dict):
+    ok = receipt.get("ran") is True and receipt.get("exit_code") == 0 and not receipt.get("refusal")
+    if ok:
+        if receipt.get("actor") != "WITNESS" or receipt.get("executor") != "Butler":
+            raise UguiActionError("action-result-invalid", "LUCID action is not witness-bound")
+        try:
+            presentation = json.loads(receipt["ugui_source"])
+        except (KeyError, TypeError, ValueError) as exc:
             raise UguiActionError(
-                "action-result-invalid",
-                "LUCID action presentation channel is missing or malformed",
-            )
-        result = presentation
+                "action-result-invalid", "Witness LUCID action presentation is malformed"
+            ) from exc
+        if not isinstance(presentation, dict):
+            raise UguiActionError("action-result-invalid", "Witness LUCID action presentation is not an object")
+        result = {"structuredContent": presentation}
+    else:
+        result = {"error": receipt.get("refusal") or "Witness LUCID action outcome is unknown"}
+        if isinstance(receipt.get("ugui_source"), str):
+            result["error"] = receipt["ugui_source"]
     return {
         "ok": ok,
         "action_id": compiled.action_id,

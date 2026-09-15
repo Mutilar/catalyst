@@ -4,8 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from hermes_gestalt import canonical_stream
-
 from hermes_cli.ugui_actions import (
     UguiActionError,
     compile_lucid_ugui_action,
@@ -15,6 +13,21 @@ from hermes_cli.ugui_actions import (
 
 DISPATCH_ID = f"dispatch:{'b' * 64}"
 PARENT_HASH = f"sha256:{'a' * 64}"
+
+
+def witness_receipt(submission, workspace, operation, presentation):
+    return {
+        "schema": "run-witness-direct/2",
+        "submission_id": submission,
+        "workspace": workspace,
+        "operation": operation,
+        "actor": "WITNESS",
+        "executor": "Butler",
+        "ran": True,
+        "exit_code": 0,
+        "refusal": None,
+        "ugui_source": json.dumps(presentation),
+    }
 
 
 def document(action):
@@ -398,22 +411,180 @@ def test_generic_mutating_intents_require_authored_exact_confirmation():
     assert compiled.tool_name == "set"
 
 
-def test_execution_uses_the_registered_mcp_transport(monkeypatch):
-    observed = {}
+def test_ugui_pulse_uses_launch_witness_bridge_not_agent_mcp(monkeypatch):
+    from tui_gateway import prompt_intent
 
-    def invoke(server_name, tool_name, arguments):
-        observed.update(server=server_name, tool=tool_name, arguments=arguments)
-        return {"structuredContent": {"schema": "lucid-show-document/1"}}
+    observed = []
+    replacement = document(show_action())
+    action = {
+        "id": "lucid.gestalt.action.0",
+        "action": "lucid.show.continue",
+        "value": PARENT_HASH,
+        "intent": {"verb": "show", "arguments": {"view": "pulse"}},
+    }
 
-    monkeypatch.setattr("tools.mcp_tool.invoke_registered_mcp_tool", invoke)
-    result = execute_lucid_ugui_action(document(show_action()), "lucid.response.execution")
+    def execute(submission, workspace, operation):
+        observed.append((submission, workspace, operation))
+        return witness_receipt(submission, workspace, operation, replacement)
+
+    monkeypatch.setattr(prompt_intent, "execute_direct", execute)
+    monkeypatch.setattr(
+        "tools.mcp_tool.invoke_registered_mcp_tool",
+        lambda *_args, **_kwargs: pytest.fail("a witness click must not use agent MCP"),
+    )
+    result = execute_lucid_ugui_action(document(action), action["id"])
 
     assert result["ok"] is True
-    assert observed == {
-        "server": "LUCID",
-        "tool": "show",
-        "arguments": {"view": "execution", "id": DISPATCH_ID},
+    assert result["result"]["structuredContent"] == replacement
+    assert len(observed) == 1
+    submission, workspace, operation = observed[0]
+    assert 16 <= len(submission) <= 128
+    assert workspace == str(Path(__file__).resolve().parents[3])
+    assert operation == {"channel": "lucid", "verb": "show", "argv": ["--args", '{"view":"pulse"}']}
+
+
+def test_ugui_wire_uses_the_private_launch_token_without_returning_it(monkeypatch):
+    from unittest.mock import MagicMock
+    from tui_gateway import prompt_intent
+
+    monkeypatch.setattr(prompt_intent, "_ENDPOINT", "127.0.0.1:12345")
+    monkeypatch.setattr(prompt_intent, "_TOKEN", "fixture-launch-witness-token")
+    stream = MagicMock()
+    stream.__enter__.return_value = stream
+    reader = MagicMock()
+    reader.__enter__.return_value = reader
+    stream.makefile.return_value = reader
+    replacement = document(show_action())
+
+    def response(_limit):
+        request = json.loads(stream.sendall.call_args.args[0])
+        return (json.dumps(witness_receipt(
+            request["submission_id"], request["workspace"], request["operation"], replacement,
+        )) + "\n").encode()
+
+    reader.readline.side_effect = response
+    connect = MagicMock(return_value=stream)
+    monkeypatch.setattr(prompt_intent.socket, "create_connection", connect)
+    monkeypatch.setattr(
+        "tools.mcp_tool.invoke_registered_mcp_tool",
+        lambda *_args, **_kwargs: pytest.fail("agent MCP must not receive the witness request"),
+    )
+    result = execute_lucid_ugui_action(replacement, "lucid.response.execution")
+
+    connect.assert_called_once_with(("127.0.0.1", 12345), timeout=35)
+    request = json.loads(stream.sendall.call_args.args[0])
+    assert set(request) == {"schema", "submission_id", "workspace", "operation", "token"}
+    assert request["token"] == "fixture-launch-witness-token"
+    assert request["operation"]["verb"] == "show"
+    assert result["result"]["structuredContent"] == replacement
+    assert "fixture-launch-witness-token" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("verb,arguments", [
+    ("show", {"view": "pulse"}),
+    ("get", {"path": "role"}),
+    ("set", {"path": "role", "action": "signout"}),
+    ("morph", {"operation": "inspect", "codebook": "one-pager"}),
+    ("dispatch", {"task": "engineer"}),
+    ("steer", {"dispatch_id": DISPATCH_ID, "intent_delta": "Preserve exact user intent"}),
+    ("cancel", {"id": DISPATCH_ID, "mode": "graceful"}),
+])
+def test_every_ugui_verb_uses_the_witness_transport(monkeypatch, verb, arguments):
+    observed = []
+    action = {
+        "id": f"lucid.response.{verb}",
+        "action": f"lucid.{verb}.continue",
+        "value": PARENT_HASH,
+        "intent": {"verb": verb, "arguments": arguments},
+        "requiresConfirmation": "exact",
     }
+
+    def execute(submission, workspace, operation):
+        observed.append((submission, operation))
+        return witness_receipt(submission, workspace, operation, document(action))
+
+    monkeypatch.setattr("tui_gateway.prompt_intent.execute_direct", execute)
+    monkeypatch.setattr(
+        "tools.mcp_tool.invoke_registered_mcp_tool",
+        lambda *_args, **_kwargs: pytest.fail("user operations must not use agent MCP"),
+    )
+    for _ in range(2):
+        result = execute_lucid_ugui_action(document(action), action["id"], confirmed=True)
+        assert result["ok"] is True
+    assert observed[0][0] != observed[1][0]
+    for _, operation in observed:
+        assert operation["channel"] == "lucid"
+        assert operation["verb"] == verb
+        assert operation["argv"][0] == "--args"
+        assert json.loads(operation["argv"][1]) == arguments
+        assert operation["argv"][2:] == ["--confirm"]
+
+
+@pytest.mark.parametrize("refusal", ["grant-revoked", "grant-mismatch", "workspace-not-granted"])
+def test_witness_refusals_never_fall_back_to_agent_mcp(monkeypatch, refusal):
+    monkeypatch.setattr(
+        "tui_gateway.prompt_intent.execute_direct",
+        lambda *_args: {"ran": False, "refusal": refusal},
+    )
+    monkeypatch.setattr(
+        "tools.mcp_tool.invoke_registered_mcp_tool",
+        lambda *_args, **_kwargs: pytest.fail("refused witness authority must not fall back"),
+    )
+    result = execute_lucid_ugui_action(document(show_action()), "lucid.response.execution")
+    assert result["ok"] is False
+    assert result["result"]["error"] == refusal
+
+
+def test_ugui_without_launch_grant_does_not_connect_or_borrow_agent_identity(monkeypatch):
+    from tui_gateway import prompt_intent
+
+    monkeypatch.setattr(prompt_intent, "_TOKEN", "")
+    monkeypatch.setattr(prompt_intent, "_ENDPOINT", "")
+    monkeypatch.setattr(prompt_intent.socket, "create_connection", lambda *_args, **_kwargs: pytest.fail("no grant"))
+    monkeypatch.setattr(
+        "tools.mcp_tool.invoke_registered_mcp_tool",
+        lambda *_args, **_kwargs: pytest.fail("no witness grant is not agent authority"),
+    )
+    result = execute_lucid_ugui_action(document(show_action()), "lucid.response.execution")
+    assert result["ok"] is False
+    assert result["result"]["error"] == "witness-handoff-unavailable"
+
+
+def test_ugui_rejects_a_success_receipt_for_a_non_witness_actor(monkeypatch):
+    def execute(submission, workspace, operation):
+        receipt = witness_receipt(submission, workspace, operation, document(show_action()))
+        receipt["actor"] = "EM"
+        return receipt
+
+    monkeypatch.setattr("tui_gateway.prompt_intent.execute_direct", execute)
+    with pytest.raises(UguiActionError, match="not witness-bound"):
+        execute_lucid_ugui_action(document(show_action()), "lucid.response.execution")
+
+
+def test_witness_operation_failure_preserves_the_butler_diagnostic(monkeypatch):
+    refusal = '{"schema":"lucid-ugui-response/1","state":"REFUSED","code":"scope-violation"}'
+    monkeypatch.setattr("tui_gateway.prompt_intent.execute_direct", lambda *_args: {
+        "ran": True, "exit_code": 1, "refusal": "butler-refused", "ugui_source": refusal,
+    })
+    result = execute_lucid_ugui_action(document(show_action()), "lucid.response.execution")
+    assert result["ok"] is False
+    assert result["result"]["error"] == refusal
+
+
+def test_unconfirmed_mutation_never_reaches_the_witness_bridge(monkeypatch):
+    monkeypatch.setattr(
+        "tui_gateway.prompt_intent.execute_direct",
+        lambda *_args: pytest.fail("unconfirmed mutation must not reach witness execution"),
+    )
+    action = {
+        "id": "lucid.response.signout",
+        "action": "lucid.set.continue",
+        "value": PARENT_HASH,
+        "intent": {"verb": "set", "arguments": {"path": "role", "action": "signout"}},
+        "requiresConfirmation": "exact",
+    }
+    with pytest.raises(UguiActionError, match="exact action confirmation"):
+        execute_lucid_ugui_action(document(action), action["id"])
 
 
 def test_capabilities_next_action_is_one_empty_get_call(monkeypatch):
@@ -425,39 +596,24 @@ def test_capabilities_next_action_is_one_empty_get_call(monkeypatch):
         "intent": {"verb": "get", "arguments": {}},
     }
 
-    def invoke(server_name, tool_name, arguments):
-        observed.append((server_name, tool_name, arguments))
-        return {"structuredContent": {"schema": "lucid-ugui-response/1"}}
+    def execute(submission, workspace, operation):
+        observed.append(operation)
+        return witness_receipt(submission, workspace, operation, document(action))
 
-    monkeypatch.setattr("tools.mcp_tool.invoke_registered_mcp_tool", invoke)
+    monkeypatch.setattr("tui_gateway.prompt_intent.execute_direct", execute)
     result = execute_lucid_ugui_action(document(action), action["id"])
 
     assert result["ok"] is True
-    assert observed == [("LUCID", "get", {})]
+    assert observed == [{"channel": "lucid", "verb": "get", "argv": []}]
 
 
-def test_execution_returns_the_presentation_channel_directly(monkeypatch):
+def test_execution_returns_the_witness_ugui_presentation_directly(monkeypatch):
     replacement = document(show_action())
-    gestalt = canonical_stream(
-        Path(__file__).parents[3],
-        "🟢",
-        "show",
-        "execution",
-        "complete",
-    )
 
-    def invoke(_server_name, _tool_name, _arguments):
-        return {
-            "schema": "hermes-tool-result-channels/1",
-            "model": gestalt,
-            "presentation": {
-                "__hermes_model_visible_result": gestalt,
-                "result": gestalt,
-                "structuredContent": replacement,
-            },
-        }
+    def execute(submission, workspace, operation):
+        return witness_receipt(submission, workspace, operation, replacement)
 
-    monkeypatch.setattr("tools.mcp_tool.invoke_registered_mcp_tool", invoke)
+    monkeypatch.setattr("tui_gateway.prompt_intent.execute_direct", execute)
     result = execute_lucid_ugui_action(document(show_action()), "lucid.response.execution")
 
     assert result["ok"] is True
@@ -465,7 +621,7 @@ def test_execution_returns_the_presentation_channel_directly(monkeypatch):
     assert result["result"].get("schema") != "hermes-tool-result-channels/1"
 
 
-def test_morph_choice_execution_is_one_registered_mcp_call(monkeypatch):
+def test_morph_choice_execution_is_one_witness_call(monkeypatch):
     observed = []
     action = {
         "id": "lucid.response.morph.choice.0",
@@ -477,42 +633,48 @@ def test_morph_choice_execution_is_one_registered_mcp_call(monkeypatch):
         },
     }
 
-    def invoke(server_name, tool_name, arguments):
-        observed.append((server_name, tool_name, arguments))
-        return {"structuredContent": {"schema": "lucid-ugui-response/1"}}
+    def execute(submission, workspace, operation):
+        observed.append(operation)
+        return witness_receipt(submission, workspace, operation, document(action))
 
-    monkeypatch.setattr("tools.mcp_tool.invoke_registered_mcp_tool", invoke)
+    monkeypatch.setattr("tui_gateway.prompt_intent.execute_direct", execute)
     result = execute_lucid_ugui_action(document(action), action["id"])
 
     assert result["ok"] is True
-    assert observed == [
-        ("LUCID", "morph", {"codebook": "one-pager", "operation": "shard"})
-    ]
+    assert len(observed) == 1
+    assert observed[0]["channel"] == "lucid"
+    assert observed[0]["verb"] == "morph"
+    assert json.loads(observed[0]["argv"][1]) == {"codebook": "one-pager", "operation": "shard"}
 
 
 def test_web_route_executes_the_compiled_action(monkeypatch, tmp_path):
     pytest.importorskip("starlette.testclient")
     from starlette.testclient import TestClient
-    from hermes_cli import ugui_actions, web_server
+    from hermes_cli import web_server
 
-    observed = {}
+    observed = []
 
-    def execute(value, action_id, *, confirmed, inputs):
-        observed.update(
-            document=value,
-            action_id=action_id,
-            confirmed=confirmed,
-            inputs=inputs,
-        )
-        return {"ok": True, "result": {"structuredContent": document(show_action())}}
+    def execute(submission, workspace, operation):
+        observed.append(operation)
+        return witness_receipt(submission, workspace, operation, document(show_action()))
 
-    monkeypatch.setattr(ugui_actions, "execute_lucid_ugui_action", execute)
+    monkeypatch.setattr("tui_gateway.prompt_intent.execute_direct", execute)
+    monkeypatch.setattr(
+        "tools.mcp_tool.invoke_registered_mcp_tool",
+        lambda *_args, **_kwargs: pytest.fail("HTTP UGUI actions must use the witness bridge"),
+    )
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
     (tmp_path / "home").mkdir()
     previous_auth_required = getattr(web_server.app.state, "auth_required", None)
     web_server.app.state.auth_required = False
     try:
         client = TestClient(web_server.app)
+        denied = client.post(
+            "/api/ugui/actions/invoke",
+            json={"document": document(show_action()), "action_id": "lucid.response.execution"},
+        )
+        assert denied.status_code in {401, 403}
+        assert observed == []
         client.headers[web_server._SESSION_HEADER_NAME] = web_server._SESSION_TOKEN
         response = client.post(
             "/api/ugui/actions/invoke",
@@ -528,5 +690,7 @@ def test_web_route_executes_the_compiled_action(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     assert response.json()["ok"] is True
-    assert observed["action_id"] == "lucid.response.execution"
-    assert observed["confirmed"] is False
+    assert response.json()["result"]["structuredContent"] == document(show_action())
+    assert len(observed) == 1
+    assert observed[0]["verb"] == "show"
+    assert json.loads(observed[0]["argv"][1]) == {"view": "execution", "id": DISPATCH_ID}

@@ -5,7 +5,6 @@ from agent.generated.ae_glyphs import SIGNAL_PENDING, SIGNAL_RED, SIGNAL_WARNING
 
 import json
 from pathlib import Path
-import shlex
 
 from typing import Any
 
@@ -48,50 +47,6 @@ def _facade_matches(facade: dict[str, Any], tool: str, arguments: dict[str, Any]
     return True
 
 
-def _command(facade: dict[str, Any], arguments: dict[str, Any]) -> str | None:
-    adapter = facade.get("adapter")
-    if not isinstance(adapter, str) or not adapter:
-        return None
-    if adapter == "plan":
-        return "plan < ae-dispatch.json"
-    if adapter == "receipt":
-        return "receipt < envelope.json"
-    if adapter.startswith("lucid "):
-        verb = adapter.removeprefix("lucid ")
-        noun_key = {
-            "show": "view",
-            "get": "path",
-            "set": "path",
-            "morph": "codebook",
-            "dispatch": "task",
-            "steer": "action",
-            "cancel": "action",
-        }.get(verb)
-        noun = arguments.get(noun_key) if noun_key else None
-        if not isinstance(noun, str) or not noun:
-            return None
-        tokens = ["lucid", verb, noun]
-        for key, value in arguments.items():
-            if key == noun_key:
-                continue
-            if key == "scope" and value == "this":
-                continue
-            encoded = (
-                value
-                if isinstance(value, str)
-                else json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-            )
-            tokens.extend([f"--{key.replace('_', '-')}", shlex.quote(encoded)])
-        return " ".join(tokens)
-    try:
-        encoded = json.dumps(arguments, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-    except (TypeError, ValueError):
-        return None
-    if len(encoded.encode("utf-8")) > _MAX_ARGUMENTS:
-        return None
-    return f"{adapter} --args {shlex.quote(encoded)}"
-
-
 def project_lucid_transport_outage(tool: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
     """Return bounded Gestalt only for a RUN-attested active outage."""
 
@@ -120,8 +75,15 @@ def project_lucid_transport_outage(tool: str, arguments: dict[str, Any]) -> dict
     )
     if facade is None:
         return None
-    command = _command(facade, arguments)
-    if command is None:
+    adapter = facade.get("adapter")
+    if not isinstance(adapter, str) or not adapter:
+        return None
+    try:
+        encoded = json.dumps(arguments, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        if len(encoded.encode("utf-8")) > _MAX_ARGUMENTS:
+            return None
+        action = semantic_action(_REPO, tool, arguments, f"Use offline {adapter}")
+    except (TypeError, ValueError):
         return None
     text = canonical_stream(
         _REPO,
@@ -131,7 +93,7 @@ def project_lucid_transport_outage(tool: str, arguments: dict[str, Any]) -> dict
         "offline-fallback",
         evidence=("mcp-unavailable",),
         timing=(eta.removeprefix(f"{SIGNAL_PENDING} "),),
-        actions=(semantic_action(_REPO, tool, arguments, command),),
+        actions=(action,),
     )
     return {"error": text}
 

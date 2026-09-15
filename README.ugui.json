@@ -2,18 +2,115 @@
   "id": "readme.catalyst.README",
   "type": "document",
   "header": [
-    {"id":"semantic.header","type":"text","body":"🚀 Catalyst","style":"heading"}
+    {
+      "id": "semantic.header",
+      "type": "text",
+      "body": "🚀 Catalyst",
+      "style": "heading"
+    }
   ],
   "sections": [
-    {"id":"semantic.summary","type":"text","body":"Catalyst is the desktop executive shell that packages Hermes Agent, hosts Electron and React interaction surfaces, and connects user intent to canonical RUN, Butler, and UGUI owners without assuming their authority.","semanticKind":"summary"},
-    {"id":"readme.purpose","type":"list","heading":"🚀 What you can do","ordered":false,"items":["◆ Provide one cross-platform CLI, gateway, TUI, web, and desktop experience over the Hermes Agent core.","◆ Preserve durable conversation, model, profile, history, and UI identity while workers recycle across source and Butler runtime generations.","◆ Carry explicit LUCID role selection and bounded semantic intents across the desktop-to-Butler boundary."],"semanticKind":"list"},
-    {"id":"readme.contract","type":"list","heading":"🔒 Contract","ordered":false,"items":["🔒 A stale worker completes an active command, refuses the next unstarted command with runtime-stale, closes transports, and exits before replay.","🔒 The parent replays at most once and only when typed evidence proves the command never started.","🔒 LUCID sign-in selects EM or SIDEKICK explicitly; no Catalyst path silently defaults to EM."],"semanticKind":"list"},
-    {"id":"readme.limits","type":"list","heading":"⚠️ Honest limits","ordered":false,"items":["⚠️ Quality receipts remain independently freshness-gated; graph admission does not imply lint, test, or coverage success."],"semanticKind":"list"},
-    {"id":"readme.navigate","type":"list","heading":"🔎 Navigate","ordered":false,"items":["[Root README](../README.md)","[Root specification map](../SPEC.md)","[JSON owner](CANON.json)"],"semanticKind":"list"},
-    {"id":"readme.generation","type":"data_table","heading":"⚙️ Generation","columns":["Fact","Value"],"rows":[["Source","`catalyst/CANON.json`"],["Source SHA-256","`sha256:d0ee3bf0ebe2a5b982fa26a8a4a60c1c69510161773d60a436ff2559df671c49`"],["Generator","`quine/src/project_readmes.rs`"],["Schema","`rust-quine-project-readmes/1`"]],"viewportRows":12,"semanticKind":"table"}
+    {
+      "id": "semantic.summary",
+      "type": "text",
+      "body": "Catalyst is the desktop executive shell that packages Hermes Agent, hosts Electron and React interaction surfaces, and connects user intent to canonical RUN, Butler, and UGUI owners without assuming their authority.",
+      "semanticKind": "summary"
+    },
+    {
+      "id": "readme.purpose",
+      "type": "list",
+      "heading": "🚀 What you can do",
+      "ordered": false,
+      "items": [
+        "◆ Provide one cross-platform CLI, gateway, TUI, web, and desktop experience over the Hermes Agent core.",
+        "◆ Preserve durable conversation, model, profile, history, and UI identity while workers recycle across source and Butler runtime generations.",
+        "◆ Carry explicit LUCID role selection and bounded semantic intents across the desktop-to-Butler boundary."
+      ],
+      "semanticKind": "list"
+    },
+    {
+      "id": "readme.contract",
+      "type": "list",
+      "heading": "🔒 Contract",
+      "ordered": false,
+      "items": [
+        "🔒 A stale worker completes an active command, refuses the next unstarted command with runtime-stale, closes transports, and exits before replay.",
+        "🔒 The parent replays at most once and only when typed evidence proves the command never started.",
+        "🔒 LUCID sign-in selects EM or SIDEKICK explicitly; no Catalyst path silently defaults to EM."
+      ],
+      "semanticKind": "list"
+    },
+    {
+      "id": "readme.limits",
+      "type": "list",
+      "heading": "⚠️ Honest limits",
+      "ordered": false,
+      "items": [
+        "⚠️ Quality receipts remain independently freshness-gated; graph admission does not imply lint, test, or coverage success."
+      ],
+      "semanticKind": "list"
+    },
+    {
+      "id": "readme.navigate",
+      "type": "list",
+      "heading": "🔎 Navigate",
+      "ordered": false,
+      "items": [
+        "[Root README](../README.md)",
+        "[Root specification map](../SPEC.md)",
+        "[JSON owner](CANON.json)"
+      ],
+      "semanticKind": "list"
+    },
+    {
+      "id": "readme.generation",
+      "type": "data_table",
+      "heading": "⚙️ Generation",
+      "columns": [
+        "Fact",
+        "Value"
+      ],
+      "rows": [
+        [
+          "Source",
+          "`catalyst/CANON.json`"
+        ],
+        [
+          "Source SHA-256",
+          "`sha256:47698db7c093f944f6c48e82118d21b63aced7409841816ac6733b8db7466fa6`"
+        ],
+        [
+          "Generator",
+          "`quine/src/project_readmes.rs`"
+        ],
+        [
+          "Schema",
+          "`rust-quine-project-readmes/1`"
+        ]
+      ],
+      "viewportRows": 12,
+      "semanticKind": "table"
+    }
   ],
   "actions": [],
-  "semanticMetadata": {"schema":"envelope-semantic-document/1","id":"readme.catalyst.README","source":"CANON.json","sourceSchema":"agentexperiments-project-canon/1"},
-  "provenance": {"schema":"ugui-provenance/1","sourceSchema":"envelope-semantic-document/1","parentHash":"sha256:eafa61edea28ae6b3a28d281613c99a089f5bb614114280170ad24d16ca1060d","observedEpoch":0,"sourceField":"intent.args.document"},
-  "projectionReceipt": {"schema":"envelope-document-projection/1","semanticHash":"sha256:eafa61edea28ae6b3a28d281613c99a089f5bb614114280170ad24d16ca1060d","markdownHash":"sha256:f1eb1e11f7153f32e21918920d08e55dda31e8334f42d7247f1a9eab6ce3055d","sections":5,"omitted":[]}
+  "semanticMetadata": {
+    "schema": "envelope-semantic-document/1",
+    "id": "readme.catalyst.README",
+    "source": "CANON.json",
+    "sourceSchema": "agentexperiments-project-canon/1"
+  },
+  "provenance": {
+    "schema": "ugui-provenance/1",
+    "sourceSchema": "envelope-semantic-document/1",
+    "parentHash": "sha256:859f60d30e450e46077b0e6b0e7df77efa041736be307e8113ca4b2ae90d2013",
+    "observedEpoch": 0,
+    "sourceField": "intent.args.document"
+  },
+  "projectionReceipt": {
+    "schema": "envelope-document-projection/1",
+    "semanticHash": "sha256:859f60d30e450e46077b0e6b0e7df77efa041736be307e8113ca4b2ae90d2013",
+    "markdownHash": "sha256:0700c132cb426753b1aa9ec0e07139e8aa8032dc7bdf761039018dfdea65d6d5",
+    "sections": 5,
+    "omitted": []
+  }
 }

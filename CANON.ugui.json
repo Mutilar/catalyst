@@ -2,19 +2,109 @@
   "id": "canon.catalyst.CANON",
   "type": "document",
   "header": [
-    {"id":"semantic.header","type":"text","body":"🚀 CATALYST CANON","style":"heading"}
+    {
+      "id": "semantic.header",
+      "type": "text",
+      "body": "🚀 CATALYST CANON",
+      "style": "heading"
+    }
   ],
   "sections": [
-    {"id":"semantic.summary","type":"text","body":"Catalyst is the desktop executive shell that packages Hermes Agent, hosts Electron and React interaction surfaces, and connects user intent to canonical RUN, Butler, and UGUI owners without assuming their authority.","semanticKind":"summary"},
-    {"id":"canon.purpose","type":"list","heading":"🔎 PURPOSE","ordered":false,"items":["🔎 Provide one cross-platform CLI, gateway, TUI, web, and desktop experience over the Hermes Agent core.","🔎 Preserve durable conversation, model, profile, history, and UI identity while workers recycle across source and Butler runtime generations.","🔎 Carry explicit LUCID role selection and bounded semantic intents across the desktop-to-Butler boundary."],"semanticKind":"list"},
-    {"id":"canon.invariants","type":"list","heading":"🔒 INVARIANTS","ordered":false,"items":["🔒 A stale worker completes an active command, refuses the next unstarted command with runtime-stale, closes transports, and exits before replay.","🔒 The parent replays at most once and only when typed evidence proves the command never started.","🔒 LUCID sign-in selects EM or SIDEKICK explicitly; no Catalyst path silently defaults to EM."],"semanticKind":"list"},
-    {"id":"canon.boundaries","type":"list","heading":"🧭 BOUNDARIES","ordered":false,"items":["🧭 Catalyst does not own LUCID grammar, Butler authority, RUN lifecycle truth, QUINE verdicts, Store durability, or UGUI document semantics.","🧭 Catalyst owns its canonical SPEC.json and CANON.json at the project root, matching every other registered project."],"semanticKind":"list"},
-    {"id":"canon.mechanisms","type":"list","heading":"🎼 MECHANISMS","ordered":false,"items":["🎼 Generation fingerprints bind imported Python sources, package locks, and RUN's current Butler generation pointer.","🎼 Typed runtime-stale exchange separates safe non-execution replay from unknown-outcome operations.","🎼 Electron owns machine effects, the renderer owns ephemeral presentation, and the gateway owns shared agent work."],"semanticKind":"list"},
-    {"id":"canon.residue","type":"list","heading":"⚠️ RESIDUE","ordered":false,"items":["⚠️ Quality receipts remain independently freshness-gated; graph admission does not imply lint, test, or coverage success."],"semanticKind":"list"},
-    {"id":"canon.navigate","type":"list","heading":"➡️ CYOA","ordered":false,"items":["➡️ [JSON OWNER](CANON.json)","➡️ [README](README.md)","➡️ [ROOT CANON](../CANON.md)"],"semanticKind":"list"}
+    {
+      "id": "semantic.summary",
+      "type": "text",
+      "body": "Catalyst is the desktop executive shell that packages Hermes Agent, hosts Electron and React interaction surfaces, and connects user intent to canonical RUN, Butler, and UGUI owners without assuming their authority.",
+      "semanticKind": "summary"
+    },
+    {
+      "id": "canon.purpose",
+      "type": "list",
+      "heading": "🔎 PURPOSE",
+      "ordered": false,
+      "items": [
+        "🔎 Provide one cross-platform CLI, gateway, TUI, web, and desktop experience over the Hermes Agent core.",
+        "🔎 Preserve durable conversation, model, profile, history, and UI identity while workers recycle across source and Butler runtime generations.",
+        "🔎 Carry explicit LUCID role selection and bounded semantic intents across the desktop-to-Butler boundary."
+      ],
+      "semanticKind": "list"
+    },
+    {
+      "id": "canon.invariants",
+      "type": "list",
+      "heading": "🔒 INVARIANTS",
+      "ordered": false,
+      "items": [
+        "🔒 A stale worker completes an active command, refuses the next unstarted command with runtime-stale, closes transports, and exits before replay.",
+        "🔒 The parent replays at most once and only when typed evidence proves the command never started.",
+        "🔒 LUCID sign-in selects EM or SIDEKICK explicitly; no Catalyst path silently defaults to EM."
+      ],
+      "semanticKind": "list"
+    },
+    {
+      "id": "canon.boundaries",
+      "type": "list",
+      "heading": "🧭 BOUNDARIES",
+      "ordered": false,
+      "items": [
+        "🧭 Catalyst does not own LUCID grammar, Butler authority, RUN lifecycle truth, QUINE verdicts, Store durability, or UGUI document semantics.",
+        "🧭 Catalyst owns its canonical SPEC.json and CANON.json at the project root, matching every other registered project."
+      ],
+      "semanticKind": "list"
+    },
+    {
+      "id": "canon.mechanisms",
+      "type": "list",
+      "heading": "🎼 MECHANISMS",
+      "ordered": false,
+      "items": [
+        "🎼 Generation fingerprints bind imported Python sources, package locks, and RUN's current Butler generation pointer.",
+        "🎼 Typed runtime-stale exchange separates safe non-execution replay from unknown-outcome operations.",
+        "🎼 Electron owns machine effects, the renderer owns ephemeral presentation, and the gateway owns shared agent work."
+      ],
+      "semanticKind": "list"
+    },
+    {
+      "id": "canon.residue",
+      "type": "list",
+      "heading": "⚠️ RESIDUE",
+      "ordered": false,
+      "items": [
+        "⚠️ Quality receipts remain independently freshness-gated; graph admission does not imply lint, test, or coverage success."
+      ],
+      "semanticKind": "list"
+    },
+    {
+      "id": "canon.navigate",
+      "type": "list",
+      "heading": "➡️ CYOA",
+      "ordered": false,
+      "items": [
+        "➡️ [JSON OWNER](CANON.json)",
+        "➡️ [README](README.md)",
+        "➡️ [ROOT CANON](../CANON.md)"
+      ],
+      "semanticKind": "list"
+    }
   ],
   "actions": [],
-  "semanticMetadata": {"schema":"envelope-semantic-document/1","id":"canon.catalyst.CANON","source":"CANON.json","sourceSchema":"https://agentexperiments.local/envelope/CANON.schema.json"},
-  "provenance": {"schema":"ugui-provenance/1","sourceSchema":"envelope-semantic-document/1","parentHash":"sha256:c29dbbc40f0c92b613d208ce6cc5ce3acf57ad7715b33eb691173e7f863aa2bf","observedEpoch":0,"sourceField":"intent.args.document"},
-  "projectionReceipt": {"schema":"envelope-document-projection/1","semanticHash":"sha256:c29dbbc40f0c92b613d208ce6cc5ce3acf57ad7715b33eb691173e7f863aa2bf","markdownHash":"sha256:3d5bab2ce9837deb7f3bfc09ce459b417fca700fe9e385ed3874e78f96c3b1e6","sections":6,"omitted":[]}
+  "semanticMetadata": {
+    "schema": "envelope-semantic-document/1",
+    "id": "canon.catalyst.CANON",
+    "source": "CANON.json",
+    "sourceSchema": "https://agentexperiments.local/envelope/CANON.schema.json"
+  },
+  "provenance": {
+    "schema": "ugui-provenance/1",
+    "sourceSchema": "envelope-semantic-document/1",
+    "parentHash": "sha256:c29dbbc40f0c92b613d208ce6cc5ce3acf57ad7715b33eb691173e7f863aa2bf",
+    "observedEpoch": 0,
+    "sourceField": "intent.args.document"
+  },
+  "projectionReceipt": {
+    "schema": "envelope-document-projection/1",
+    "semanticHash": "sha256:c29dbbc40f0c92b613d208ce6cc5ce3acf57ad7715b33eb691173e7f863aa2bf",
+    "markdownHash": "sha256:2089deb85ba4904ae200c7f5490bdebfc45b0697082cab1e193f3852fe9bdfcb",
+    "sections": 6,
+    "omitted": []
+  }
 }

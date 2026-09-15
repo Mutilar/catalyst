@@ -79,16 +79,17 @@ def test_active_outage_projects_exact_search_fallback(monkeypatch, tmp_path):
     assert "\n" not in result["error"]
     stream = parse_stream(Path(__file__).parents[3], result["error"])
     assert stream["signal"] == f"{SIGNAL_WARNING}"
-    assert (stream["verb"], stream["noun"], stream["argument"]) == (
+    assert (stream["verb"], stream["noun"], stream["arguments"]) == (
         "get",
         "transport",
-        "OFFLINE-FALLBACK",
+        ["OFFLINE-FALLBACK"],
     )
     assert stream["evidence"] == ["mcp-unavailable"]
     assert stream["timing"] == ["ETA T-10s"]
     action = stream["actions"][0]
     assert (action["verb"], action["noun"]) == ("get", "search")
-    assert json.loads(action["argument"]) == {"query": {"terms": ["needle"]}}
+    assert action["arguments"] == ["TERM `needle`"]
+    assert "{" not in result["error"]
     assert "--args" not in result["error"]
     assert "--scope" not in result["error"]
     assert "RETIRE" not in result["error"]
@@ -97,11 +98,11 @@ def test_active_outage_projects_exact_search_fallback(monkeypatch, tmp_path):
 def test_canonical_stream_is_projected_from_the_root_gestalt_contract():
     root = Path(__file__).parents[3]
     complete = parse_stream(root, canonical_stream(root, f"{SIGNAL_GREEN}", "show", "app", "macos-shell"))
-    assert (complete["signal"], complete["verb"], complete["noun"], complete["argument"]) == (
+    assert (complete["signal"], complete["verb"], complete["noun"], complete["arguments"]) == (
         f"{SIGNAL_GREEN}",
         "show",
         "app",
-        "MACOS-SHELL",
+        ["MACOS-SHELL"],
     )
     root_stream = parse_stream(root, canonical_stream(root, f"{SIGNAL_WARNING}"))
     assert root_stream["signal"] == f"{SIGNAL_WARNING}"
@@ -128,7 +129,7 @@ def test_canonical_stream_is_projected_from_the_root_gestalt_contract():
     assert parsed["data"] == ["Progress=98%"]
     assert parsed["timing"] == ["ETA 2s"]
     assert parsed["actions"] == [
-        {"verb": "show", "noun": "pulse", "argument": None, "label": "Show pulse"}
+        {"verb": "show", "noun": "pulse", "arguments": [], "label": "Show pulse"}
     ]
     timing = canonical_stream(
         root,
@@ -139,6 +140,24 @@ def test_canonical_stream_is_projected_from_the_root_gestalt_contract():
     assert parse_stream(root, timing)["timing"] == [f"{SIGNAL_RED} RTT [################] 200% T+5.0"]
     assert "SERVICE" not in timing
     assert "TIMING" not in timing
+
+
+def test_repeated_arguments_and_json_refusal_follow_the_canonical_contract():
+    root = Path(__file__).parents[3]
+    action = semantic_action(root, "get", {"path": "search", "query": {"terms": ["first", "second"]}}, "Inspect")
+    stream = canonical_stream(root, SIGNAL_GREEN, "get", "search", arguments=("FIRST", "SECOND"), actions=(action,))
+    parsed = parse_stream(root, stream)
+    assert parsed["arguments"] == ["FIRST", "SECOND"]
+    assert parsed["actions"][0]["arguments"] == ["TERM `first`", "TERM `second`"]
+    for value in ['{"ready":false}', '["first","second"]', 'Schema {"type":"object"}', 'Schema["first","second"]', 'Values[1,2]', 'Values[]']:
+        with pytest.raises(ValueError, match="JSON"):
+            canonical_stream(root, SIGNAL_GREEN, data=(value,))
+        with pytest.raises(ValueError, match="JSON"):
+            parse_stream(root, f"{SIGNAL_GREEN} · ◆ {value}")
+    for coordinate in ["$[0]", "$.rows[1]", "values[2][3]"]:
+        assert parse_stream(root, canonical_stream(root, SIGNAL_GREEN, data=(coordinate,)))["data"] == [coordinate]
+    profile = semantic_action(root, "set", {"path": "effigy-profiles", "value": {"role": "EM", "speech_style": "BUTLER"}}, "Inspect")
+    assert profile["arguments"] == ["ROLE `EM`", "VOICE `BUTLER`"]
 
 
 def test_green_or_unregistered_noun_never_suggests_fallback(monkeypatch, tmp_path):
@@ -195,7 +214,7 @@ def test_unattested_empty_error_uses_canonical_outcome_code(monkeypatch, tmp_pat
 
     assert set(result) == {"error"}
     stream = parse_stream(Path(__file__).parents[3], result["error"])
-    assert (stream["signal"], stream["verb"], stream["noun"], stream["argument"]) == (
+    assert (stream["signal"], stream["verb"], stream["noun"], next(iter(stream["arguments"]), None)) == (
         f"{SIGNAL_RED}",
         "dispatch",
         "transport",
@@ -260,7 +279,7 @@ def test_server_supplied_ugui_error_is_not_forwarded_through_model_context():
     assert set(result) == {"error"}
     assert "structuredContent" not in result
     stream = parse_stream(Path(__file__).parents[3], result["error"])
-    assert (stream["signal"], stream["verb"], stream["noun"], stream["argument"]) == (
+    assert (stream["signal"], stream["verb"], stream["noun"], next(iter(stream["arguments"]), None)) == (
         f"{SIGNAL_RED}",
         "dispatch",
         "transport",

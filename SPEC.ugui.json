@@ -2,17 +2,86 @@
   "id": "spec.catalyst",
   "type": "document",
   "header": [
-    {"id":"semantic.header","type":"text","body":"🚀 CATALYST specification","style":"heading"}
+    {
+      "id": "semantic.header",
+      "type": "text",
+      "body": "🚀 CATALYST specification",
+      "style": "heading"
+    }
   ],
   "sections": [
-    {"id":"semantic.summary","type":"text","body":"Human projection of the registered JSON contract.","semanticKind":"summary"},
-    {"id":"spec.catalyst.authority","type":"text","heading":"🔒 Authority","body":"**JSON is authority.** This page navigates it; it does not restate it.","semanticKind":"paragraph"},
-    {"id":"spec.catalyst.contracts","type":"data_table","heading":"◆ Contracts","columns":["Source","Contract","Scope"],"rows":[["[SPEC.json](SPEC.json)","`quine-area/1`","FIRST CLASS NODE AREA SPEC"]],"viewportRows":12,"semanticKind":"table"},
-    {"id":"spec.catalyst.quality","type":"text","heading":"🧪 Quality","body":"BRANCH COVERAGE · LINE COVERAGE · LINT · TEST","semanticKind":"paragraph"},
-    {"id":"spec.catalyst.navigate","type":"list","heading":"🔎 Navigate","ordered":false,"items":["[README](README.md)","[Root specification map](../SPEC.md)","[Lint evidence](../LINT.md) · [Test evidence](../TEST.md)"],"semanticKind":"list"}
+    {
+      "id": "semantic.summary",
+      "type": "text",
+      "body": "Human projection of the registered JSON contract.",
+      "semanticKind": "summary"
+    },
+    {
+      "id": "spec.catalyst.authority",
+      "type": "text",
+      "heading": "🔒 Authority",
+      "body": "**JSON is authority.** This page navigates it; it does not restate it.",
+      "semanticKind": "paragraph"
+    },
+    {
+      "id": "spec.catalyst.contracts",
+      "type": "data_table",
+      "heading": "◆ Contracts",
+      "columns": [
+        "Source",
+        "Contract",
+        "Scope"
+      ],
+      "rows": [
+        [
+          "[SPEC.json](SPEC.json)",
+          "`quine-area/1`",
+          "FIRST CLASS NODE AREA SPEC"
+        ]
+      ],
+      "viewportRows": 12,
+      "semanticKind": "table"
+    },
+    {
+      "id": "spec.catalyst.quality",
+      "type": "text",
+      "heading": "🧪 Quality",
+      "body": "BRANCH COVERAGE · LINE COVERAGE · LINT · TEST",
+      "semanticKind": "paragraph"
+    },
+    {
+      "id": "spec.catalyst.navigate",
+      "type": "list",
+      "heading": "🔎 Navigate",
+      "ordered": false,
+      "items": [
+        "[README](README.md)",
+        "[Root specification map](../SPEC.md)",
+        "[Lint evidence](../LINT.md) · [Test evidence](../TEST.md)"
+      ],
+      "semanticKind": "list"
+    }
   ],
   "actions": [],
-  "semanticMetadata": {"schema":"envelope-semantic-document/1","id":"spec.catalyst","source":"SPEC.json","sourceSchema":"quine-root-catalog-policy/1"},
-  "provenance": {"schema":"ugui-provenance/1","sourceSchema":"envelope-semantic-document/1","parentHash":"sha256:1a441db020c7d8f927ddd5711ccd4933cdaa7744d5232896c7cbe0123792667d","observedEpoch":0,"sourceField":"intent.args.document"},
-  "projectionReceipt": {"schema":"envelope-document-projection/1","semanticHash":"sha256:1a441db020c7d8f927ddd5711ccd4933cdaa7744d5232896c7cbe0123792667d","markdownHash":"sha256:aedff4592dee9f4f2e467a2f6fd6c98938f91e5071e0be94dd0f2df9ca440319","sections":4,"omitted":[]}
+  "semanticMetadata": {
+    "schema": "envelope-semantic-document/1",
+    "id": "spec.catalyst",
+    "source": "SPEC.json",
+    "sourceSchema": "quine-root-catalog-policy/1"
+  },
+  "provenance": {
+    "schema": "ugui-provenance/1",
+    "sourceSchema": "envelope-semantic-document/1",
+    "parentHash": "sha256:1a441db020c7d8f927ddd5711ccd4933cdaa7744d5232896c7cbe0123792667d",
+    "observedEpoch": 0,
+    "sourceField": "intent.args.document"
+  },
+  "projectionReceipt": {
+    "schema": "envelope-document-projection/1",
+    "semanticHash": "sha256:1a441db020c7d8f927ddd5711ccd4933cdaa7744d5232896c7cbe0123792667d",
+    "markdownHash": "sha256:aedff4592dee9f4f2e467a2f6fd6c98938f91e5071e0be94dd0f2df9ca440319",
+    "sections": 4,
+    "omitted": []
+  }
 }
+

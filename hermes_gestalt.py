@@ -17,13 +17,14 @@ def canonical_stream(
     *,
     service: str | None = None,
     without_identity: bool = False,
+    arguments: tuple[str, ...] = (),
     evidence: tuple[str, ...] = (),
     data: tuple[str, ...] = (),
     timing: tuple[str, ...] = (),
     continuations: tuple[str, ...] = (),
     intents: tuple[str, ...] = (),
     cli: tuple[str, ...] = (),
-    actions: tuple[dict[str, str | None], ...] = (),
+    actions: tuple[dict[str, object], ...] = (),
 ) -> str:
     path = root / "envelope/GESTALT.json"
     metadata = path.lstat()
@@ -58,20 +59,20 @@ def canonical_stream(
         raise ValueError("GESTALT service conflicts with without_identity")
     service = default_service if service is None else service
     _validate_service(service)
-    canonical_argument = (
-        argument
-        if argument is None or argument.startswith(('"', "{", "["))
-        else argument.upper()
-    )
-    if verb is None and (noun is not None or argument is not None) or noun is None and argument is not None:
+    if argument is not None and arguments:
+        raise ValueError("GESTALT argument sources conflict")
+    argument_values = (argument,) if argument is not None else arguments
+    if verb is None and (noun is not None or argument_values) or noun is None and argument_values:
         raise ValueError("GESTALT coordinate dependencies are invalid")
     segments = [signal] if without_identity else [signal, service]
     if verb is not None:
         segments.append(f"{verb_glyph} {verb.upper()}")
     if noun is not None:
         segments.append(f"{noun_glyph} {noun.upper()}")
-    if canonical_argument is not None:
-        segments.append(f"{argument_glyph} {canonical_argument}")
+    for value in argument_values:
+        value = _semantic_value(value, separator)
+        rendered_value = value if '"' in value or "`" in value else value.upper()
+        segments.append(f"{argument_glyph} {rendered_value}")
     for glyph, values in ((evidence_glyph, evidence), (datum_glyph, data)):
         segments.extend(f"{glyph} {_semantic_value(value, separator)}" for value in values)
     for value in timing:
@@ -92,22 +93,29 @@ def canonical_stream(
     for action in actions:
         action_verb = action.get("verb")
         action_noun = action.get("noun")
-        action_argument = action.get("argument")
+        action_arguments = action.get("arguments", ())
+        if "argument" in action:
+            if action_arguments:
+                raise ValueError("GESTALT argument sources conflict")
+            action_arguments = () if action["argument"] is None else (action["argument"],)
         label = action.get("label")
-        if not isinstance(action_verb, str) or action_noun is None and action_argument is not None:
+        if not isinstance(action_verb, str) or not isinstance(action_arguments, (list, tuple)) or action_noun is None and action_arguments:
             raise ValueError("GESTALT action coordinate is invalid")
         action_segments = [f"{action_glyph} {default_service}", f"{verb_glyph} {action_verb.upper()}"]
         if isinstance(action_noun, str):
             action_segments.append(f"{noun_glyph} {action_noun.upper()}")
-        if isinstance(action_argument, str):
-            action_segments.append(f"{argument_glyph} {action_argument}")
+        for value in action_arguments:
+            action_segments.append(f"{argument_glyph} {_semantic_value(value, separator)}")
         if isinstance(label, str):
             action_segments.append(f"{evidence_glyph} {_semantic_value(label, separator)}")
         segments.extend(action_segments)
-    return separator.join(segments)
+    rendered = separator.join(segments)
+    _reject_json(rendered)
+    return rendered
 
 
 def parse_stream(root: Path, value: str) -> dict[str, object]:
+    _reject_json(value)
     contract = _segments_contract(root)
     separator = contract["separator"]
     glyphs = contract["glyphs"]
@@ -119,7 +127,7 @@ def parse_stream(root: Path, value: str) -> dict[str, object]:
         "service": None,
         "verb": None,
         "noun": None,
-        "argument": None,
+        "arguments": [],
         "evidence": [],
         "data": [],
         "timing": [],
@@ -158,7 +166,7 @@ def parse_stream(root: Path, value: str) -> dict[str, object]:
             action: dict[str, object] = {
                 "verb": None,
                 "noun": None,
-                "argument": None,
+                "arguments": [],
                 "label": None,
             }
             index = _parse_coordinate(parts, index + 1, glyphs, action)
@@ -235,6 +243,7 @@ def _validate_continuation(value: str, delimiter: str) -> None:
     if (not isinstance(value, str) or not value or len(value.encode("utf-8")) > 1024
         or delimiter in value or any(ord(character) < 32 or 127 <= ord(character) <= 159 for character in value)):
         raise ValueError("GESTALT CYOA continuation is invalid")
+    _reject_json(value)
 
 
 def _validate_service(value: str) -> None:
@@ -260,15 +269,21 @@ def _parse_coordinate(
     glyphs: dict[str, str],
     target: dict[str, object],
 ) -> int:
-    for field in ("verb", "noun", "argument"):
+    for field in ("verb", "noun"):
         prefix = f"{glyphs[field]} "
         if index < len(parts) and parts[index].startswith(prefix):
             value = parts[index][len(prefix):]
             target[field] = value.lower() if field in {"verb", "noun"} else value
             index += 1
+    prefix = f'{glyphs["argument"]} '
+    arguments = []
+    while index < len(parts) and parts[index].startswith(prefix):
+        arguments.append(parts[index][len(prefix):])
+        index += 1
+    target["arguments"] = arguments
     if target.get("noun") is not None and target.get("verb") is None:
         raise ValueError("GESTALT noun requires a verb")
-    if target.get("argument") is not None and target.get("noun") is None:
+    if arguments and target.get("noun") is None:
         raise ValueError("GESTALT argument requires a noun")
     return index
 
@@ -290,7 +305,7 @@ def semantic_action(
     verb: str,
     arguments: dict[str, object],
     label: str,
-) -> dict[str, str | None]:
+) -> dict[str, object]:
     path = root / "envelope/GESTALT.json"
     contract = json.loads(path.read_text(encoding="utf-8"))
     registry = contract.get("segments", {}).get("operationSelectors", {})
@@ -307,17 +322,12 @@ def semantic_action(
         ),
         None,
     )
+    if not arguments:
+        return {"verb": verb, "arguments": [], "label": label}
+    if set(arguments) == {"help"} and isinstance(arguments["help"], str):
+        return {"verb": verb, "noun": "help", "arguments": [_semantic_value(arguments["help"], contract["segments"]["separator"]).upper()], "label": label}
     if selected is None:
-        fallback = next(((key, value) for key, value in arguments.items() if key != "scope" and value is not None), None)
-        if fallback is None:
-            return {"verb": verb, "label": label}
-        key, value = fallback
-        return {
-            "verb": verb,
-            "noun": key,
-            "argument": _canonical_json(value),
-            "label": label,
-        }
+        raise ValueError("GESTALT semantic noun mapping unavailable")
     selector = selected["path"]
     noun_from = selected.get("nounFrom")
     selected_value = arguments[selector]
@@ -330,45 +340,115 @@ def semantic_action(
     residual = {
         key: value
         for key, value in arguments.items()
-        if key != "scope" and value is not None and (noun_from != "value" or key != selector)
+        if not (key == "scope" and value == "this") and (noun_from != "value" or key != selector)
     }
-    projected_argument: object | None = arguments
+    for token, fields in selected.get("argumentForms", {}).get(noun, {}).items():
+        if fields == residual:
+            return {"verb": verb, "noun": noun, "arguments": [token], "label": label}
     argument_from = selected.get("argumentFrom")
     if isinstance(argument_from, str) and argument_from:
-        path = argument_from.split(".")
-        for key in path:
-            projected_argument = (
-                projected_argument.get(key)
-                if isinstance(projected_argument, dict)
-                else None
-            )
-        if projected_argument is not None:
-            residual.pop(path[0], None)
-    else:
-        projected_argument = None
-    if projected_argument is not None and not residual:
-        argument = (
-            str(projected_argument).upper()
-            if selected.get("argumentEncoding") == "token"
-            else _canonical_json(projected_argument)
-        )
-    elif noun_from == "key" and len(residual) == 1:
-        argument = _canonical_json(selected_value)
-    elif residual:
-        argument = _canonical_json(residual)
-    else:
-        argument = None
-    return {"verb": verb, "noun": noun, "argument": argument, "label": label}
+        value = _argument_at(residual, argument_from)
+        if value is not _ABSENT:
+            reconstructed = {}
+            _insert_argument(reconstructed, argument_from, value)
+            if reconstructed == residual:
+                encoded = _encode_argument(value, "token" if selected.get("argumentEncoding") == "token" else "text")
+                return {"verb": verb, "noun": noun, "arguments": [encoded], "label": label}
+    policy = contract.get("semanticArguments", {})
+    if policy.get("jsonContainers") != "forbidden":
+        raise ValueError("GESTALT semantic argument policy is unavailable")
+    mappings = policy.get("bindings", {}).get(verb, {})
+    bindings = list(mappings.get(noun, mappings.get("*", [])))
+    if not bindings and noun_from == "key":
+        bindings.append([selector, "", "scalar"])
+    bindings.extend(mappings.get("+", []))
+    bindings.append(["scope", "SCOPE", "text"])
+    reconstructed = {}
+    atoms = []
+    for path, prefix, kind in bindings:
+        value = _argument_at(residual, path)
+        if value is _ABSENT:
+            continue
+        values = value if kind == "texts" else [value]
+        if not isinstance(values, list) or not values:
+            raise ValueError("GESTALT repeated argument requires nonempty text values")
+        for item in values:
+            encoded = _encode_argument(item, "text" if kind == "texts" else kind)
+            atoms.append(f"{prefix} {encoded}" if prefix else encoded)
+        _insert_argument(reconstructed, path, value)
+    if reconstructed != residual:
+        raise ValueError(f"GESTALT semantic argument mapping unavailable for {verb.upper()} {noun.upper()}")
+    return {"verb": verb, "noun": noun, "arguments": atoms, "label": label}
+
+
+_ABSENT = object()
+
+
+def _argument_at(value: dict, path: str) -> object:
+    for key in path.split("."):
+        if not isinstance(value, dict) or key not in value:
+            return _ABSENT
+        value = value[key]
+    return value
+
+
+def _insert_argument(target: dict, path: str, value: object) -> None:
+    keys = path.split(".")
+    for key in keys[:-1]:
+        target = target.setdefault(key, {})
+    target[keys[-1]] = value
+
+
+def _encode_argument(value: object, kind: str) -> str:
+    if isinstance(value, str) and kind in {"text", "token", "scalar"}:
+        _reject_json(value)
+        if kind == "token":
+            if not value or any(character.isspace() for character in value):
+                raise ValueError("GESTALT token must be nonempty and unspaced")
+            if value == value.lower():
+                return value.upper()
+        if value and all(not character.isascii() and not character.isspace() for character in value):
+            return value
+        delimiter = "`" if "`" not in value else '"'
+        if delimiter in value or any(ord(character) < 32 for character in value):
+            raise ValueError("GESTALT literal requires a separate source artifact")
+        return f"{delimiter}{value}{delimiter}"
+    if kind == "scalar" and isinstance(value, bool):
+        return "ON" if value else "OFF"
+    if kind in {"integer", "scalar"} and isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    raise ValueError("GESTALT argument needs a registered semantic form, not a JSON value")
 
 
 def _semantic_value(value: str, separator: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError("GESTALT semantic value is invalid")
     value = value.replace("\r", " ").replace("\n", " ")
+    _reject_json(value)
     if separator in value:
         raise ValueError("GESTALT semantic value contains the canonical separator; use separate semantic fields")
     return value
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+def _reject_json(value: str) -> None:
+    decoder = json.JSONDecoder()
+    pending = [(value, 0)]
+    while pending:
+        text, depth = pending.pop()
+        if depth > 32:
+            raise ValueError("GESTALT literal nesting exceeds its bound")
+        for offset, character in enumerate(text):
+            if character not in '{["':
+                continue
+            if character == "[" and offset and (text[offset - 1].isalnum() or text[offset - 1] in "$_.]"):
+                index, closing, _ = text[offset + 1:].partition("]")
+                if closing and index and index.isascii() and index.isdecimal():
+                    continue
+            try:
+                decoded, _ = decoder.raw_decode(text, offset)
+            except (ValueError, RecursionError):
+                continue
+            if isinstance(decoded, (dict, list)):
+                raise ValueError("JSON is transport data, not canonical GESTALT")
+            if isinstance(decoded, str) and len(decoded) < len(text):
+                pending.append((decoded, depth + 1))

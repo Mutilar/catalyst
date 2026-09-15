@@ -12699,7 +12699,7 @@ def _mcp_server_summary(
 
 @app.post("/api/ugui/actions/invoke")
 async def invoke_ugui_action(body: UguiActionInvoke, profile: Optional[str] = None):
-    """Execute one provenance-bound canonical UGUI action through native MCP."""
+    """Execute one canonical UGUI action through RUN's launch-bound witness bridge."""
 
     from hermes_cli.ugui_actions import UguiActionError, execute_lucid_ugui_action
 
@@ -12721,7 +12721,7 @@ async def invoke_ugui_action(body: UguiActionInvoke, profile: Optional[str] = No
         _log.exception("POST /api/ugui/actions/invoke failed")
         raise HTTPException(status_code=503, detail="UGUI action invocation failed") from exc
     if not result.get("ok"):
-        error = result.get("result", {}).get("error", "MCP action failed")
+        error = result.get("result", {}).get("error", "Witness LUCID action failed")
         raise HTTPException(status_code=502, detail=error)
     return result
 

@@ -604,7 +604,7 @@ def _effigy_submission_accepted(result: Any) -> bool:
             stream["signal"] == f"{SIGNAL_GREEN}"
             and stream["verb"] == "show"
             and stream["noun"] == "text"
-            and stream["argument"] == "FRESH"
+            and stream["arguments"] == ["FRESH"]
             and {
                 "Presentation Audio Accepted=true",
                 "Presentation Audio Status=accepted",
@@ -671,7 +671,7 @@ def _canonical_effigy_refusal(value: Any) -> Optional[tuple[str, str]]:
     machine = next(
         (
             item.lower()
-            for item in [stream.get("argument"), *reversed(evidence)]
+            for item in [*stream.get("arguments", []), *reversed(evidence)]
             if isinstance(item, str)
             and "-" in item
             and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,95}", item, re.IGNORECASE)

@@ -319,7 +319,7 @@ class TestErrorPathResourceText:
             mcp_tool._reset_server_error("LUCID")
 
         stream = parse_stream(Path(__file__).parents[3], data["error"])
-        assert (stream["signal"], stream["verb"], stream["noun"], stream["argument"]) == (
+        assert (stream["signal"], stream["verb"], stream["noun"], next(iter(stream["arguments"]), None)) == (
             f"{SIGNAL_RED}",
             "dispatch",
             "transport",
