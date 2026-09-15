@@ -1091,6 +1091,17 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
     # ── chat_completions (default) ─────────────────────────────────────
     _ct = agent._get_transport()
     request_model = getattr(agent, "_wire_model", None) or agent.model
+    request_overrides = agent.request_overrides
+    if getattr(agent, "_prompt_profile", "") == "penguin":
+        from hermes_penguin import PENGUIN_WIRE_MODEL_ID, is_penguin_runtime
+
+        if is_penguin_runtime(agent.model, agent.base_url) and request_model == PENGUIN_WIRE_MODEL_ID:
+            request_overrides = dict(request_overrides or {})
+            extra_body = dict(request_overrides.get("extra_body") or {})
+            template = dict(extra_body.get("chat_template_kwargs") or {})
+            template["enable_thinking"] = True
+            extra_body["chat_template_kwargs"] = template
+            request_overrides["extra_body"] = extra_body
 
     # Provider detection flags
     _is_qwen = agent._is_qwen_portal()
@@ -1181,7 +1192,7 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
             ephemeral_max_output_tokens=_ephemeral_out,
             max_tokens_param_fn=agent._max_tokens_param,
             reasoning_config=agent.reasoning_config,
-            request_overrides=agent.request_overrides,
+            request_overrides=request_overrides,
             session_id=getattr(agent, "session_id", None),
             provider_profile=_profile,
             ollama_num_ctx=agent._ollama_num_ctx,
@@ -1213,7 +1224,7 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
         ephemeral_max_output_tokens=_ephemeral_out,
         max_tokens_param_fn=agent._max_tokens_param,
         reasoning_config=agent.reasoning_config,
-        request_overrides=agent.request_overrides,
+        request_overrides=request_overrides,
         session_id=getattr(agent, "session_id", None),
         model_lower=(request_model or "").lower(),
         is_openrouter=_is_or,

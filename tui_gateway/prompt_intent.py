@@ -32,6 +32,7 @@ from tui_gateway import penguin_funnel
 _ENDPOINT = os.environ.pop("AE_WITNESS_DIRECT_ENDPOINT", "")
 _TOKEN = os.environ.pop("AE_WITNESS_DIRECT_TOKEN", "")
 _MAX_RESPONSE = 524_288
+_PENGUIN_TIMEOUT_SECONDS = 30
 _CACHE_TTL = 3600
 _ACTIVE_LOCK = threading.Lock()
 _ACTIVE: dict[str, tuple[str, threading.Event, list]] = {}
@@ -136,7 +137,7 @@ def _cache_identity() -> str:
         "instruction": input_hash(penguin_instruction(Path(__file__).resolve().parents[2])),
         "classifier_instruction": input_hash(classification_instruction()),
         "lucid_traversal": input_hash(Path(__file__).with_name("lucid_traversal.py").read_text()),
-        "policy": input_hash(Path(__file__).read_text())}, sort_keys=True))
+        "policy": input_hash(Path(__file__).read_text(encoding="utf-8"))}, sort_keys=True))
 
 
 def cached_candidate(home: Path, text: str) -> dict | None:
@@ -553,12 +554,20 @@ def penguin_inference(text: str, instruction: str, stage: str, max_tokens: int) 
         record["few_shots"] = penguin_funnel.receipt(projection)
     started = time.monotonic()
     body = json.dumps(request).encode()
-    connection = http.client.HTTPConnection(endpoint.hostname, endpoint.port, timeout=30)
+    transport = {"timeout_ms": _PENGUIN_TIMEOUT_SECONDS * 1000, "phase": "request",
+        "http_status": None, "inference_state": "unknown", "error": None}
+    record["transport"] = transport
+    connection = http.client.HTTPConnection(endpoint.hostname, endpoint.port, timeout=_PENGUIN_TIMEOUT_SECONDS)
     try:
-        connection.request("POST", "/v1/chat/completions", body, {"Content-Type": "application/json"})
         _track(connection)
+        connection.request("POST", "/v1/chat/completions", body, {"Content-Type": "application/json"})
+        transport["phase"] = "response-headers"
         response = connection.getresponse()
+        transport["http_status"] = response.status
+        transport["phase"] = "response-body"
         raw = response.read(_MAX_RESPONSE + 1)
+        transport["phase"] = "complete"
+        transport["inference_state"] = "response-received"
         if response.status != 200 or len(raw) > _MAX_RESPONSE:
             raise ValueError("penguin-response-unavailable")
         result = json.loads(raw)
@@ -595,6 +604,11 @@ def penguin_inference(text: str, instruction: str, stage: str, max_tokens: int) 
             context["messages"].extend([dict(request["messages"][-1]),
                 {"role": "assistant", "content": response_text}])
         return response_text
+    except TimeoutError as error:
+        transport["error"] = type(error).__name__
+        _check_cancelled()
+        record["refusal"] = "penguin-inference-timeout"
+        raise ValueError("penguin-inference-timeout") from error
     finally:
         record["elapsed_ms"] = round((time.monotonic() - started) * 1000)
         connection.close()
@@ -737,6 +751,20 @@ def project_penguin_failure(evidence: dict) -> None:
     evidence.pop("document", None)
     stages = diagnostic.get("stages", [])
     stage = stages[-1] if stages else {}
+    if receipt["refusal"] == "penguin-inference-timeout":
+        transport = stage.get("transport", {})
+        facts = [receipt["phase"].replace("-", " ").upper()]
+        timeout_ms = transport.get("timeout_ms")
+        if type(timeout_ms) is int and timeout_ms > 0:
+            facts.append(f"{timeout_ms / 1000:g}s transport timeout")
+        if transport.get("phase"):
+            facts.append("HTTP " + transport["phase"].replace("-", " ").upper())
+        facts.extend(("No complete response received", "Provider completion unknown", "Execution not started"))
+        elapsed = stage.get("elapsed_ms")
+        timing = (f"Elapsed {elapsed / 1000:.1f}s",) if type(elapsed) is int and elapsed >= 0 else ()
+        evidence["source"] = presentation_source(SIGNAL_RED, "PENGUIN INFERENCE TIMEOUT", data=tuple(facts), timing=timing,
+            blocks=(("INPUT", diagnostic["original_input"]),), continuations=("Retry", "Bypass", "Help"))
+        return
     if receipt["refusal"] == "penguin-response-incomplete" and stage.get("finish_reason") == "length":
         facts = [receipt["phase"].replace("-", " ").upper()]
         usage = stage.get("usage", {})
@@ -940,7 +968,7 @@ def admit_prompt(text: str, submission: str, session: str, workspace: str, home:
                 "proposal_admitted": False, "reason": "semantic-fidelity-unverified",
             }
             prepared["source"] = presentation_source(SIGNAL_WARNING, "PROPOSAL ONLY",
-                data=("Original input forwarded unchanged; rewrite not admitted",),
+                data=("Original input forwarded unchanged", "rewrite not admitted"),
                 blocks=(("INPUT", text), ("PROPOSED RESTATEMENT", candidate["gestalt"])))
             result["preparation"] = prepared
         elif classification == "direct":

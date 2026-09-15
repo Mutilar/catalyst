@@ -64,7 +64,7 @@ def penguin_picker_row(*, current_provider: str, current_model: str) -> dict[str
         "authenticated": True,
         "auth_type": "local-supervised",
         "capabilities": {
-            PENGUIN_MODEL_ID: {"fast": False, "reasoning": False},
+            PENGUIN_MODEL_ID: {"fast": False, "reasoning": True},
         },
     }
 

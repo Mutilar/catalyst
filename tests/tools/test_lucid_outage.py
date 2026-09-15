@@ -1,6 +1,8 @@
 from agent.generated.ae_glyphs import IDENTITY_LUCID
 from agent.generated.ae_glyphs import IDENTITY_RUN
+from agent.generated.ae_glyphs import DELIMITER_SEGMENT
 from agent.generated.ae_glyphs import RELATION_ACTION
+from agent.generated.ae_glyphs import RELATION_DATUM
 from agent.generated.ae_glyphs import SIGNAL_WARNING
 from agent.generated.ae_glyphs import SIGNAL_RED
 from agent.generated.ae_glyphs import SIGNAL_GREEN
@@ -13,6 +15,84 @@ import pytest
 from tools import lucid_outage
 
 from hermes_gestalt import canonical_stream, parse_stream, semantic_action
+
+
+_GESTALT_ROOT = Path(__file__).parents[3]
+_GESTALT_CONFORMANCE = json.loads(
+    (_GESTALT_ROOT / "quine/tests/fixtures/gestalt-conformance.json").read_text(encoding="utf-8")
+)
+
+
+def _render_conformance_stream(stream):
+    fields = dict(stream)
+    if fields.get("service", "default") is None:
+        fields.pop("service")
+        fields["without_identity"] = True
+    return canonical_stream(_GESTALT_ROOT, **fields)
+
+
+def _conformance_fields(stream):
+    fields = {key: value for key, value in stream.items() if key not in {"intents", "cli", "without_identity"}}
+    fields["continuations"] = [
+        {"kind": "service", "value": value} if isinstance(value, str) else value
+        for value in fields["continuations"]
+    ]
+    for field, kind in (("intents", "intent"), ("cli", "cli")):
+        assert stream[field] == [entry["value"] for entry in fields["continuations"] if entry["kind"] == kind]
+    return fields
+
+
+@pytest.mark.parametrize("case", _GESTALT_CONFORMANCE["positive"], ids=lambda case: case["id"])
+def test_gestalt_conformance_round_trip(case):
+    rendered = _render_conformance_stream(case.get("render", case["stream"]))
+    assert rendered == case["canonical"]
+    parsed = parse_stream(_GESTALT_ROOT, case.get("source", case["canonical"]))
+    assert _conformance_fields(parsed) == case["stream"]
+    assert _render_conformance_stream(parsed) == case["canonical"]
+
+
+@pytest.mark.parametrize("case", _GESTALT_CONFORMANCE["negative"], ids=lambda case: case["id"])
+def test_gestalt_conformance_refusals(case):
+    if "source" in case:
+        with pytest.raises(ValueError):
+            parse_stream(_GESTALT_ROOT, case["source"])
+    if "stream" in case:
+        with pytest.raises(ValueError):
+            _render_conformance_stream(case["stream"])
+
+
+def test_gestalt_legacy_argument_and_continuation_aliases_round_trip_without_conflicts():
+    intent = f"Inspect MiXeD{DELIMITER_SEGMENT}bytes"
+    command = f"printf 'MiXeD{DELIMITER_SEGMENT}bytes'"
+    argument = f"TERM `MiXeD{DELIMITER_SEGMENT}bytes`"
+    rendered = canonical_stream(
+        _GESTALT_ROOT,
+        SIGNAL_GREEN,
+        "get",
+        "search",
+        "first",
+        without_identity=True,
+        intents=(intent,),
+        cli=(command,),
+        actions=({"verb": "get", "noun": "search", "argument": argument},),
+    )
+    parsed = parse_stream(_GESTALT_ROOT, rendered)
+    assert parsed["arguments"] == ["FIRST"]
+    assert parsed["intents"] == [intent]
+    assert parsed["cli"] == [command]
+    assert parsed["actions"][0]["arguments"] == [argument]
+    assert canonical_stream(_GESTALT_ROOT, **parsed) == rendered
+    assert canonical_stream(_GESTALT_ROOT, argument="FIRST", **parsed) == rendered
+    for arguments in (("SECOND",), ("FIRST", "SECOND")):
+        with pytest.raises(ValueError, match="argument sources conflict"):
+            canonical_stream(_GESTALT_ROOT, SIGNAL_GREEN, "get", "search", "FIRST", arguments=arguments)
+        with pytest.raises(ValueError, match="argument sources conflict"):
+            canonical_stream(_GESTALT_ROOT, SIGNAL_GREEN, actions=({"verb": "get", "noun": "search", "argument": "FIRST", "arguments": arguments},))
+    for field in ("intents", "cli"):
+        with pytest.raises(ValueError, match="continuation sources conflict"):
+            canonical_stream(_GESTALT_ROOT, **{**parsed, field: ["Changed"]})
+    with pytest.raises(ValueError, match="service conflicts"):
+        canonical_stream(_GESTALT_ROOT, SIGNAL_GREEN, service=IDENTITY_RUN, without_identity=True)
 
 
 def write(path, value):
@@ -153,7 +233,7 @@ def test_repeated_arguments_and_json_refusal_follow_the_canonical_contract():
         with pytest.raises(ValueError, match="JSON"):
             canonical_stream(root, SIGNAL_GREEN, data=(value,))
         with pytest.raises(ValueError, match="JSON"):
-            parse_stream(root, f"{SIGNAL_GREEN} · ◆ {value}")
+            parse_stream(root, f"{SIGNAL_GREEN}{DELIMITER_SEGMENT}{RELATION_DATUM} {value}")
     for coordinate in ["$[0]", "$.rows[1]", "values[2][3]"]:
         assert parse_stream(root, canonical_stream(root, SIGNAL_GREEN, data=(coordinate,)))["data"] == [coordinate]
     profile = semantic_action(root, "set", {"path": "effigy-profiles", "value": {"role": "EM", "speech_style": "BUTLER"}}, "Inspect")

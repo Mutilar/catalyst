@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from string import ascii_lowercase, ascii_uppercase
 
 _MAX_CONTRACT_BYTES = 64 * 1024
+_UPPERCASE = str.maketrans(ascii_lowercase, ascii_uppercase)
+_LOWERCASE = str.maketrans(ascii_uppercase, ascii_lowercase)
 
 
 def canonical_stream(
@@ -21,106 +24,84 @@ def canonical_stream(
     evidence: tuple[str, ...] = (),
     data: tuple[str, ...] = (),
     timing: tuple[str, ...] = (),
-    continuations: tuple[str, ...] = (),
+    continuations: tuple[str | dict[str, str], ...] = (),
     intents: tuple[str, ...] = (),
     cli: tuple[str, ...] = (),
     actions: tuple[dict[str, object], ...] = (),
 ) -> str:
-    path = root / "envelope/GESTALT.json"
-    metadata = path.lstat()
-    if path.is_symlink() or not path.is_file() or metadata.st_size > _MAX_CONTRACT_BYTES:
-        raise ValueError("GESTALT contract is not a bounded regular file")
-    contract = json.loads(path.read_text(encoding="utf-8"))
-    header = contract.get("segments") if isinstance(contract, dict) else None
-    glyphs = header.get("glyphs") if isinstance(header, dict) else None
-    fields = header.get("order") if isinstance(header, dict) else None
-    required = header.get("required") if isinstance(header, dict) else None
-    optional = header.get("optional") if isinstance(header, dict) else None
-    signals = header.get("signals") if isinstance(header, dict) else None
-    separator = header.get("separator") if isinstance(header, dict) else None
-    if (
-        contract.get("schema") != "lucid-gestalt/1"
-        or not isinstance(glyphs, dict)
-        or not isinstance(fields, list)
-        or required != ["signal"]
-        or fields != ["signal", "service", "verb", "noun", "argument", "evidence", "datum", "timing", "action"]
-        or optional != fields[1:]
-        or not isinstance(signals, list)
-        or signal not in signals
-        or not isinstance(separator, str)
-        or not separator
-    ):
-        raise ValueError("GESTALT segment contract is invalid")
-    glyph_values = [glyphs.get(field) for field in fields[1:]]
-    if not all(isinstance(field, str) and field for field in glyph_values):
-        raise ValueError("GESTALT segment glyphs are invalid")
-    default_service, verb_glyph, noun_glyph, argument_glyph, evidence_glyph, datum_glyph, timing_glyph, action_glyph = glyph_values
+    contract = _contract(root)
+    header = contract["segments"]
+    glyphs = header["glyphs"]
+    signals = header["signals"]
+    if signal not in signals:
+        raise ValueError("GESTALT signal is not canonical")
     if without_identity and service is not None:
         raise ValueError("GESTALT service conflicts with without_identity")
-    service = default_service if service is None else service
-    _validate_service(service)
-    if argument is not None and arguments:
-        raise ValueError("GESTALT argument sources conflict")
-    argument_values = (argument,) if argument is not None else arguments
-    if verb is None and (noun is not None or argument_values) or noun is None and argument_values:
-        raise ValueError("GESTALT coordinate dependencies are invalid")
+    service = glyphs["service"] if service is None else service
+    _validate_service(service, contract)
+    for values in (evidence, data, timing, continuations, intents, cli, actions):
+        if not isinstance(values, (list, tuple)):
+            raise ValueError("GESTALT repeated fields require arrays")
+    argument_values = _arguments(argument, arguments)
     segments = [signal] if without_identity else [signal, service]
-    if verb is not None:
-        segments.append(f"{verb_glyph} {verb.upper()}")
-    if noun is not None:
-        segments.append(f"{noun_glyph} {noun.upper()}")
-    for value in argument_values:
-        value = _semantic_value(value, separator)
-        rendered_value = value if '"' in value or "`" in value else value.upper()
-        segments.append(f"{argument_glyph} {rendered_value}")
-    for glyph, values in ((evidence_glyph, evidence), (datum_glyph, data)):
-        segments.extend(f"{glyph} {_semantic_value(value, separator)}" for value in values)
+    segments.extend(_coordinate(verb, noun, argument_values, contract))
+    for glyph, values in ((glyphs["evidence"], evidence), (glyphs["datum"], data)):
+        segments.extend(f"{glyph} {_semantic_value(value, contract)}" for value in values)
     for value in timing:
-        value = _semantic_value(value, separator)
+        value = _semantic_value(value, contract)
         timing_signal, separator_found, timing_value = value.partition(" ")
         segments.append(
             value
-            if separator_found and timing_signal in signals and timing_signal != timing_glyph and timing_value
-            else f"{timing_glyph} {value}"
+            if separator_found and timing_signal in signals and timing_value
+            else f'{glyphs["timing"]} {value}'
         )
-    for continuation in continuations:
-        _validate_service(continuation)
-        segments.append(f"{action_glyph} {continuation}")
-    for delimiter, values in (('"', intents), ('`', cli)):
+    ordered_continuations = [
+        {"kind": "service", "value": entry} if isinstance(entry, str) else entry
+        for entry in continuations
+    ]
+    for continuation in ordered_continuations:
+        if not isinstance(continuation, dict) or set(continuation) != {"kind", "value"}:
+            raise ValueError("GESTALT CYOA continuation is invalid")
+        kind, value = continuation["kind"], continuation["value"]
+        if kind == "service":
+            _validate_service(value, contract)
+        elif kind in ("cli", "intent"):
+            delimiter = "`" if kind == "cli" else '"'
+            _validate_continuation(value, delimiter)
+            value = f"{delimiter}{value}{delimiter}"
+        else:
+            raise ValueError("GESTALT CYOA continuation is invalid")
+        segments.append(f'{glyphs["action"]} {value}')
+    for delimiter, kind, values in (('"', "intent", intents), ('`', "cli", cli)):
+        represented = [entry["value"] for entry in ordered_continuations if entry["kind"] == kind]
+        if represented and values:
+            if represented != list(values):
+                raise ValueError("GESTALT CYOA continuation sources conflict")
+            continue
         for value in values:
             _validate_continuation(value, delimiter)
-            segments.append(f"{action_glyph} {delimiter}{value}{delimiter}")
+            segments.append(f'{glyphs["action"]} {delimiter}{value}{delimiter}')
     for action in actions:
+        if not isinstance(action, dict) or action.get("service", glyphs["service"]) != glyphs["service"]:
+            raise ValueError("GESTALT executable action service is not LUCID")
         action_verb = action.get("verb")
-        action_noun = action.get("noun")
-        action_arguments = action.get("arguments", ())
-        if "argument" in action:
-            if action_arguments:
-                raise ValueError("GESTALT argument sources conflict")
-            action_arguments = () if action["argument"] is None else (action["argument"],)
+        if action_verb not in header["verbs"]:
+            raise ValueError("GESTALT action verb is not canonical")
+        action_arguments = _arguments(action.get("argument"), action.get("arguments", ()))
+        segments.append(f'{glyphs["action"]} {glyphs["service"]}')
+        segments.extend(_coordinate(action_verb, action.get("noun"), action_arguments, contract))
         label = action.get("label")
-        if not isinstance(action_verb, str) or not isinstance(action_arguments, (list, tuple)) or action_noun is None and action_arguments:
-            raise ValueError("GESTALT action coordinate is invalid")
-        action_segments = [f"{action_glyph} {default_service}", f"{verb_glyph} {action_verb.upper()}"]
-        if isinstance(action_noun, str):
-            action_segments.append(f"{noun_glyph} {action_noun.upper()}")
-        for value in action_arguments:
-            action_segments.append(f"{argument_glyph} {_semantic_value(value, separator)}")
-        if isinstance(label, str):
-            action_segments.append(f"{evidence_glyph} {_semantic_value(label, separator)}")
-        segments.extend(action_segments)
-    rendered = separator.join(segments)
-    _reject_json(rendered)
-    return rendered
+        if label is not None:
+            segments.append(f'{glyphs["evidence"]} {_semantic_value(label, contract)}')
+    return header["separator"].join(segments)
 
 
 def parse_stream(root: Path, value: str) -> dict[str, object]:
-    _reject_json(value)
-    contract = _segments_contract(root)
-    separator = contract["separator"]
-    glyphs = contract["glyphs"]
-    parts = _stream_parts(value, separator, glyphs["action"])
-    if not parts or parts[0] not in contract["signals"]:
+    contract = _contract(root)
+    header = contract["segments"]
+    glyphs = header["glyphs"]
+    parts = _stream_parts(value, contract)
+    if not parts or parts[0] not in header["signals"]:
         raise ValueError("GESTALT signal is invalid")
     stream: dict[str, object] = {
         "signal": parts[0],
@@ -137,10 +118,10 @@ def parse_stream(root: Path, value: str) -> dict[str, object]:
         "actions": [],
     }
     index = 1
-    if index < len(parts) and _is_service(parts[index]):
+    if index < len(parts) and _is_service(parts[index], contract):
         stream["service"] = parts[index]
         index += 1
-    index = _parse_coordinate(parts, index, glyphs, stream)
+    index = _parse_coordinate(parts, index, contract, stream)
     while index < len(parts):
         part = parts[index]
         action_prefix = f'{glyphs["action"]} '
@@ -151,11 +132,14 @@ def parse_stream(root: Path, value: str) -> dict[str, object]:
                 if len(payload) < 2 or not payload.endswith(delimiter):
                     raise ValueError("GESTALT CYOA quote is unclosed")
                 _validate_continuation(payload[1:-1], delimiter)
+                stream["continuations"].append(
+                    {"kind": "intent" if delimiter == '"' else "cli", "value": payload[1:-1]}
+                )
                 stream["intents" if delimiter == '"' else "cli"].append(payload[1:-1])
                 index += 1
                 continue
-        if part.startswith(action_prefix) and _is_service(part[len(action_prefix):]):
             action_service = part[len(action_prefix):]
+            _validate_service(action_service, contract)
             verb_prefix = f'{glyphs["verb"]} '
             if index + 1 >= len(parts) or not parts[index + 1].startswith(verb_prefix):
                 stream["continuations"].append(action_service)
@@ -169,12 +153,12 @@ def parse_stream(root: Path, value: str) -> dict[str, object]:
                 "arguments": [],
                 "label": None,
             }
-            index = _parse_coordinate(parts, index + 1, glyphs, action)
+            index = _parse_coordinate(parts, index + 1, contract, action)
             if not isinstance(action["verb"], str):
                 raise ValueError("GESTALT action verb is absent")
             evidence_prefix = f'{glyphs["evidence"]} '
             if index < len(parts) and parts[index].startswith(evidence_prefix):
-                action["label"] = parts[index][len(evidence_prefix):]
+                action["label"] = _semantic_value(parts[index][len(evidence_prefix):], contract)
                 index += 1
             stream["actions"].append(action)
             continue
@@ -194,26 +178,29 @@ def parse_stream(root: Path, value: str) -> dict[str, object]:
             timing_signal, separator_found, timing_value = part.partition(" ")
             if (
                 separator_found
-                and timing_signal in contract["signals"]
+                and timing_signal in header["signals"]
                 and timing_signal != glyphs["timing"]
                 and timing_value
             ):
-                stream["timing"].append(part)
+                stream["timing"].append(_semantic_value(part, contract))
                 index += 1
                 continue
             raise ValueError("GESTALT segment is not canonical")
         field, glyph = relation
-        stream[field].append(part[len(glyph) + 1:])
+        stream[field].append(_semantic_value(part[len(glyph) + 1:], contract))
         index += 1
+    if stream["service"] is None:
+        stream["without_identity"] = True
     return stream
 
 
-def _stream_parts(value: str, separator: str, action_glyph: str) -> list[str]:
-    if "\r" in value or "\n" in value:
+def _stream_parts(value: str, contract: dict) -> list[str]:
+    if not isinstance(value, str) or "\r" in value or "\n" in value:
         raise ValueError("GESTALT stream must be one physical line")
+    separator = contract["segments"]["separator"]
     remaining = value
     parts = []
-    action_prefix = f"{action_glyph} "
+    action_prefix = f'{contract["segments"]["glyphs"]["action"]} '
     while True:
         trimmed = remaining.lstrip()
         payload = trimmed[len(action_prefix):] if trimmed.startswith(action_prefix) else ""
@@ -231,8 +218,8 @@ def _stream_parts(value: str, separator: str, action_glyph: str) -> list[str]:
                 raise ValueError("GESTALT CYOA has trailing unsegmented text")
             boundary += end
         else:
-            boundary = remaining.find(separator)
-            if boundary < 0:
+            boundary = _separator_outside_literals(remaining, [separator], contract)
+            if boundary is None:
                 parts.append(remaining.strip())
                 return parts
         parts.append(remaining[:boundary].strip())
@@ -246,18 +233,24 @@ def _validate_continuation(value: str, delimiter: str) -> None:
     _reject_json(value)
 
 
-def _validate_service(value: str) -> None:
+def _validate_service(value: str, contract: dict) -> None:
+    header = contract["segments"]
     if (
-        not value
+        not isinstance(value, str)
+        or not value
         or len(value.encode("utf-8")) > 64
-        or any(character.isspace() or character.isascii() for character in value)
+        or value.isascii()
+        or any(character.isspace() or character.isalnum() or ord(character) < 32 or 127 <= ord(character) <= 159 for character in value)
+        or value in header["signals"]
+        or value in [glyph for field, glyph in header["glyphs"].items() if field != "service"]
     ):
         raise ValueError("GESTALT service is not a bounded glyph")
+    _reject_json(value)
 
 
-def _is_service(value: str) -> bool:
+def _is_service(value: str, contract: dict) -> bool:
     try:
-        _validate_service(value)
+        _validate_service(value, contract)
     except ValueError:
         return False
     return True
@@ -266,14 +259,15 @@ def _is_service(value: str) -> bool:
 def _parse_coordinate(
     parts: list[str],
     index: int,
-    glyphs: dict[str, str],
+    contract: dict,
     target: dict[str, object],
 ) -> int:
+    glyphs = contract["segments"]["glyphs"]
     for field in ("verb", "noun"):
         prefix = f"{glyphs[field]} "
         if index < len(parts) and parts[index].startswith(prefix):
             value = parts[index][len(prefix):]
-            target[field] = value.lower() if field in {"verb", "noun"} else value
+            target[field] = value.translate(_LOWERCASE)
             index += 1
     prefix = f'{glyphs["argument"]} '
     arguments = []
@@ -281,23 +275,74 @@ def _parse_coordinate(
         arguments.append(parts[index][len(prefix):])
         index += 1
     target["arguments"] = arguments
-    if target.get("noun") is not None and target.get("verb") is None:
-        raise ValueError("GESTALT noun requires a verb")
-    if arguments and target.get("noun") is None:
-        raise ValueError("GESTALT argument requires a noun")
+    _coordinate(target.get("verb"), target.get("noun"), arguments, contract)
     return index
 
 
-def _segments_contract(root: Path) -> dict[str, object]:
+def _arguments(argument: str | None, arguments) -> list[str]:
+    if not isinstance(arguments, (list, tuple)):
+        raise ValueError("GESTALT arguments require an array")
+    values = list(arguments)
+    if argument is not None:
+        if values and values != [argument]:
+            raise ValueError("GESTALT argument sources conflict")
+        values = [argument]
+    return values
+
+
+def _coordinate(verb, noun, arguments: list[str], contract: dict) -> list[str]:
+    if verb == "" and noun is None and not arguments:
+        return []
+    if verb is None and (noun is not None or arguments) or noun is None and arguments:
+        raise ValueError("GESTALT coordinate dependencies are invalid")
+    header = contract["segments"]
+    glyphs = header["glyphs"]
+    parts = []
+    if verb is not None:
+        if verb not in header["verbs"]:
+            raise ValueError("GESTALT verb is not canonical")
+        parts.append(f'{glyphs["verb"]} {verb.translate(_UPPERCASE)}')
+    if noun is not None:
+        parts.append(f'{glyphs["noun"]} {_semantic_value(noun, contract).translate(_UPPERCASE)}')
+    for value in arguments:
+        value = _semantic_value(value, contract)
+        rendered = value if '"' in value or "`" in value else value.translate(_UPPERCASE)
+        parts.append(f'{glyphs["argument"]} {rendered}')
+    return parts
+
+
+def _contract(root: Path) -> dict[str, object]:
     path = root / "envelope/GESTALT.json"
     metadata = path.lstat()
     if path.is_symlink() or not path.is_file() or metadata.st_size > _MAX_CONTRACT_BYTES:
         raise ValueError("GESTALT contract is not a bounded regular file")
     contract = json.loads(path.read_text(encoding="utf-8"))
-    segments = contract.get("segments") if isinstance(contract, dict) else None
-    if not isinstance(segments, dict) or contract.get("schema") != "lucid-gestalt/1":
+    header = contract.get("segments") if isinstance(contract, dict) else None
+    fields = ["signal", "service", "verb", "noun", "argument", "evidence", "datum", "timing", "action"]
+    if (
+        not isinstance(header, dict)
+        or contract.get("schema") != "lucid-gestalt/1"
+        or header.get("order") != fields
+        or header.get("required") != ["signal"]
+        or header.get("optional") != fields[1:]
+        or header.get("repeatable") != ["argument", "evidence", "datum", "timing", "action"]
+        or not isinstance(header.get("glyphs"), dict)
+        or not all(isinstance(header["glyphs"].get(field), str) and header["glyphs"][field] for field in fields[1:])
+        or not isinstance(header.get("separator"), str)
+        or not header["separator"]
+        or not isinstance(header.get("signals"), list)
+        or len(header["signals"]) != 4
+        or not all(isinstance(signal, str) and signal for signal in header["signals"])
+        or not isinstance(header.get("verbs"), list)
+        or not all(isinstance(verb, str) and verb for verb in header["verbs"])
+        or set(header["verbs"]) != set(header.get("operationSelectors", {}))
+        or not isinstance(contract.get("lint", {}).get("alternateSeparators"), list)
+        or not all(isinstance(value, str) and value for value in contract["lint"]["alternateSeparators"])
+        or not isinstance(contract.get("recovery", {}).get("bounds", {}).get("nesting"), int)
+        or contract["recovery"]["bounds"]["nesting"] <= 0
+    ):
         raise ValueError("GESTALT segment contract is invalid")
-    return segments
+    return contract
 
 
 def semantic_action(
@@ -306,8 +351,7 @@ def semantic_action(
     arguments: dict[str, object],
     label: str,
 ) -> dict[str, object]:
-    path = root / "envelope/GESTALT.json"
-    contract = json.loads(path.read_text(encoding="utf-8"))
+    contract = _contract(root)
     registry = contract.get("segments", {}).get("operationSelectors", {})
     selectors = registry.get(verb) if isinstance(registry, dict) else None
     if not isinstance(selectors, list) or not isinstance(arguments, dict):
@@ -325,7 +369,7 @@ def semantic_action(
     if not arguments:
         return {"verb": verb, "arguments": [], "label": label}
     if set(arguments) == {"help"} and isinstance(arguments["help"], str):
-        return {"verb": verb, "noun": "help", "arguments": [_semantic_value(arguments["help"], contract["segments"]["separator"]).upper()], "label": label}
+        return {"verb": verb, "noun": "help", "arguments": [_semantic_value(arguments["help"], contract).translate(_UPPERCASE)], "label": label}
     if selected is None:
         raise ValueError("GESTALT semantic noun mapping unavailable")
     selector = selected["path"]
@@ -420,14 +464,65 @@ def _encode_argument(value: object, kind: str) -> str:
     raise ValueError("GESTALT argument needs a registered semantic form, not a JSON value")
 
 
-def _semantic_value(value: str, separator: str) -> str:
+def _semantic_value(value: str, contract: dict) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError("GESTALT semantic value is invalid")
-    value = value.replace("\r", " ").replace("\n", " ")
+    if "\r" in value or "\n" in value:
+        parts = []
+        remaining = value
+        while (boundary := _separator_outside_literals(remaining, ["\r", "\n"], contract)) is not None:
+            parts.extend((remaining[:boundary], " "))
+            remaining = remaining[boundary + 1:]
+        parts.append(remaining)
+        value = "".join(parts)
+        if "\r" in value or "\n" in value:
+            raise ValueError("GESTALT literal requires single-line source")
     _reject_json(value)
-    if separator in value:
+    if _separator_outside_literals(value, [contract["segments"]["separator"]], contract) is not None:
         raise ValueError("GESTALT semantic value contains the canonical separator; use separate semantic fields")
+    if _separator_outside_literals(value, contract["lint"]["alternateSeparators"], contract) is not None:
+        raise ValueError("GESTALT semantic value contains an alternate separator; use separate semantic fields")
     return value
+
+
+def _separator_outside_literals(value: str, separators: list[str], contract: dict) -> int | None:
+    quote = None
+    quote_run = 0
+    brackets = []
+    escaped = False
+    offset = 0
+    while offset < len(value):
+        character = value[offset]
+        run = 1
+        if character in "`$":
+            while offset + run < len(value) and value[offset + run] == character:
+                run += 1
+        next_offset = offset + run
+        if escaped:
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif quote is not None:
+            if character == quote and run == quote_run:
+                quote = None
+        elif character == "$" and run == 1 and next_offset < len(value) and value[next_offset] in "[.":
+            pass
+        elif character in '\"`$\u201c\u2018' or character == "'" and not (
+            offset and value[offset - 1].isalnum() and next_offset < len(value) and value[next_offset].isalnum()
+        ):
+            quote = {"\u201c": "\u201d", "\u2018": "\u2019"}.get(character, character)
+            quote_run = run
+        elif character in "([{":
+            if len(brackets) == contract["recovery"]["bounds"]["nesting"]:
+                return None
+            brackets.append({"(": ")", "[": "]", "{": "}"}[character])
+        elif character in ")]}":
+            if not brackets or brackets.pop() != character:
+                return None
+        elif not brackets and any(value.startswith(separator, offset) for separator in separators):
+            return offset
+        offset = next_offset
+    return None
 
 
 def _reject_json(value: str) -> None:

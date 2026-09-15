@@ -2,6 +2,8 @@ from __future__ import annotations
 from agent.generated.ae_glyphs import DELIMITER_SEGMENT, IDENTITY_PENGUIN
 
 import json
+from copy import deepcopy
+from types import SimpleNamespace
 
 import pytest
 
@@ -82,7 +84,7 @@ def test_picker_row_is_one_authenticated_closed_penguin_model() -> None:
     assert row["models"] == ["PENGUIN"]
     assert row["authenticated"] is True
     assert row["is_current"] is True
-    assert row["capabilities"] == {"PENGUIN": {"fast": False, "reasoning": False}}
+    assert row["capabilities"] == {"PENGUIN": {"fast": False, "reasoning": True}}
 
 
 def test_shared_inventory_always_exposes_one_penguin_picker_row(monkeypatch) -> None:
@@ -187,3 +189,70 @@ def test_penguin_agent_hides_hermes_skills_and_narrows_set_to_signin() -> None:
     clear_penguin_agent(agent)
     assert agent._prompt_profile == ""
     assert agent.tools == full_tools
+
+
+@pytest.mark.parametrize("configured_thinking", [None, False, True])
+def test_penguin_agent_requests_thinking_with_tools_without_changing_other_modes(configured_thinking, monkeypatch) -> None:
+    from agent.chat_completion_helpers import build_api_kwargs
+    from agent.transports.chat_completions import ChatCompletionsTransport
+    from tui_gateway.prompt_intent import penguin_request
+
+    template = {"preserve_other_option": True}
+    if configured_thinking is not None:
+        template["enable_thinking"] = configured_thinking
+    overrides = {"extra_body": {"chat_template_kwargs": template, "repetition_penalty": 1.05}}
+    original_overrides = deepcopy(overrides)
+    tools = [{"type": "function", "function": {"name": name,
+        "description": "fixture", "parameters": {"type": "object", "properties": {}}}}
+        for name in ("mcp__LUCID__get", "mcp__LUCID__show", "mcp__LUCID__set", "terminal")]
+    transport = ChatCompletionsTransport()
+    agent = SimpleNamespace(
+        provider="custom", model=PENGUIN_MODEL_ID, _wire_model=PENGUIN_WIRE_MODEL_ID,
+        base_url=PENGUIN_BASE_URL, _base_url_lower=PENGUIN_BASE_URL.lower(),
+        api_mode="chat_completions", tools=tools, request_overrides=overrides,
+        reasoning_config={"enabled": False}, max_tokens=4096, _ollama_num_ctx=None,
+        providers_allowed=None, providers_ignored=None, providers_order=None, provider_sort=None,
+        provider_require_parameters=False, provider_data_collection=None, openrouter_min_coding_score=None,
+        _get_transport=lambda: transport, _is_qwen_portal=lambda: False, _is_openrouter_url=lambda: False,
+        _resolved_api_call_timeout=lambda: 120, _max_tokens_param=lambda maximum: {"max_tokens": maximum},
+        _prepare_messages_for_non_vision_model=lambda messages: messages,
+        _supports_reasoning_extra_body=lambda: False,
+    )
+    messages = [{"role": "user", "content": "Read current role using the registered tool"}]
+    baseline = build_api_kwargs(agent, messages)
+    configure_penguin_agent(agent)
+    request = build_api_kwargs(agent, messages)
+    assert request["model"] == PENGUIN_WIRE_MODEL_ID
+    assert request["messages"] == messages
+    assert request["extra_body"]["chat_template_kwargs"] == {
+        "preserve_other_option": True, "enable_thinking": True,
+    }
+    assert request["extra_body"]["repetition_penalty"] == 1.05
+    assert request["tools"] == agent.tools
+    assert len(request["tools"]) == 3
+    assert request.get("tool_choice") != "none"
+    assert request["max_tokens"] == 4096
+    assert overrides == original_overrides
+    assert agent.request_overrides == original_overrides
+    followup_messages = messages + [
+        {"role": "assistant", "content": None, "reasoning_content": "fixture reasoning",
+            "tool_calls": [{"id": "call-1", "type": "function", "function": {
+                "name": "mcp__LUCID__get", "arguments": '{"path":"role"}'}}]},
+        {"role": "tool", "tool_call_id": "call-1", "content": "fixture role observed"},
+    ]
+    followup = build_api_kwargs(agent, followup_messages)
+    assert followup["extra_body"] == request["extra_body"]
+    assert followup["messages"] == followup_messages
+    assert followup["tools"] == request["tools"]
+    for field, value in [("model", "other-model"), ("_wire_model", "other-model"),
+        ("base_url", "https://provider.example/v1")]:
+        with monkeypatch.context() as context:
+            context.setattr(agent, field, value)
+            other = build_api_kwargs(agent, messages)
+            assert other["extra_body"]["chat_template_kwargs"] == template
+    for stage in ("classification", "semantic-preparation"):
+        preprocessing = penguin_request("Hi", "stage instruction", 1028, stage=stage)
+        assert preprocessing["chat_template_kwargs"] == {"enable_thinking": False}
+        assert preprocessing["tools"] == [] and preprocessing["tool_choice"] == "none"
+    clear_penguin_agent(agent)
+    assert build_api_kwargs(agent, messages) == baseline

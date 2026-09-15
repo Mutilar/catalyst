@@ -178,6 +178,55 @@ def test_offline_penguin_is_inline_refusal_not_reasoning(tmp_path, monkeypatch):
     execute.assert_not_called()
 
 
+@pytest.mark.parametrize("transport_phase", ["request", "response-headers", "response-body"])
+def test_penguin_timeout_retains_transport_evidence_without_retry_or_execution(tmp_path, monkeypatch, transport_phase):
+    connection = Mock()
+    response = connection.getresponse.return_value
+    response.status = 200
+    failure = {"request": connection.request, "response-headers": connection.getresponse,
+        "response-body": response.read}[transport_phase]
+
+    def time_out(*args, **kwargs):
+        assert connection in prompt_intent._ACTIVE[SUBMISSION][2]
+        raise TimeoutError("timed out")
+
+    failure.side_effect = time_out
+    transport = Mock(return_value=connection)
+    monkeypatch.setattr(prompt_intent.http.client, "HTTPConnection", transport)
+    execute = Mock(side_effect=AssertionError("timed out classification must not execute"))
+    monkeypatch.setattr(prompt_intent, "execute_direct", execute)
+    result = prompt_intent.admit_prompt("KX is KOLMOGOROV", SUBMISSION, "session", "/workspace", tmp_path)
+    assert "prepared_text" not in result
+    evidence = result["direct_operation"]
+    diagnostic = evidence["diagnostic"]
+    assert diagnostic["receipt"]["refusal"] == "penguin-inference-timeout"
+    assert diagnostic["receipt"]["execution_state"] == "not-started"
+    assert diagnostic["receipt"]["ran"] is False
+    assert diagnostic["classifier_response"] is None
+    assert diagnostic["classifier_selection"] is None
+    assert len(diagnostic["stages"]) == 1
+    stage = diagnostic["stages"][0]
+    assert stage["response"] is None
+    assert stage["transport"] == {
+        "timeout_ms": 30_000, "phase": transport_phase,
+        "http_status": 200 if transport_phase == "response-body" else None,
+        "inference_state": "unknown", "error": "TimeoutError",
+    }
+    projected = parse_stream(ROOT, evidence["source"].split("\n\n", 1)[0])
+    assert projected["evidence"] == ["PENGUIN INFERENCE TIMEOUT"]
+    assert "CLASSIFICATION" in projected["data"]
+    assert "30s transport timeout" in projected["data"]
+    assert "No complete response received" in projected["data"]
+    assert "Provider completion unknown" in projected["data"]
+    assert "Execution not started" in projected["data"]
+    assert transport.call_args.kwargs["timeout"] == 30
+    assert connection.request.call_count == 1
+    connection.close.assert_called_once()
+    execute.assert_not_called()
+    assert prompt_intent.admit_prompt("KX is KOLMOGOROV", SUBMISSION, "session", "/workspace", tmp_path) == result
+    transport.assert_called_once()
+
+
 def test_semantic_question_cannot_be_classified_into_execution(tmp_path, monkeypatch):
     monkeypatch.setattr(prompt_intent, "classify", Mock(return_value="🧠"))
     monkeypatch.setattr(prompt_intent, "format_semantic", Mock(return_value=gestalt("SEMANTIC", "Explain what git status means.")))
@@ -185,6 +234,28 @@ def test_semantic_question_cannot_be_classified_into_execution(tmp_path, monkeyp
     monkeypatch.setattr(prompt_intent, "execute_direct", execute)
     result = prompt_intent.admit_prompt("What does git status mean?", SUBMISSION, "session", "/workspace", tmp_path)
     assert "prepared_text" in result
+    execute.assert_not_called()
+
+
+@pytest.mark.parametrize("text", ["this is a test", "KX is KOLMOGOROV"])
+def test_valid_semantic_preparation_preserves_input_and_separates_notice_datums(tmp_path, monkeypatch, text):
+    response = canonical_stream(ROOT, SIGNAL_GREEN, without_identity=True, data=(text,))
+    monkeypatch.setattr(prompt_intent, "classify", Mock(return_value=glyph.IDENTITY_LUCID))
+    monkeypatch.setattr(prompt_intent, "format_semantic", Mock(return_value=response))
+    execute = Mock(side_effect=AssertionError("semantic preparation must not execute"))
+    monkeypatch.setattr(prompt_intent, "execute_direct", execute)
+    events = []
+    result = prompt_intent.admit_prompt(text, SUBMISSION, "session", "/workspace", tmp_path,
+        on_preparation=events.append)
+    assert result.get("prepared_text") == text, result
+    assert "direct_operation" not in result
+    prepared = result["preparation"]
+    assert prepared["diagnostic"]["transformed_input"] == response
+    assert prepared["diagnostic"]["semantic_admission"]["proposal_admitted"] is False
+    notice = parse_stream(ROOT, prepared["source"].split("\n\n", 1)[0])
+    assert notice["evidence"] == ["PROPOSAL ONLY"]
+    assert notice["data"] == ["Original input forwarded unchanged", "rewrite not admitted"]
+    assert events[-1] == prepared
     execute.assert_not_called()
 
 
@@ -279,7 +350,7 @@ def test_semantic_preparation_rejects_invented_active_lucid_verbs(verb, separato
     response = gestalt("SEMANTIC", "Greeting acknowledged") + separator + (
         f"{glyph.RELATION_ACTION} {glyph.IDENTITY_LUCID}{glyph.DELIMITER_SEGMENT}{glyph.RELATION_VERB} {verb}{glyph.DELIMITER_SEGMENT}{glyph.RELATION_NOUN} TASK{glyph.DELIMITER_SEGMENT}{glyph.RELATION_ARGUMENT} <SPECIFICATION>{glyph.DELIMITER_SEGMENT}{glyph.RELATION_EVIDENCE} Request"
     )
-    with pytest.raises(ValueError, match="penguin-unsupported-lucid-verb"):
+    with pytest.raises(ValueError, match="GESTALT verb is not canonical"):
         prompt_intent.decode_preparation("Hi", response, ROOT)
 
 
@@ -292,7 +363,8 @@ def test_quoted_invalid_protocol_example_stays_non_executable_content():
 
 
 def test_fabricated_greeting_reply_is_not_admitted_as_user_input(tmp_path, monkeypatch):
-    response = gestalt("SEMANTIC", "Greeting acknowledged; system ready for execution")
+    response = canonical_stream(ROOT, SIGNAL_GREEN,
+        data=("Greeting acknowledged", "system ready for execution"))
     monkeypatch.setattr(prompt_intent, "classify", Mock(return_value="🧠"))
     monkeypatch.setattr(prompt_intent, "format_semantic", Mock(return_value=response))
     execute = Mock()
@@ -328,7 +400,7 @@ def test_reported_greeting_failure_retains_actual_prompt_and_raw_response(tmp_pa
     result = prompt_intent.admit_prompt("Hi", SUBMISSION, "session", "/workspace", tmp_path)
     assert "prepared_text" not in result
     diagnostic = result["direct_operation"]["diagnostic"]
-    assert diagnostic["receipt"]["refusal"] == "penguin-unsupported-lucid-verb"
+    assert diagnostic["receipt"]["refusal"] == "GESTALT verb is not canonical"
     assert diagnostic["stages"][-1]["response"] == response
     actual = json.loads(connection.request.call_args.args[2])
     assert diagnostic["stages"][-1]["request_messages"] == actual["messages"]
@@ -405,7 +477,10 @@ def test_canonical_quoted_continuations_round_trip_without_promoting_literal_act
     assert parsed["intents"] == [intent, "try"]
     assert parsed["cli"] == [command, "git status"]
     assert parsed["actions"] == []
-    assert parsed["continuations"] == []
+    assert parsed["continuations"] == [
+        {"kind": "intent", "value": intent}, {"kind": "intent", "value": "try"},
+        {"kind": "cli", "value": command}, {"kind": "cli", "value": "git status"},
+    ]
     for malformed in ['"unclosed', '`unclosed', '"nested " quote"', '"try" unsegmented', '""', '`\x00`']:
         with pytest.raises(ValueError):
             parse_stream(ROOT, glyph.DELIMITER_SEGMENT.join((SIGNAL_GREEN, f"{glyph.RELATION_ACTION} {malformed}")))
@@ -1199,8 +1274,8 @@ def test_bare_canonical_verbs_share_lucid_classification_and_admission(text, ver
 
 @pytest.mark.parametrize("text,argv,formatted", [
     ("SHOW PULSE", ["PULSE"], f'{glyph.RELATION_ACTION} {glyph.IDENTITY_LUCID}{glyph.DELIMITER_SEGMENT}{glyph.RELATION_VERB} SHOW{glyph.DELIMITER_SEGMENT}{glyph.RELATION_NOUN} PULSE{glyph.DELIMITER_SEGMENT}{glyph.RELATION_EVIDENCE} Show pulse'),
-    ('SHOW URL "https://example.com/"', ["URL", "https://example.com/"], f'{glyph.RELATION_ACTION} {glyph.IDENTITY_LUCID}{glyph.DELIMITER_SEGMENT}{glyph.RELATION_VERB} SHOW{glyph.DELIMITER_SEGMENT}{glyph.RELATION_NOUN} URL{glyph.DELIMITER_SEGMENT}{glyph.RELATION_ARGUMENT} "https://example.com/"{glyph.DELIMITER_SEGMENT}{glyph.RELATION_EVIDENCE} Open URL'),
-    ('SHOW APP "macos-shell"', ["APP", "macos-shell"], f'{glyph.RELATION_ACTION} {glyph.IDENTITY_LUCID}{glyph.DELIMITER_SEGMENT}{glyph.RELATION_VERB} SHOW{glyph.DELIMITER_SEGMENT}{glyph.RELATION_NOUN} APP{glyph.DELIMITER_SEGMENT}{glyph.RELATION_ARGUMENT} "macos-shell"{glyph.DELIMITER_SEGMENT}{glyph.RELATION_EVIDENCE} Open macOS Shell'),
+    ('SHOW URL "https://example.com/"', ["URL", "https://example.com/"], f'{glyph.RELATION_ACTION} {glyph.IDENTITY_LUCID}{glyph.DELIMITER_SEGMENT}{glyph.RELATION_VERB} SHOW{glyph.DELIMITER_SEGMENT}{glyph.RELATION_NOUN} URL{glyph.DELIMITER_SEGMENT}{glyph.RELATION_ARGUMENT} `https://example.com/`{glyph.DELIMITER_SEGMENT}{glyph.RELATION_EVIDENCE} Open URL'),
+    ('SHOW APP "macos-shell"', ["APP", "macos-shell"], f'{glyph.RELATION_ACTION} {glyph.IDENTITY_LUCID}{glyph.DELIMITER_SEGMENT}{glyph.RELATION_VERB} SHOW{glyph.DELIMITER_SEGMENT}{glyph.RELATION_NOUN} APP{glyph.DELIMITER_SEGMENT}{glyph.RELATION_ARGUMENT} `macos-shell`{glyph.DELIMITER_SEGMENT}{glyph.RELATION_EVIDENCE} Open macOS Shell'),
 ])
 def test_lucid_second_pass_preserves_skill_coordinates(tmp_path, monkeypatch, text, argv, formatted):
     monkeypatch.setattr(prompt_intent, "classify", Mock(return_value="🖼️"))
