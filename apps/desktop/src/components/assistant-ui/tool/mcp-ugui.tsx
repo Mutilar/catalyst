@@ -20,8 +20,8 @@ import { CompactMarkdown } from '@/components/chat/compact-markdown'
 import { ExpandableBlock } from '@/components/chat/expandable-block'
 import { SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
 import { CopyButton, type CopyButtonProps } from '@/components/ui/copy-button'
-import { useI18n } from '@/i18n'
 import { invokeUguiAction } from '@/hermes'
+import { useI18n } from '@/i18n'
 import { DELIMITER_SEGMENT, SIGNAL_GREEN, SIGNAL_PENDING, SIGNAL_RED, SIGNAL_WARNING } from '@/lib/ae-glyphs'
 import { codiconForLanguage } from '@/lib/markdown-code'
 import { resolveUguiMediaReference } from '@/lib/media'
@@ -512,6 +512,7 @@ function UguiSectionImpl({ value, presentationOnly = false }: { value: unknown; 
 
   if (type === 'app_reference') {
     if (presentationOnly) {return <CompactMarkdown text={text(section.source)} />}
+
     return <UgUiResidentAppReference value={section} />
   }
 
@@ -720,8 +721,10 @@ export function McpUguiDocument({ document, presentationOnly = false, onContinua
 
     if (presentationOnly) {
       if (executable && projected.conversationText) {onContinuation?.(projected.conversationText)}
+
       return
     }
+
     if (!executable) {return}
 
     const inputValue = projected.input ? (actionInputs[actionId] ?? '').trim() : ''
@@ -788,6 +791,7 @@ export function McpUguiDocument({ document, presentationOnly = false, onContinua
       const action = record(value) ?? {}
       const prompt = typeof action.value === 'string' ? action.value : ''
       const label = text(action.label)
+
       return {
         id: text(action.id), label, conversationText: prompt,
         executable: action.disabled !== true && Boolean(prompt && label && onContinuation),

@@ -94,6 +94,7 @@ const witnessDirectEnvironment = {
   AE_WITNESS_DIRECT_ENDPOINT: process.env.AE_WITNESS_DIRECT_ENDPOINT,
   AE_WITNESS_DIRECT_TOKEN: process.env.AE_WITNESS_DIRECT_TOKEN
 }
+
 delete process.env.AE_WITNESS_DIRECT_ENDPOINT
 delete process.env.AE_WITNESS_DIRECT_TOKEN
 

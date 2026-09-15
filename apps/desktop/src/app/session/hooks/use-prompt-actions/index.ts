@@ -563,8 +563,10 @@ export function usePromptActions({
     const sessionId = activeSessionIdRef.current
 
     const submissionId = sessionId ? _activeIntentSubmissions.get(sessionId) : undefined
+
     if (sessionId && submissionId) {
       await requestGateway('prompt.cancel', { session_id: sessionId, submission_id: submissionId })
+
       return
     }
 

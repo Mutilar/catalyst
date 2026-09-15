@@ -75,6 +75,7 @@ export async function resolveUguiMediaReference(src: string): Promise<string> {
     path: `/api/artifacts/screen/${encodeURIComponent(match[1])}`,
     profile: $connection.get()?.profile
   })
+
   const dataUrl = result.dataUrl || ''
 
   if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(dataUrl)) {

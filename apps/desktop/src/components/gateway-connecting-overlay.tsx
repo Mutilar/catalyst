@@ -203,10 +203,12 @@ export function GatewayConnectingOverlay() {
 
     if (!(previewing ? previewReady : ready)) {
       setPhase('punctuation')
+
       return
     }
 
     const timer = window.setTimeout(() => setPhase(identity ? 'identity' : 'fade'), COMMA_HOLD_MS)
+
     return () => window.clearTimeout(timer)
   }, [phase, visible, identity, ready, previewing, previewReady])
 
@@ -230,6 +232,7 @@ export function GatewayConnectingOverlay() {
       }
 
       const context = document.createElement('canvas').getContext('2d')
+
       if (context && marker.current) {
         const font = getComputedStyle(element)
         context.font = `${font.fontWeight} ${font.fontSize} ${font.fontFamily}`
@@ -241,10 +244,12 @@ export function GatewayConnectingOverlay() {
     }
 
     fit()
+
     const entrance = reduce ? undefined : element.animate?.([{ opacity: 0 }, { opacity: 1 }], {
       duration: IDENTITY_IN_MS,
       easing: 'ease-out'
     })
+
     window.addEventListener('resize', fit)
     const timer = window.setTimeout(() => setPhase(reduce ? 'fade' : 'zoom'), (reduce ? 0 : IDENTITY_IN_MS) + REVEAL_MS)
 
@@ -261,10 +266,13 @@ export function GatewayConnectingOverlay() {
     }
 
     const start = marker.current.getBoundingClientRect()
+
     if (start.width <= 0) {
       setPhase('fade')
+
       return
     }
+
     const image = zoomImage.current
     const scene = camera.current
     const anchorX = start.left + start.width * identity.region.x
@@ -289,6 +297,7 @@ export function GatewayConnectingOverlay() {
     }
 
     draw(0)
+
     const paint = (now: number) => {
       first ??= now
       const elapsed = now - first

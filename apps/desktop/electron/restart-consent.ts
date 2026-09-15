@@ -92,6 +92,7 @@ export function decideCatalystRestart(
   const directory = path.join(stateRoot(repoRoot), 'catalyst-restart-decisions')
   const target = path.join(directory, `${digest}.json`)
   const temporary = `${target}.tmp-${process.pid}-${Date.now()}`
+
   const decision = {
     schema: RESTART_DECISION_SCHEMA,
     child_id: 'catalyst',
@@ -100,6 +101,7 @@ export function decideCatalystRestart(
     action: request.action,
     decided_epoch_ms: Date.now()
   }
+
   const bytes = Buffer.from(JSON.stringify(decision), 'utf8')
 
   if (bytes.byteLength > MAX_STATE_BYTES) {

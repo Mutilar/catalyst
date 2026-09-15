@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { canonicalGestaltStream } from './lucid-gestalt'
 import { SIGNAL_GREEN, SIGNAL_WARNING } from '@/lib/ae-glyphs'
 
+import { canonicalGestaltStream } from './lucid-gestalt'
 import {
   extractMcpGestalt,
   extractMcpUguiDocument,
@@ -156,12 +156,14 @@ describe('Gestalt extraction', () => {
 
   it('refuses prose and noncanonical multiline payloads', () => {
     expect(extractMcpGestalt({ content: [{ type: 'text', text: 'ordinary prose' }] })).toBeNull()
+
     const oversized = `${canonicalGestaltStream({
       signal: SIGNAL_GREEN,
       verb: 'get',
       noun: 'logs',
       argument: 'fresh'
     })}\n${'x'.repeat(2_048)}`
+
     expect(extractMcpGestalt(oversized)).toBeNull()
   })
 

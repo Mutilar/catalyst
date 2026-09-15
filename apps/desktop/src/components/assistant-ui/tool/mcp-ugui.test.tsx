@@ -1,10 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { McpUguiDocument as Document } from '@/lib/tool-presentation'
 import { SIGNAL_GREEN } from '@/lib/ae-glyphs'
-import { canonicalGestaltStream } from '../../../lib/lucid-gestalt'
+import type { McpUguiDocument as Document } from '@/lib/tool-presentation'
 import { $pendingModeApply, $pendingSkinApply, __resetBackendSkinSync } from '@/themes/backend-sync'
+
+import { canonicalGestaltStream } from '../../../lib/lucid-gestalt'
 
 import { McpUguiDocument, projectUguiAction, residentUguiActionId } from './mcp-ugui'
 
@@ -45,16 +46,20 @@ const document: Document = {
 describe('McpUguiDocument', () => {
   it('admits exact noun discovery and refuses disguised execution', () => {
     const provenance = `sha256:${'a'.repeat(64)}`
+
     const action = {
       id: 'discover-role', label: 'Choose role syntax', action: 'lucid.help.noun', value: 'role',
       intent: { verb: 'set', arguments: { help: 'role' } }
     }
+
     const value = {
       ...document, provenance: { parentHash: provenance }, actions: [action],
       receipt: { action_provenance: [{ id: action.id, state: 'AVAILABLE', provenance_hash: provenance }] }
     } satisfies Document
+
     expect(projectUguiAction(value, action, 0).executable).toBe(true)
     expect(projectUguiAction(value, action, 0).requiresConfirmation).toBe(false)
+
     for (const args of [{ path: 'role' }, { help: 'role', value: 'EM' }, { help: 'other' }]) {
       expect(projectUguiAction(value, { ...action, intent: { verb: 'set', arguments: args } }, 0).executable).toBe(false)
     }
@@ -62,14 +67,17 @@ describe('McpUguiDocument', () => {
 
   it('admits provenance-bound SET help without granting a mutation', () => {
     const provenance = `sha256:${'a'.repeat(64)}`
+
     const action = {
       id: 'onboarding-signin', label: 'Sign in', action: 'lucid.help.verb', value: 'set',
       intent: { verb: 'set', arguments: {} }
     }
+
     const value = {
       ...document, provenance: { parentHash: provenance }, actions: [action],
       receipt: { action_provenance: [{ id: action.id, state: 'AVAILABLE', provenance_hash: provenance }] }
     } satisfies Document
+
     expect(projectUguiAction(value, action, 0).executable).toBe(true)
     expect(projectUguiAction(value, action, 0).requiresConfirmation).toBe(false)
     expect(projectUguiAction(value, {
@@ -126,6 +134,7 @@ describe('McpUguiDocument', () => {
 
   it('resolves a projected screen reference into a true accessible image', async () => {
     mocks.resolveUguiMediaReference.mockResolvedValue('data:image/png;base64,iVBORw0KGgo=')
+
     const mediaDocument = {
       ...document,
       sections: [
@@ -220,6 +229,7 @@ describe('McpUguiDocument', () => {
 
   it('renders universal current-verb Help in the header and invokes it once', async () => {
     const provenance = `sha256:${'a'.repeat(64)}`
+
     const help = {
       id: 'lucid.response.help',
       label: 'Help',
@@ -227,6 +237,7 @@ describe('McpUguiDocument', () => {
       value: 'get',
       intent: { verb: 'get', arguments: {} }
     }
+
     const value = {
       ...document,
       verb: 'get',
@@ -236,6 +247,7 @@ describe('McpUguiDocument', () => {
       },
       actions: [help]
     } satisfies Document
+
     mocks.invokeUguiAction.mockResolvedValue({ ok: true, result: {} })
 
     render(<McpUguiDocument document={value} />)
@@ -323,6 +335,7 @@ describe('McpUguiDocument', () => {
         }
       ]
     } satisfies Document
+
     mocks.invokeUguiAction.mockResolvedValue({
       ok: true,
       result: {
@@ -374,6 +387,7 @@ describe('McpUguiDocument', () => {
         }
       ]
     } satisfies Document
+
     mocks.invokeUguiAction.mockResolvedValue({
       ok: true,
       result: {
@@ -396,6 +410,7 @@ describe('McpUguiDocument', () => {
 
   it('refuses false completion when an action returns no replacement UGUI', async () => {
     const provenance = `sha256:${'a'.repeat(64)}`
+
     const action = {
       id: 'lucid.response.inspect',
       label: 'Refresh',
@@ -403,6 +418,7 @@ describe('McpUguiDocument', () => {
       value: 'gates',
       intent: { verb: 'get', arguments: { path: 'gates' } }
     }
+
     const actionable = {
       ...document,
       provenance: { parentHash: provenance },
@@ -411,6 +427,7 @@ describe('McpUguiDocument', () => {
       },
       actions: [action]
     } satisfies Document
+
     mocks.invokeUguiAction.mockResolvedValue({ ok: true, result: {} })
 
     render(<McpUguiDocument document={actionable} />)
@@ -422,6 +439,7 @@ describe('McpUguiDocument', () => {
 
   it('submits one bounded STEER input after exact confirmation', async () => {
     const dispatchId = `dispatch:${'b'.repeat(64)}`
+
     const steerable = {
       ...document,
       provenance: { parentHash: `sha256:${'a'.repeat(64)}` },
@@ -457,6 +475,7 @@ describe('McpUguiDocument', () => {
         }
       ]
     } satisfies Document
+
     mocks.invokeUguiAction.mockResolvedValue({
       ok: true,
       result: {
@@ -488,6 +507,7 @@ describe('McpUguiDocument', () => {
   it('adopts subsequent action documents as a multi-step CYOA branch', async () => {
     const provenance = `sha256:${'a'.repeat(64)}`
     const nextProvenance = `sha256:${'c'.repeat(64)}`
+
     const choice = {
       id: 'lucid.response.morph.choice.0',
       label: 'One-pager',
@@ -498,6 +518,7 @@ describe('McpUguiDocument', () => {
         arguments: { codebook: 'one-pager', operation: 'shard' }
       }
     }
+
     const choose = {
       ...document,
       provenance: { parentHash: provenance },
@@ -506,6 +527,7 @@ describe('McpUguiDocument', () => {
       },
       actions: [choice]
     } satisfies Document
+
     const inspect = {
       id: 'lucid.gestalt.action.0',
       label: 'Inspect quality',
@@ -513,6 +535,7 @@ describe('McpUguiDocument', () => {
       value: nextProvenance,
       intent: { verb: 'get', arguments: { path: 'gates' } }
     }
+
     const choices = {
       ...document,
       header: [{ id: 'title', type: 'text', body: 'One-pager choices' }],
@@ -522,11 +545,13 @@ describe('McpUguiDocument', () => {
       },
       actions: [inspect]
     } satisfies Document
+
     const quality = {
       ...document,
       header: [{ id: 'title', type: 'text', body: 'Quality gates' }],
       actions: []
     } satisfies Document
+
     mocks.invokeUguiAction
       .mockResolvedValueOnce({
         ok: true,
@@ -581,6 +606,7 @@ describe('McpUguiDocument', () => {
       value: 'fleet',
       intent: { verb: 'get', arguments: { path: 'fleet' } }
     }
+
     const value = {
       ...document,
       provenance: { parentHash: `sha256:${'a'.repeat(64)}` },
@@ -606,6 +632,7 @@ describe('McpUguiDocument', () => {
       action: 'lucid.set.restore',
       intent: { verb: 'set', arguments: { path: 'setting', value: 'prior' } }
     }
+
     const value = {
       ...document,
       provenance: { parentHash: `sha256:${'a'.repeat(64)}` },
@@ -641,6 +668,7 @@ describe('McpUguiDocument', () => {
       { ...action, requiresConfirmation: 'exact' },
       0
     )
+
     expect(stale.executable).toBe(false)
     expect(stale.reason).toContain('unavailable')
   })

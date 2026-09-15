@@ -20,6 +20,7 @@ vi.mock('@/lib/ugui-engine', async importOriginal => ({
 vi.mock('@/hermes', () => ({ invokeUguiAction: mocks.invoke }))
 
 type Paragraph = ConversationProjection['documents'][number]
+
 function document(body: string, source = body): Paragraph {
   return {
     schema: 'lucid-ugui-response/1', id: 'paragraph', type: 'lucid',
@@ -28,14 +29,18 @@ function document(body: string, source = body): Paragraph {
     source, revision: `${body}:${source}`, streamState: 'complete'
   }
 }
+
 function snapshot(...documents: Paragraph[]): ConversationProjection {
   return { schema: 'ugui-conversation-text/1', source: documents.map(item => item.source).join(''), documents }
 }
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>(done => {resolve = done})
+
   return { promise, resolve }
 }
+
 afterEach(() => {
   cleanup()
   mocks.project.mockReset()
@@ -52,9 +57,11 @@ describe('assistant canonical UGUI boundary', () => {
       action: 'conversation.submit', disabled: false }]
     mocks.project.mockResolvedValue(snapshot(value))
     const recover = vi.fn()
+
     const source = [canonicalGestaltStream({ signal: SIGNAL_RED, service: IDENTITY_PENGUIN, evidence: ['REFUSED'] }),
       `${RELATION_ACTION} ${JSON.stringify('Retry')}`].join(DELIMITER_SEGMENT)
-    render(<UguiTextContent isRunning={false} text={source} onContinuation={recover} />)
+
+    render(<UguiTextContent isRunning={false} onContinuation={recover} text={source} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Retry' }))
     expect(mocks.project).toHaveBeenCalledWith(source, false)
     expect(recover).toHaveBeenCalledWith('Retry')
@@ -83,10 +90,12 @@ describe('assistant canonical UGUI boundary', () => {
 
   it('uses exactly the same frame and section styling as a tool result', () => {
     const value = document('Shared semantics')
+
     const { container } = render(<>
       <McpUguiDocument document={value} />
       <McpUguiDocument document={value} presentationOnly />
     </>)
+
     const frames = container.querySelectorAll('[data-mcp-ugui]')
     expect(frames).toHaveLength(2)
     expect(frames[0].className).toBe(frames[1].className)
@@ -134,11 +143,12 @@ describe('assistant canonical UGUI boundary', () => {
     const projected = document('Prepared visual content', 'GESTALT')
     projected.actions = [{ id: 'choice', type: 'button', label: 'Inspect', value: 'Inspect', action: 'conversation.submit' }]
     mocks.project.mockResolvedValue(snapshot(projected))
-    render(<UguiTextContent isRunning={false} text="GESTALT" copyText={record} allowContinuations={false} />)
+    render(<UguiTextContent allowContinuations={false} copyText={record} isRunning={false} text="GESTALT" />)
     await screen.findByText('Prepared visual content')
     fireEvent.click(screen.getByRole('button', { name: 'Copy output' }))
     await waitFor(() => expect(copy).toHaveBeenCalledWith(record))
     const action = screen.queryByRole('button', { name: 'Inspect' })
+
     if (action) {fireEvent.click(action)}
     expect(mocks.submit).not.toHaveBeenCalled()
     expect(mocks.invoke).not.toHaveBeenCalled()

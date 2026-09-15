@@ -151,6 +151,7 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
         && !(await prepareSessionForPrompt(visibleText))) {
         return false
       }
+
       const interrupted = takeVoicePlaybackInterrupted()
 
       // Queue drains carry their source session explicitly. A background drain
@@ -227,6 +228,7 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
         for (const [runtimeId, activeSubmission] of _activeIntentSubmissions) {
           if (activeSubmission === submissionId) {_activeIntentSubmissions.delete(runtimeId)}
         }
+
         if (!submitLockReleased) {
           submitLockReleased = true
           _submitInFlight.delete(submitLockKey)
@@ -515,6 +517,7 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
           ...(options?.penguinRecovery && { penguin_recovery: options.penguinRecovery }),
           ...(interrupted && { interrupted })
         })
+
         _activeIntentSubmissions.set(sessionId, submissionId)
 
         // On sleep/wake the gateway's in-memory session may have been cleared
@@ -557,6 +560,7 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
 
             if (recoveredId) {
               _activeIntentSubmissions.set(recoveredId, submissionId)
+
               if (targetIsCurrentView()) {
                 activeSessionIdRef.current = recoveredId
               }
@@ -582,6 +586,7 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
         }
 
         const directOperation = intentResponse?.direct_operation
+
         if (directOperation) {
           const agentRunning = Boolean(intentResponse?.agent_running)
           updateSessionState(sessionId, state => ({
@@ -594,11 +599,13 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
             awaitingResponse: agentRunning
           }), targetStoredSessionId)
           releaseSubmitLock()
+
           if (targetIsCurrentView()) {
             setMutableRef(busyRef, agentRunning)
             scope.setBusy(agentRunning)
             scope.setAwaitingResponse(agentRunning)
           }
+
           return true
         }
 

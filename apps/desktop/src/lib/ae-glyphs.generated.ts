@@ -11,7 +11,8 @@ export function glyph(role: GlyphRole): string {
 
 export function glyphText(template: string): string {
   return template.replace(MARKER, (_match, role: string) => {
-    if (!(role in TOKENS)) throw new Error(`unknown GLYPH role: ${role}`)
+    if (!(role in TOKENS)) {throw new Error(`unknown GLYPH role: ${role}`)}
+
     return glyph(role as GlyphRole)
   })
 }

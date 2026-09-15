@@ -1,5 +1,5 @@
-import type { McpServerSummary } from '@/types/hermes'
 import { SIGNAL_GREEN, SIGNAL_PENDING, SIGNAL_RED, SIGNAL_WARNING } from '@/lib/ae-glyphs'
+import type { McpServerSummary } from '@/types/hermes'
 
 import { canonicalGestaltStream } from './lucid-gestalt'
 
@@ -30,10 +30,12 @@ export function lucidMcpGestalt(status: LucidMcpStatus): string {
     red: 'failed',
     warning: 'degraded'
   }[status.signal]
+
   const error = status.error
     ?.replace(/[\r\n\0]+/g, ' ')
     .trim()
     .slice(0, 512)
+
   return canonicalGestaltStream({
     signal: status.glyph,
     verb: 'show',

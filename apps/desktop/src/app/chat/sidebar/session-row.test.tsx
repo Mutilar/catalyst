@@ -217,6 +217,7 @@ describe('SidebarSessionRow', () => {
     const stem = [...container.querySelectorAll('span')].find(
       el => el.textContent === '└─ ' && el.children.length === 0
     )
+
     expect(stem).toBeTruthy()
 
     // The trailing space in the stem is what separates it from the dot; a

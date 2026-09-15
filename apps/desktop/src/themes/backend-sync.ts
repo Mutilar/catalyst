@@ -61,37 +61,50 @@ export function ingestLucidHostAppearance(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return false
   }
+
   const effect = value as LucidHostAppearance
+
   if (effect.schema !== 'lucid-host-appearance/1' || effect.apply !== true) {
     return false
   }
+
   const mode = effect.mode
   const skin = typeof effect.skin === 'string' ? effect.skin.trim() : ''
+
   if (mode !== undefined && mode !== 'light' && mode !== 'dark' && mode !== 'system') {
     return false
   }
+
   if (skin && !/^[a-z0-9][a-z0-9-]{0,63}$/.test(skin)) {
     return false
   }
+
   if (!mode && !skin) {
     return false
   }
+
   if (skin && effect.binding !== undefined) {
     if (!isUgUiSkinBinding(effect.binding)) {
       return false
     }
+
     const theme = uguiBindingToDesktopTheme(skin, effect.skin_name?.trim() || skin, effect.binding)
+
     if (!theme) {
       return false
     }
+
     $backendThemes.set({ ...$backendThemes.get(), [skin]: theme })
   }
+
   if (mode) {
     $pendingModeApply.set(mode)
   }
+
   if (skin) {
     $pendingSkinApply.set(skin)
   }
+
   return true
 }
 

@@ -1,4 +1,5 @@
 import { parseGestaltStream } from '../../shared/src/lucid-gestalt.js'
+
 import { SIGNAL_WARNING } from './ae-glyphs.generated.js'
 
 const SEMANTIC_OBSERVATION_PREFIXES = ['CATALYST_TOOL_OBSERVATION ', 'PENGUIN_TEACHING_EVENT '] as const
@@ -10,6 +11,7 @@ export type SemanticObservationWriter = (line: string) => void
 function isEffigyWarning(line: string): boolean {
   try {
     const stream = parseGestaltStream(line)
+
     return stream.signal === SIGNAL_WARNING && stream.evidence.length > 0
   } catch {
     return false
@@ -21,21 +23,26 @@ export function createSemanticObservationForwarder(write: SemanticObservationWri
 
   return (chunk: string | Buffer) => {
     pending += String(chunk)
+
     if (Buffer.byteLength(pending, 'utf8') > MAX_SEMANTIC_OBSERVATION_BYTES * 2) {
       pending = ''
+
       return
     }
 
     let newline = pending.indexOf('\n')
+
     while (newline >= 0) {
       const line = pending.slice(0, newline).replace(/\r$/, '')
       pending = pending.slice(newline + 1)
+
       if (
         Buffer.byteLength(line, 'utf8') <= MAX_SEMANTIC_OBSERVATION_BYTES &&
         (SEMANTIC_OBSERVATION_PREFIXES.some(prefix => line.startsWith(prefix)) || isEffigyWarning(line))
       ) {
         write(`${line}\n`)
       }
+
       newline = pending.indexOf('\n')
     }
   }

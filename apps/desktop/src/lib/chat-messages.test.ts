@@ -13,8 +13,8 @@ import {
   toChatMessages,
   upsertToolPart
 } from './chat-messages'
-import { MODEL_VISIBLE_TOOL_RESULT_KEY } from './tool-presentation'
 import { canonicalGestaltStream } from './lucid-gestalt'
+import { MODEL_VISIBLE_TOOL_RESULT_KEY } from './tool-presentation'
 
 describe('toChatMessages', () => {
   it('keeps a turn with interleaved tool-only rows in a single bubble', () => {

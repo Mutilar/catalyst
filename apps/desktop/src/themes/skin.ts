@@ -20,6 +20,7 @@ import type { DesktopTheme, DesktopThemeColors, UgUiSkinBinding } from './types'
 // The accent labels the sidebar in small uppercase text, so it must clear WCAG AA
 // for normal text or section headers go invisible — mirrors the VS Code importer.
 const ACCENT_MIN_CONTRAST = 4.5
+
 const UGUI_STYLE_SLOTS = [
   'palette',
   'typography',
@@ -35,11 +36,14 @@ export function isUgUiSkinBinding(value: unknown): value is UgUiSkinBinding {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return false
   }
+
   const binding = value as Record<string, unknown>
+
   if (
     Object.keys(binding).length !== UGUI_STYLE_SLOTS.length ||
     !UGUI_STYLE_SLOTS.every(slot => {
       const tokens = binding[slot]
+
       return (
         !!tokens &&
         typeof tokens === 'object' &&
@@ -51,31 +55,39 @@ export function isUgUiSkinBinding(value: unknown): value is UgUiSkinBinding {
   ) {
     return false
   }
+
   return true
 }
 
 const safeCssColor = (value: string | undefined, fallback: string): string => {
   const candidate = value?.trim() ?? ''
+
   return /^(?:#[0-9a-f]{3,8}|rgba?\([0-9.,%\s]+\))$/i.test(candidate) ? candidate : fallback
 }
 
 const flatCssColor = (value: string, backdrop: string): string => {
   const normalized = normalizeHex(value, backdrop)
+
   if (normalized) {
     return normalized
   }
+
   const match = value.match(
     /^rgba?\(\s*([0-9.]+)[,\s]+([0-9.]+)[,\s]+([0-9.]+)(?:\s*[,/]\s*([0-9.]+)(%)?)?\s*\)$/i
   )
+
   if (!match) {
     return backdrop
   }
+
   const rgb = rgbToHex([
     Math.min(255, Number(match[1])),
     Math.min(255, Number(match[2])),
     Math.min(255, Number(match[3]))
   ])
+
   const alpha = match[4] === undefined ? 1 : Math.min(1, Number(match[4]) / (match[5] ? 100 : 1))
+
   return mix(backdrop, rgb, alpha)
 }
 
@@ -195,6 +207,7 @@ export function uguiBindingToDesktopTheme(id: string, label: string, binding: Ug
   const destructive = safeCssColor(palette.danger, '#c42b1c')
   const disabled = safeCssColor(palette.disabled, mix(foregroundFlat, surfaceFlat, 0.55))
   const dark = luminance(surfaceFlat) < 0.4
+
   const colors: DesktopThemeColors = {
     background: surface,
     foreground,
@@ -223,6 +236,7 @@ export function uguiBindingToDesktopTheme(id: string, label: string, binding: Ug
     userBubble: mix(surfaceFlat, accentFlat, dark ? 0.2 : 0.12),
     userBubbleBorder: border
   }
+
   const family = binding.typography['family-stack']
 
   return {

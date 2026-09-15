@@ -216,11 +216,13 @@ describe('WITNESS splash choreography', () => {
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
   async function tick(ms: number) { await act(async () => { await vi.advanceTimersByTimeAsync(ms) }) }
+
   function visiblePunctuation() {
     return Array.from(screen.getByLabelText('Connecting').querySelectorAll('span > span'))
       .filter(mark => (mark as HTMLElement).style.opacity === '1')
       .map(mark => mark.textContent).join('')
   }
+
   async function punctuation() {
     for (const text of ['.', '..', '...', '.', '..', '...']) {
       expect(visiblePunctuation()).toBe(text)
@@ -314,9 +316,11 @@ describe('WITNESS splash choreography', () => {
 
   it('zooms geometrically from the measured period into an opaque square covering desktop and mobile', () => {
     const pixels = new Uint8ClampedArray(16 * 16 * 4)
-    for (let row = 4; row < 14; row++) for (let column = 3; column < 13; column++) pixels[(row * 16 + column) * 4 + 3] = 255
+
+    for (let row = 4; row < 14; row++) {for (let column = 3; column < 13; column++) {pixels[(row * 16 + column) * 4 + 3] = 255}}
     const region = opaqueRegion(pixels, 16)
     const start = { left: 200, top: 100, width: 8 }
+
     for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
       expect(zoomFrame(start, viewport, region, 0)).toEqual(start)
       const end = zoomFrame(start, viewport, region, 1)
@@ -331,6 +335,7 @@ describe('WITNESS splash choreography', () => {
       expect(end.left + end.width * (region.x + region.size / 2)).toBeGreaterThanOrEqual(viewport.width - 0.001)
       expect(end.top + end.width * (region.y + region.size / 2)).toBeGreaterThanOrEqual(viewport.height - 0.001)
     }
+
     expect(() => opaqueRegion(new Uint8ClampedArray(16 * 16 * 4), 16)).toThrow('no opaque zoom target')
   })
 })
