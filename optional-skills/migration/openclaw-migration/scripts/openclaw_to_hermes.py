@@ -3049,7 +3049,7 @@ def main() -> int:
     print(f"  ║  Source:  {str(report['source_root'])[:42]:<42s}  ║")
     print(f"  ║  Target:  {str(report['target_root'])[:42]:<42s}  ║")
     print("  ╠══════════════════════════════════════════════════════╣")
-    print(f"  ║  ✔ Migrated:  {s.get('migrated', 0):>3d}    ◆ Archived:  {s.get('archived', 0):>3d}        ║")
+    print(f"  ║  ✔ Migrated:  {s.get('migrated', 0):>3d}    - Archived:  {s.get('archived', 0):>3d}        ║")
     print(f"  ║  ⊘ Skipped:   {s.get('skipped', 0):>3d}    ⚠ Conflicts: {s.get('conflict', 0):>3d}        ║")
     print(f"  ║  ✖ Errors:    {s.get('error', 0):>3d}    Total:       {total:>3d}        ║")
     print("  ╚══════════════════════════════════════════════════════╝")
@@ -3087,7 +3087,7 @@ def main() -> int:
             meta = MIGRATION_OPTION_METADATA.get(label, {})
             display = meta.get("label", label)
             short_reason = reason[:50] + "..." if len(reason) > 50 else reason
-            print(f"    ◆ {display:<35s}  {short_reason}")
+            print(f"    - {display:<35s}  {short_reason}")
 
     # Show conflicts
     conflicts = [i for i in items if i["status"] == "conflict"]

@@ -4,6 +4,7 @@ import { IDENTITY_RUN, SIGNAL_GREEN, SIGNAL_PENDING, SIGNAL_RED, SIGNAL_WARNING 
 import type { McpServerSummary } from '@/types/hermes'
 
 import gestaltContract from '../../../../../envelope/GESTALT.json'
+import glyphRegistry from '../../../../../quine/canon/GLYPH.json'
 import conformanceData from '../../../../../quine/tests/fixtures/gestalt-conformance.json'
 
 import { canonicalGestaltStream, type GestaltSemanticStream, parseGestaltStream } from './lucid-gestalt'
@@ -160,6 +161,21 @@ function conformanceFields(stream: GestaltSemanticStream) {
 }
 
 describe('shared Rust/JS/Python GESTALT conformance', () => {
+  it.each(Object.keys(glyphRegistry.bindings.retired_tokens))('rejects retired service marker %s', retired => {
+    const separator = gestaltContract.segments.separator
+    const action = gestaltContract.segments.glyphs.action
+
+    expect(() => parseGestaltStream([SIGNAL_GREEN, retired].join(separator))).toThrow()
+    expect(() => parseGestaltStream([SIGNAL_GREEN, `${action} ${retired}`].join(separator))).toThrow()
+    expect(() => canonicalGestaltStream({ signal: SIGNAL_GREEN, service: retired })).toThrow()
+    expect(() => canonicalGestaltStream({ signal: SIGNAL_GREEN, continuations: [retired] })).toThrow()
+
+    const historical = `Historical \`${retired}\``
+    const rendered = canonicalGestaltStream({ signal: SIGNAL_GREEN, data: [historical] })
+
+    expect(parseGestaltStream(rendered).data).toEqual([historical])
+  })
+
   it.each(conformance.positive)('round trips $id', testCase => {
     expect(canonicalGestaltStream(testCase.render ?? testCase.stream)).toBe(testCase.canonical)
     const parsed = parseGestaltStream(testCase.source ?? testCase.canonical)

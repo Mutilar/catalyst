@@ -129,7 +129,7 @@ class Traversal:
     def targets(self, verb: str) -> dict[str, dict]:
         if verb not in {"show", "get", "set"}:
             raise ValueError("lucid-noun-help-unavailable:" + verb)
-        targets = penguin_funnel.owner.targets(self.vocabulary, verb)
+        targets = penguin_funnel.targets(self.vocabulary, verb)
         if verb in {"get", "set"}:
             for target in self.vocabulary[verb + "_registry"]["targets"]:
                 selector = target.get("selector" if verb == "get" else "path", {})
@@ -305,7 +305,7 @@ def receipt_walkthroughs(root, vocabulary: dict) -> list[dict]:
 
 
 def receipt_selection_prompts(vocabulary: dict) -> list[dict]:
-    artifact = penguin_funnel.owner.strict_json(penguin_funnel.owner.read(penguin_funnel.ROOT, penguin_funnel.owner.ARTIFACT))
+    artifact, _ = penguin_funnel.load_artifact(penguin_funnel.ROOT)
     cases = {case["id"]: case for case in penguin_funnel.corpus()["cases"]}
     records = []
     for entry in artifact["projections"]:
@@ -319,7 +319,7 @@ def receipt_selection_prompts(vocabulary: dict) -> list[dict]:
             records.append({"stage": ctx["stage"] + (":retry" if retry else ""),
                 "system_prompt": prompt, "system_prompt_hash": prompt_hash(prompt),
                 "resolved_before": {key: value for key, value in ctx.items() if key != "stage"},
-                "help_source": penguin_funnel.owner.CORPUS, "help_hash": projection["corpus_hash"],
+                "help_source": penguin_funnel.CORPUS, "help_hash": projection["corpus_hash"],
                 "few_shots": penguin_funnel.receipt(projection), "input_case_id": case["id"],
                 "input": case["input"], "input_hash": prompt_hash(case["input"]),
                 "input_source": "canonical corpus case; expected answers are not model observations",

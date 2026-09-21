@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from agent.tool_result_channels import SCHEMA, split_tool_result_channels
 from tools import mcp_tool
 
 
@@ -54,6 +55,22 @@ def _fake_run_on_mcp_loop(coro_or_factory, timeout=30):
         loop.close()
 
 
+def _assert_structured_result(raw, text, structured):
+    presentation = {
+        "__hermes_model_visible_result": text,
+        "result": text,
+        "structuredContent": structured,
+    }
+    assert json.loads(raw) == {
+        "schema": SCHEMA,
+        "model": text,
+        "presentation": presentation,
+    }
+    model, projected = split_tool_result_channels(raw)
+    assert model == text
+    assert json.loads(projected) == presentation
+
+
 @pytest.fixture
 def _patch_mcp_server():
     """Patch _servers and the MCP event loop so _make_tool_handler can run."""
@@ -84,7 +101,7 @@ class TestStructuredContentPreservation:
         assert data == {"result": "hello"}
 
     def test_both_content_and_structured(self, _patch_mcp_server):
-        """When both content and structuredContent are present, combine them."""
+        """Preserve both channels without exposing structuredContent to the model."""
         session = _patch_mcp_server
         payload = {"value": "secret-123", "revealed": True}
         session.call_tool = AsyncMock(
@@ -95,10 +112,7 @@ class TestStructuredContentPreservation:
         )
         handler = mcp_tool._make_tool_handler("test-server", "my-tool", 30.0)
         raw = handler({})
-        data = json.loads(raw)
-        # content is the primary result, structuredContent is supplementary
-        assert data["result"] == "OK"
-        assert data["structuredContent"] == payload
+        _assert_structured_result(raw, "OK", payload)
 
     def test_both_content_and_structured_desktop_commander(self, _patch_mcp_server):
         """Real-world case: Desktop Commander returns file text in content,
@@ -114,9 +128,7 @@ class TestStructuredContentPreservation:
         )
         handler = mcp_tool._make_tool_handler("test-server", "my-tool", 30.0)
         raw = handler({})
-        data = json.loads(raw)
-        assert data["result"] == file_text
-        assert data["structuredContent"] == metadata
+        _assert_structured_result(raw, file_text, metadata)
 
     def test_structured_content_none_falls_back_to_text(self, _patch_mcp_server):
         """When structuredContent is explicitly None, fall back to text."""
@@ -144,8 +156,7 @@ class TestStructuredContentPreservation:
         )
         handler = mcp_tool._make_tool_handler("test-server", "my-tool", 30.0)
         raw = handler({})
-        data = json.loads(raw)
-        assert data == {"result": "", "structuredContent": payload}
+        _assert_structured_result(raw, "", payload)
 
     def test_application_refusal_does_not_trip_transport_breaker(self, _patch_mcp_server):
         session = _patch_mcp_server
@@ -191,7 +202,7 @@ class TestStructuredContentPreservation:
         )
 
         handler = mcp_tool._make_tool_handler("test-server", "morph", 30.0)
-        assert json.loads(handler({})) == {"result": "", "structuredContent": document}
+        _assert_structured_result(handler({}), "", document)
         call = session.call_tool.await_args
         assert call is not None
         assert call.kwargs["meta"] == {

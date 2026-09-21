@@ -243,6 +243,7 @@ def _validate_service(value: str, contract: dict) -> None:
         or any(character.isspace() or character.isalnum() or ord(character) < 32 or 127 <= ord(character) <= 159 for character in value)
         or value in header["signals"]
         or value in [glyph for field, glyph in header["glyphs"].items() if field != "service"]
+        or value in contract["retired_tokens"]
     ):
         raise ValueError("GESTALT service is not a bounded glyph")
     _reject_json(value)
@@ -342,6 +343,19 @@ def _contract(root: Path) -> dict[str, object]:
         or contract["recovery"]["bounds"]["nesting"] <= 0
     ):
         raise ValueError("GESTALT segment contract is invalid")
+    registry_path = root / "quine/canon/GLYPH.json"
+    metadata = registry_path.lstat()
+    if registry_path.is_symlink() or not registry_path.is_file() or metadata.st_size > _MAX_CONTRACT_BYTES:
+        raise ValueError("GLYPH registry is not a bounded regular file")
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    retired = registry.get("bindings", {}).get("retired_tokens") if isinstance(registry, dict) else None
+    if (
+        not isinstance(retired, dict)
+        or registry.get("schema") != "quine-glyph-registry/1"
+        or not all(isinstance(token, str) and token and isinstance(role, str) for token, role in retired.items())
+    ):
+        raise ValueError("GLYPH retirement binding is invalid")
+    contract["retired_tokens"] = tuple(retired)
     return contract
 
 

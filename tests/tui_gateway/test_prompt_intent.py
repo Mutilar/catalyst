@@ -1218,6 +1218,35 @@ def test_misclassified_agent_role_instruction_never_mutates_witness_identity(tmp
     execute.assert_not_called()
 
 
+def test_native_funnel_reader_checks_source_and_prompt_integrity(tmp_path):
+    from tui_gateway import penguin_funnel
+
+    for relative in (*penguin_funnel.SOURCES, penguin_funnel.ARTIFACT):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(penguin_funnel.read(ROOT, relative))
+    expected = penguin_funnel.project("classification")
+    assert penguin_funnel.load_projection(tmp_path, "classification") == expected
+    for relative in penguin_funnel.SOURCES:
+        source = tmp_path / relative
+        original = source.read_bytes()
+        source.write_bytes(original + b"\n")
+        with pytest.raises(ValueError) as failure:
+            penguin_funnel.load_projection(tmp_path, "classification")
+        assert str(failure.value) == "funnel-projection-stale:" + relative
+        source.write_bytes(original)
+    with pytest.raises(ValueError, match="funnel-coverage-gap"):
+        penguin_funnel.load_projection(tmp_path, "lucid-noun", {"verb": "cancel"})
+    artifact_path = tmp_path / penguin_funnel.ARTIFACT
+    artifact = json.loads(artifact_path.read_bytes())
+    artifact["projections"][0]["prompt"] += "unbound text"
+    artifact_path.write_text(json.dumps(artifact))
+    with pytest.raises(ValueError, match="funnel-projection-invalid"):
+        penguin_funnel.load_projection(tmp_path, "classification")
+    with pytest.raises(ValueError, match="funnel-duplicate-key"):
+        penguin_funnel.strict_json('{"schema":"first","schema":"second"}')
+
+
 def test_classifier_teaches_glyph_intents_without_protocol_routing_details():
     instruction = prompt_intent.classification_instruction()
     vocabulary = prompt_intent.lucid_vocabulary()

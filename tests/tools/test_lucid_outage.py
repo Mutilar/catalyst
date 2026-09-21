@@ -61,6 +61,26 @@ def test_gestalt_conformance_refusals(case):
             _render_conformance_stream(case["stream"])
 
 
+def test_retired_glyphs_cannot_be_reclassified_as_services():
+    registry = json.loads(
+        (_GESTALT_ROOT / "quine/canon/GLYPH.json").read_text(encoding="utf-8")
+    )
+    for retired in registry["bindings"]["retired_tokens"]:
+        for source in (
+            DELIMITER_SEGMENT.join((SIGNAL_GREEN, retired)),
+            DELIMITER_SEGMENT.join((SIGNAL_GREEN, f"{RELATION_ACTION} {retired}")),
+        ):
+            with pytest.raises(ValueError):
+                parse_stream(_GESTALT_ROOT, source)
+        with pytest.raises(ValueError):
+            canonical_stream(_GESTALT_ROOT, SIGNAL_GREEN, service=retired)
+        with pytest.raises(ValueError):
+            canonical_stream(_GESTALT_ROOT, SIGNAL_GREEN, continuations=(retired,))
+        historical = f"Historical `{retired}`"
+        rendered = canonical_stream(_GESTALT_ROOT, SIGNAL_GREEN, data=(historical,))
+        assert parse_stream(_GESTALT_ROOT, rendered)["data"] == [historical]
+
+
 def test_gestalt_legacy_argument_and_continuation_aliases_round_trip_without_conflicts():
     intent = f"Inspect MiXeD{DELIMITER_SEGMENT}bytes"
     command = f"printf 'MiXeD{DELIMITER_SEGMENT}bytes'"

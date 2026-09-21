@@ -180,7 +180,7 @@ def retain_candidate(home: Path, text: str, candidate: dict) -> None:
 
 
 def penguin_instruction(root: Path) -> str:
-    return penguin_funnel.owner.load_projection(root, "semantic-preparation")["prompt"]
+    return penguin_funnel.load_projection(root, "semantic-preparation")["prompt"]
 
 
 def preparation_blocks(response: str) -> tuple[list[str], bool]:
@@ -319,8 +319,8 @@ def penguin_request(text: str, instruction: str, max_tokens: int, *, stage: str,
 
 
 def semantic_thinking_comparison(root: Path) -> dict:
-    projection = penguin_funnel.owner.load_projection(root, "semantic-preparation")
-    corpus = penguin_funnel.owner.strict_json(penguin_funnel.owner.read(root, penguin_funnel.owner.CORPUS))
+    projection = penguin_funnel.load_projection(root, "semantic-preparation")
+    corpus = penguin_funnel.strict_json(penguin_funnel.read(root, penguin_funnel.CORPUS))
     cases = {case["id"]: case for case in corpus["cases"]}
     pairs = []
     for index, identity in enumerate(projection["case_ids"]):
@@ -347,12 +347,12 @@ def semantic_thinking_comparison(root: Path) -> dict:
 def generate_prompt_receipt(root: Path) -> Path:
     root = root.resolve()
     sources = [Path(__file__).resolve(), Path(__file__).with_name("penguin_funnel.py"),
-        *(root / name for name in penguin_funnel.owner.SOURCES), root / penguin_funnel.owner.ARTIFACT,
+        *(root / name for name in penguin_funnel.SOURCES), root / penguin_funnel.ARTIFACT,
         root / "quine/canon/AGENT_INSTRUCTIONS.json",
         root / "catalyst/hermes_penguin.py", root / "catalyst/agent/generated/ae_glyphs.py",
         root / "envelope/LUCID.json", root / "envelope/GESTALT.json", root / ".agents/skills/lucid/SKILL.md",
         Path(__file__).with_name("lucid_traversal.py"),
-        root / "butler/src/penguin_host/funnel.rs", root / "butler/tests/test_penguin_funnel.py",
+        root / "butler/src/penguin_host/funnel.rs", root / "butler/tests/unit/penguin_host/funnel.rs",
         root / "catalyst/tests/tui_gateway/test_prompt_intent.py",
         root / "catalyst/apps/desktop/src/components/assistant-ui/direct-operation.tsx",
         root / "catalyst/apps/desktop/src/components/assistant-ui/direct-operation.test.tsx"]

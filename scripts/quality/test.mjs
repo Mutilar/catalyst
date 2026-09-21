@@ -33,6 +33,8 @@ const python = execute('uv', [
   '--offline',
   '--extra',
   'dev',
+  '--extra',
+  'acp',
   'pytest',
   'catalyst/tests',
   '-q'

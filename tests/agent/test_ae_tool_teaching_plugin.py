@@ -214,30 +214,57 @@ def test_artifact_build_teaching_never_exposes_internal_run_qualify(plugin, work
     assert "run.qualify" not in json.dumps(suggestion["candidate"], sort_keys=True)
 
 
-def test_search_files_maps_to_bounded_get_search_recursively(plugin, workspace, monkeypatch):
+@pytest.mark.parametrize("pattern", ["target_registry", r"target_\w+", "*.py"])
+def test_search_files_requires_proven_equivalence_before_teaching(
+    plugin, workspace, monkeypatch, pattern
+):
     monkeypatch.chdir(workspace)
     args = {
-        "pattern": "target_registry",
+        "pattern": pattern,
         "target": "content",
         "path": ".",
         "limit": 17,
         "context": 2,
     }
-    suggestion = _receipt(
-        plugin._on_pre_tool_call(tool_name="search_files", args=args, session_id="search")
-    )
-    assert suggestion["candidate"]["tool"] == "mcp__LUCID__get"
-    assert suggestion["candidate"]["target"] == {"registry": "get-target", "id": "search"}
-    assert suggestion["candidate"]["arguments"] == {
+    classified = plugin._classify("search_files", args)
+    assert classified is not None
+    intent, target, registry, disposition, root = classified
+    assert disposition == "hold"
+    declaration = target["compiled"]
+    assert declaration["kind"] == "refusal"
+    assert declaration["reason"] == "repository-search-regex-glob-equivalence-unproved"
+    alternative = declaration["alternative"]
+    assert alternative["tool"] == "mcp__LUCID__get"
+    assert alternative["target"] == {"registry": "get-target", "id": "search"}
+    assert plugin._resolve_binding(
+        alternative["arguments"], intent, args, root
+    ) == {
         "path": "search",
         "query": {
-            "terms": ["target_registry"],
+            "terms": [pattern],
             "paths": ["."],
             "mode": "content",
             "limit": 17,
             "context": 2,
         },
     }
+    with pytest.raises(ValueError, match="unregistered-candidate-kind"):
+        plugin._suggestion(
+            intent, args, target, registry, root,
+            decision="hold", original_executed=False, attempt=1,
+        )
+    assert (
+        plugin._on_pre_tool_call(tool_name="search_files", args=args, session_id="search")
+        is None
+    )
+    assert (
+        plugin._on_transform_tool_result(
+            tool_name="search_files", args=args, result="native result",
+            session_id="search", status="ok",
+        )
+        is None
+    )
+    assert not plugin._PENDING_CANDIDATES
 
 
 def test_write_file_maps_to_set_repository_file_with_full_arguments(plugin, workspace, monkeypatch):

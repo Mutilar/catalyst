@@ -1,7 +1,9 @@
 import gestaltContract from '../../../../envelope/GESTALT.json'
+import glyphRegistry from '../../../../quine/canon/GLYPH.json'
 
 const segments = gestaltContract.segments
 const glyphs = segments.glyphs
+const retiredTokens = new Set(Object.keys(glyphRegistry.bindings.retired_tokens))
 const fields = ['signal', 'service', 'verb', 'noun', 'argument', 'evidence', 'datum', 'timing', 'action']
 const asciiUpper = value => value.replace(/[a-z]/g, character => character.toUpperCase())
 const asciiLower = value => value.replace(/[A-Z]/g, character => character.toLowerCase())
@@ -167,7 +169,8 @@ function validateService(value) {
     /^[\x00-\x7f]*$/.test(value) ||
     /[\p{White_Space}\p{Cc}\p{Alphabetic}\p{Number}]/u.test(value) ||
     segments.signals.includes(value) ||
-    fields.slice(2).some(field => glyphs[field] === value)
+    fields.slice(2).some(field => glyphs[field] === value) ||
+    retiredTokens.has(value)
   ) {
     throw new Error('GESTALT service is not a bounded glyph')
   }
