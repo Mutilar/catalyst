@@ -21,12 +21,28 @@ import os
 import signal
 import subprocess
 import types
+from unittest.mock import MagicMock
 
 import pytest
 
 # A guaranteed-foreign PID: PID 1 (init).  Owned by root, not us, and
 # always exists. A sane guard refuses to signal it.
 FOREIGN_PID = 1
+
+
+@pytest.fixture
+def systemctl_process(monkeypatch):
+    """Exercise the run guard without depending on a live service manager."""
+    process = MagicMock()
+    process.__enter__.return_value = process
+    process.communicate.return_value = ("", "")
+    process.poll.return_value = 0
+    process.returncode = 0
+    popen = MagicMock(return_value=process)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    yield
+    popen.assert_called_once()
+    assert popen.call_args.args[0][0] == "systemctl"
 
 
 # ──────────────────── fail-closed self-protection ──────────────
@@ -278,7 +294,7 @@ def test_subprocess_killall_hermes_blocked():
 # ──────────────────── pass-through cases (must NOT raise) ──────
 
 
-def test_systemctl_status_passes_through():
+def test_systemctl_status_passes_through(systemctl_process):
     """Read-only systemctl probes (status/show/list-units) are fine."""
     # Run with check=False so we don't fail on the gateway's exit code.
     r = subprocess.run(
@@ -290,7 +306,7 @@ def test_systemctl_status_passes_through():
     assert r is not None  # Did not raise — the guard let it through.
 
 
-def test_systemctl_show_passes_through():
+def test_systemctl_show_passes_through(systemctl_process):
     r = subprocess.run(
         ["systemctl", "--user", "show", "hermes-gateway", "--no-pager"],
         capture_output=True,
@@ -300,7 +316,7 @@ def test_systemctl_show_passes_through():
     assert r is not None
 
 
-def test_systemctl_list_units_passes_through():
+def test_systemctl_list_units_passes_through(systemctl_process):
     r = subprocess.run(
         ["systemctl", "--user", "list-units", "fake-not-real-unit*", "--no-pager"],
         capture_output=True,
@@ -310,7 +326,7 @@ def test_systemctl_list_units_passes_through():
     assert r is not None
 
 
-def test_systemctl_unrelated_unit_passes_through():
+def test_systemctl_unrelated_unit_passes_through(systemctl_process):
     """systemctl restart of a non-hermes unit is allowed (we only protect hermes)."""
     # Use --dry-run so we don't actually try to restart anything; just
     # verify the guard doesn't block the call. systemctl supports

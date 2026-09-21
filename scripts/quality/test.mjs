@@ -9,9 +9,14 @@ if (process.argv.length !== 3 || process.argv[2] !== '--check') {
   process.exit(2)
 }
 
-function execute(command, args) {
+function execute(command, args, environment = {}) {
   const result = spawnSync(command, args, {
     cwd: repository,
+    env: {
+      ...process.env,
+      ...(process.platform === 'darwin' ? { TMPDIR: '/tmp', TMP: '/tmp', TEMP: '/tmp' } : {}),
+      ...environment
+    },
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024
   })
@@ -27,18 +32,31 @@ function execute(command, args) {
 
 const python = execute('uv', [
   'run',
-  '--project',
+  '--directory',
   'catalyst',
   '--frozen',
   '--offline',
   '--extra',
   'dev',
+  // Match the CI profile: gateway and protocol tests import these extras during collection.
   '--extra',
-  'acp',
-  'pytest',
-  'catalyst/tests',
+  'all',
+  'python',
+  'scripts/run_tests_parallel.py',
+  '--quality-summary',
+  '--include-integration',
+  '--file-retries',
+  '0',
+  '--file-timeout',
+  '300',
+  '--jobs',
+  '4',
+  '--slice',
+  '1/1',
+  'tests',
+  '--',
   '-q'
-])
+], { PYTEST_ADDOPTS: '' })
 const desktop = execute('npm', [
   '--prefix',
   'catalyst/apps/desktop',
@@ -46,14 +64,32 @@ const desktop = execute('npm', [
   'test:ui'
 ])
 
-const pytest = python.match(/(?:^|\s)(\d+) passed(?:,|\s|$)/m)
-const vitest = desktop.match(/Tests\s+(\d+) passed(?:\s|\(|$)/m)
-if (!pytest || !vitest) {
-  console.error('quality summary unavailable: pytest or Vitest did not report exact passed counts')
+const summaries = python.split('\n').filter(line => line.startsWith('HERMES_TEST_SUMMARY '))
+let pytest
+try {
+  if (summaries.length === 1) pytest = JSON.parse(summaries[0].slice('HERMES_TEST_SUMMARY '.length))
+} catch (error) {
+  console.error(`quality summary unavailable: invalid Python summary: ${error.message}`)
   process.exit(2)
 }
-const passed = Number.parseInt(pytest[1], 10) + Number.parseInt(vitest[1], 10)
-console.log(`running ${passed} tests`)
+const fields = ['files', 'completed', 'file_failures', 'unmeasured_files', 'passed', 'failed', 'skipped', 'errors', 'xfailed', 'xpassed', 'deselected']
+const vitest = desktop.match(/Tests\s+(\d+) passed(?:\s|\(|$)/m)
+if (!pytest || pytest.schema !== 'hermes-test-summary/1'
+  || !fields.every(field => Number.isSafeInteger(pytest[field]) && pytest[field] >= 0)
+  || pytest.files === 0 || pytest.completed !== pytest.files
+  || pytest.file_failures !== 0 || pytest.unmeasured_files !== 0
+  || pytest.failed !== 0 || pytest.errors !== 0 || pytest.passed + pytest.xpassed === 0 || !vitest) {
+  console.error('quality summary unavailable: exact passing counts and complete file execution are required')
+  process.exit(2)
+}
+const count = (output, label) =>
+  Number.parseInt(output.match(new RegExp(`(?:^|\\s)(\\d+) ${label}(?:,|\\s|$)`, 'm'))?.[1] ?? '0', 10)
+const passed = pytest.passed + pytest.xpassed + Number.parseInt(vitest[1], 10)
+const desktopSummary = desktop.match(/Tests[^\n]*/m)?.[0] ?? ''
+const ignored = pytest.skipped + pytest.xfailed
+  + count(desktopSummary, 'skipped') + count(desktopSummary, 'todo')
+const filtered = pytest.deselected
+console.log(`running ${passed + ignored} tests`)
 console.log(
-  `test result: ok. ${passed} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;`
+  `test result: ok. ${passed} passed; 0 failed; ${ignored} ignored; 0 measured; ${filtered} filtered out;`
 )

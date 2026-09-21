@@ -439,11 +439,13 @@ def test_s6_manager_kind_and_supports_registration() -> None:
 def test_seed_supervise_skeleton_creates_expected_layout(tmp_path) -> None:
     """Verifies the dirs + FIFO + modes the helper lays down."""
     import stat
+    import os
 
     from hermes_cli.service_manager import _seed_supervise_skeleton
 
     svc_dir = tmp_path / "gateway-foo"
     svc_dir.mkdir()
+    os.chown(svc_dir, -1, os.getgid())
 
     _seed_supervise_skeleton(svc_dir)
 
@@ -481,11 +483,13 @@ def test_seed_supervise_skeleton_handles_log_subservice(tmp_path) -> None:
     slot's supervise/ was hermes-owned.
     """
     import stat
+    import os
 
     from hermes_cli.service_manager import _seed_supervise_skeleton
 
     svc_dir = tmp_path / "gateway-foo"
     svc_dir.mkdir()
+    os.chown(svc_dir, -1, os.getgid())
     (svc_dir / "log").mkdir()  # logger subdir present
 
     _seed_supervise_skeleton(svc_dir)

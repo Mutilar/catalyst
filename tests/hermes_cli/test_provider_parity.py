@@ -36,8 +36,9 @@ _EXEMPT = {"custom"} | _VIRTUAL
 # Providers that legitimately offer BOTH auth methods and so intentionally
 # appear on both desktop tabs (an API-key card AND an account sign-in card).
 # Anthropic supports a direct API key (Keys tab) and a subscription OAuth /
-# Claude Code login (Accounts tab); surfacing both is correct, not a bug.
-_DUAL_TAB = {"anthropic"}
+# Claude Code login (Accounts tab). Copilot likewise supports its provider-owned
+# token and account login; surfacing both is correct, not a duplicate provider.
+_DUAL_TAB = {"anthropic", "copilot"}
 
 
 def _keys_tab_providers() -> set[str]:
@@ -95,3 +96,7 @@ def test_no_provider_appears_on_both_tabs():
     """
     overlap = (_keys_tab_providers() & _accounts_tab_providers()) - _EXEMPT - _DUAL_TAB
     assert not overlap, f"providers appearing on BOTH desktop tabs: {sorted(overlap)}"
+
+
+def test_dual_auth_providers_expose_both_credential_routes():
+    assert _DUAL_TAB <= _keys_tab_providers() & _accounts_tab_providers()

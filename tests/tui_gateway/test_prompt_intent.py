@@ -1440,14 +1440,14 @@ def test_uppercase_label_collision_refuses_before_inference():
 
 def test_same_original_message_reaches_classification_rewrite_and_selection(monkeypatch):
     original = "Open https://example.com/Path with scope this."
-    infer = Mock(side_effect=["🖼️", "proposed restatement", "URL", "SCOPE", '"https://example.com/Path"', '"this"'])
+    infer = Mock(side_effect=["🖼️", "proposed restatement", "URL", "SCOPE", "OMIT", '"https://example.com/Path"', '"this"'])
     monkeypatch.setattr(prompt_intent, "penguin_inference", infer)
     prompt_intent.classify(original)
     prompt_intent.format_semantic(original)
     prompt_intent.format_lucid(original, "show")
     assert all(call.args[0] == original for call in infer.call_args_list)
     assert [call.args[2] for call in infer.call_args_list] == [
-        "classification", "semantic-preparation", "lucid-noun", "lucid-optional",
+        "classification", "semantic-preparation", "lucid-noun", "lucid-optional", "lucid-optional",
         "lucid-argument:url", "lucid-argument:scope",
     ]
     receipt = prompt_intent._REQUEST.lucid_traversal

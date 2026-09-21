@@ -1891,7 +1891,7 @@ feishu:
                 {
                     "_config_version": 30,
                     "model": {"default": "deepseek-v4-pro", "provider": "deepseek"},
-                    "agent": {"max_turns": 60, "verify_on_stop": False},
+                    "agent": {"max_turns": 60, "verify_on_stop": True},
                 },
                 merge_existing=True,
             )
@@ -1899,7 +1899,7 @@ feishu:
 
         assert raw["platforms"]["feishu"]["extra"]["app_id"] == "cli_xxx"
         assert raw["feishu"]["require_mention"] is True
-        assert raw["agent"]["verify_on_stop"] is False
+        assert raw["agent"]["verify_on_stop"] is True
 
     def test_partial_write_without_merge_drops_omitted_sections(self, tmp_path):
         """Full-replacement callers (raw YAML editor) rely on merge_existing=False."""
@@ -1938,13 +1938,13 @@ platforms:
         (tmp_path / "config.yaml").write_text(body, encoding="utf-8")
         with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
             config = read_raw_config()
-            config.setdefault("agent", {})["verify_on_stop"] = False
+            config.setdefault("agent", {})["verify_on_stop"] = True
             config["_config_version"] = 32
             _persist_migration(config)
             raw = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
 
         assert raw["platforms"]["feishu"]["extra"]["app_id"] == "cli_xxx"
-        assert raw["agent"]["verify_on_stop"] is False
+        assert raw["agent"]["verify_on_stop"] is True
         assert raw["agent"]["max_turns"] == 60
         assert raw["_config_version"] == 32
 

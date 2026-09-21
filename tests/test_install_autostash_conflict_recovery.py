@@ -64,7 +64,7 @@ def _make_conflicted_managed_checkout(tmp_path: Path) -> Path:
 
 
 def _assert_conflict_was_recovered(repo: Path, output: str) -> None:
-    assert "restoring local changes hit conflicts" in output
+    assert "restoring local changes hit conflicts" in output, output
     assert "Conflicted files:" in output
     assert "tracked.txt" in output
     assert "Working tree reset to clean state." in output
@@ -93,7 +93,7 @@ def test_install_sh_repository_stage_recovers_from_autostash_conflict(
     }
 
     result = subprocess.run(
-        ["bash", str(INSTALL_SH), "--stage", "repository", "--non-interactive"],
+        ["bash", str(INSTALL_SH), "--branch", "main", "--stage", "repository", "--non-interactive"],
         cwd=tmp_path,
         env=env,
         capture_output=True,
@@ -102,6 +102,33 @@ def test_install_sh_repository_stage_recovers_from_autostash_conflict(
 
     assert result.returncode == 0, result.stderr
     _assert_conflict_was_recovered(managed, result.stdout)
+
+
+@pytest.mark.live_system_guard_bypass
+@pytest.mark.skipif(
+    shutil.which("git") is None or shutil.which("bash") is None,
+    reason="needs git and bash",
+)
+def test_install_sh_missing_branch_fails_without_losing_local_changes(tmp_path):
+    managed = _make_conflicted_managed_checkout(tmp_path)
+    original_head = _git(managed, "rev-parse", "HEAD").stdout
+    result = subprocess.run(
+        ["bash", str(INSTALL_SH), "--branch", "missing-test-branch",
+         "--stage", "repository", "--non-interactive"],
+        cwd=tmp_path,
+        env=os.environ | {
+            "HERMES_HOME": str(tmp_path / "hermes-home"),
+            "HERMES_INSTALL_DIR": str(managed),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "Could not fetch origin/missing-test-branch" in result.stdout + result.stderr
+    assert "Repository ready" not in result.stdout
+    assert _git(managed, "rev-parse", "HEAD").stdout == original_head
+    assert _git(managed, "show", "stash@{0}:tracked.txt").stdout == "local edit\n"
 
 
 @pytest.mark.live_system_guard_bypass
@@ -119,6 +146,8 @@ def test_install_ps1_repository_stage_recovers_from_autostash_conflict(
             "-NoProfile",
             "-File",
             str(INSTALL_PS1),
+            "-Branch",
+            "main",
             "-Stage",
             "repository",
             "-NonInteractive",
@@ -179,7 +208,7 @@ def test_install_sh_repository_stage_clean_apply_drops_stash(
         "HERMES_INSTALL_DIR": str(managed),
     }
     result = subprocess.run(
-        ["bash", str(INSTALL_SH), "--stage", "repository", "--non-interactive"],
+        ["bash", str(INSTALL_SH), "--branch", "main", "--stage", "repository", "--non-interactive"],
         cwd=tmp_path,
         env=env,
         capture_output=True,
@@ -192,4 +221,4 @@ def test_install_sh_repository_stage_clean_apply_drops_stash(
     assert _git(managed, "stash", "list").stdout.strip() == "", "stash must be dropped on clean apply"
     # Local changes must be present in the working tree.
     assert (managed / "local-only.txt").read_text(encoding="utf-8") == "local edit\n"
-    assert (managed / "tracked.txt").read_text(encoding="utf-8") == "upstream edit\n"
+    assert (managed / "tracked.txt").read_text(encoding="utf-8") == "upstream edit\n", result.stdout

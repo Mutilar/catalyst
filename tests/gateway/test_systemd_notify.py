@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
+import sys
 
 import pytest
 
@@ -31,7 +32,8 @@ def test_notify_sends_real_unix_datagram(tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(
-    not hasattr(socket, "AF_UNIX"), reason="Unix datagram sockets are unavailable"
+    sys.platform != "linux" or not hasattr(socket, "AF_UNIX"),
+    reason="Abstract Unix datagram sockets require the Linux kernel",
 )
 def test_notify_supports_systemd_abstract_socket(monkeypatch):
     name = "\0hermes-test-notify"
@@ -49,7 +51,12 @@ def test_notify_supports_systemd_abstract_socket(monkeypatch):
         receiver.close()
 
 
-def test_notify_uses_nonblocking_datagram_send(monkeypatch):
+@pytest.mark.parametrize(
+    ("configured", "address"),
+    [("/tmp/hermes-test-notify", "/tmp/hermes-test-notify"),
+     ("@hermes-test-notify", "\0hermes-test-notify")],
+)
+def test_notify_uses_nonblocking_datagram_send(monkeypatch, configured, address):
     calls: list[object] = []
 
     class _Sender:
@@ -70,11 +77,13 @@ def test_notify_uses_nonblocking_datagram_send(monkeypatch):
 
     import gateway.systemd_notify as notify_mod
 
-    monkeypatch.setenv("NOTIFY_SOCKET", "/tmp/hermes-test-notify")
+    monkeypatch.setenv("NOTIFY_SOCKET", configured)
     monkeypatch.setattr(notify_mod.socket, "socket", lambda *_args: _Sender())
 
     assert notify_mod.notify("READY=1") is True
-    assert calls[0] == ("setblocking", False)
+    assert calls == [
+        ("setblocking", False), ("connect", address), ("send", b"READY=1")
+    ]
 
 
 @pytest.mark.parametrize("raw", [None, "", "0", "-1", "not-a-number"])

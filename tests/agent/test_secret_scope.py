@@ -66,10 +66,17 @@ class TestMultiplexActiveFailClosed:
         # No scope, multiplex on — but HERMES_HOME is global, so no raise.
         assert ss.get_secret("HERMES_HOME") == "/opt/data"
 
-    def test_kanban_prefix_is_global(self, monkeypatch):
+    @pytest.mark.parametrize("name", ["HERMES_TELEGRAM_BATCH_DELAY_MS", "TERMINAL_CWD"])
+    def test_registered_global_prefix_reads_environ(self, monkeypatch, name):
+        monkeypatch.setenv(name, "configured")
+        ss.set_multiplex_active(True)
+        assert ss.get_secret(name) == "configured"
+
+    def test_unregistered_kanban_prefix_remains_profile_scoped(self, monkeypatch):
         monkeypatch.setenv("HERMES_KANBAN_DB", "/x/kanban.db")
         ss.set_multiplex_active(True)
-        assert ss.get_secret("HERMES_KANBAN_DB") == "/x/kanban.db"
+        with pytest.raises(ss.UnscopedSecretError):
+            ss.get_secret("HERMES_KANBAN_DB")
 
 
 class TestScopedSingleProfile:

@@ -4,6 +4,9 @@ import json
 import os
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from gateway.readiness import collect_runtime_readiness
 
@@ -18,6 +21,10 @@ def test_collect_runtime_readiness_reports_healthy_local_runtime(tmp_path, monke
     with sqlite3.connect(home / "state.db") as conn:
         conn.execute("CREATE TABLE probe (id INTEGER PRIMARY KEY)")
     monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setattr(
+        "gateway.readiness.shutil.disk_usage",
+        lambda _path: SimpleNamespace(total=1000, used=100, free=900),
+    )
 
     result = collect_runtime_readiness(
         configured_model="test/model",
@@ -35,7 +42,25 @@ def test_collect_runtime_readiness_reports_healthy_local_runtime(tmp_path, monke
     assert result["checks"]["model"]["status"] == "ok"
     assert result["checks"]["gateway"]["status"] == "ok"
     assert result["checks"]["background_queues"]["active_api_runs"] == 2
-    assert result["checks"]["disk"]["status"] in {"ok", "degraded"}
+    assert result["checks"]["disk"] == {
+        "status": "ok", "used_percent": 10.0, "free_bytes": 900
+    }
+
+
+@pytest.mark.parametrize(("used", "status"), [(899, "ok"), (900, "degraded")])
+def test_disk_readiness_uses_exact_degraded_threshold(tmp_path, monkeypatch, used, status):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        "gateway.readiness.shutil.disk_usage",
+        lambda _path: SimpleNamespace(total=1000, used=used, free=1000 - used),
+    )
+    result = collect_runtime_readiness(
+        configured_model="test/model", runtime_status={"gateway_state": "running"}
+    )
+    assert result["status"] == status
+    assert result["checks"]["disk"] == {
+        "status": status, "used_percent": used / 10, "free_bytes": 1000 - used
+    }
 
 
 def test_collect_runtime_readiness_degrades_on_invalid_config_and_stopped_gateway(

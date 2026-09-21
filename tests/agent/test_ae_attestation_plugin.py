@@ -38,6 +38,9 @@ def _workspace(
     (root / "quine" / "mcp" / "onboarding").mkdir(parents=True)
     (root / "run" / "state" / "runtime").mkdir(parents=True)
     (root / "envelope").mkdir(parents=True)
+    (root / "quine" / "canon" / "GLYPH.json").write_bytes(
+        (repository / "quine" / "canon" / "GLYPH.json").read_bytes()
+    )
     (root / "quine" / "canon" / "roles.json").write_text(
         json.dumps(
             {

@@ -136,37 +136,6 @@ EXPECTED_CONSOLE_COMMANDS = {
     ("project", "archive"),
     ("project", "restore"),
     ("project", "bind-board"),
-    ("kanban", "init"),
-    ("kanban", "boards", "list"),
-    ("kanban", "boards", "create"),
-    ("kanban", "boards", "rm"),
-    ("kanban", "boards", "switch"),
-    ("kanban", "boards", "current"),
-    ("kanban", "boards", "rename"),
-    ("kanban", "boards", "set-workdir"),
-    ("kanban", "create"),
-    ("kanban", "list"),
-    ("kanban", "show"),
-    ("kanban", "assign"),
-    ("kanban", "reclaim"),
-    ("kanban", "reassign"),
-    ("kanban", "diagnose"),
-    ("kanban", "link"),
-    ("kanban", "unlink"),
-    ("kanban", "claim"),
-    ("kanban", "comment"),
-    ("kanban", "complete"),
-    ("kanban", "edit"),
-    ("kanban", "block"),
-    ("kanban", "schedule"),
-    ("kanban", "unblock"),
-    ("kanban", "promote"),
-    ("kanban", "archive"),
-    ("kanban", "stats"),
-    ("kanban", "runs"),
-    ("kanban", "heartbeat"),
-    ("kanban", "assignments"),
-    ("kanban", "context"),
     ("bundles", "list"),
     ("bundles", "show"),
     ("bundles", "create"),
@@ -224,7 +193,6 @@ MUTATING_CONFIRMATION_SMOKE_COMMANDS = [
     "webhook subscribe test --prompt hello",
     "hooks test pre_tool_call",
     "project create demo",
-    "kanban create 'demo task'",
     "bundles create demo --skill skill-a",
     "checkpoints prune",
     "curator pause",
@@ -338,6 +306,7 @@ def test_console_registry_covers_non_admin_cli_surface():
     missing = EXPECTED_CONSOLE_COMMANDS - registered
 
     assert missing == set()
+    assert not any(command[0] == "kanban" for command in registered)
 
 
 @pytest.mark.parametrize(
@@ -351,6 +320,7 @@ def test_console_registry_covers_non_admin_cli_surface():
         "oneshot hello",
         "model",
         "setup",
+        "kanban create 'demo task'",
 
         "fallback add",
         "moa configure",

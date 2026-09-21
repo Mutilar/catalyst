@@ -123,13 +123,16 @@ import { syncBuiltinESMExports } from 'node:module'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-const [adapter, repository, scenario] = process.argv.slice(1)
+const [adapter, repository, scenario, supplied] = process.argv.slice(1)
+const outputs = JSON.parse(supplied ?? '{}')
 const lint = path.basename(adapter) === 'lint.mjs'
 const expected = [
     lint
         ? ['uv', 'tool', 'run', '--offline', '--from', 'ruff==0.15.10', 'ruff', 'check', 'catalyst']
-        : ['uv', 'run', '--project', 'catalyst', '--frozen', '--offline', '--extra', 'dev',
-            'pytest', 'catalyst/tests', '-q'],
+        : ['uv', 'run', '--directory', 'catalyst', '--frozen', '--offline', '--extra', 'dev',
+            '--extra', 'all', 'python', 'scripts/run_tests_parallel.py', '--quality-summary',
+            '--include-integration', '--file-retries', '0', '--file-timeout', '300',
+            '--jobs', '4', '--slice', '1/1', 'tests', '--', '-q'],
     ['npm', '--prefix', 'catalyst/apps/desktop', 'run', lint ? 'check:lint' : 'test:ui']
 ]
 const calls = []
@@ -139,14 +142,27 @@ childProcess.spawnSync = (command, args, options) => {
     assert.equal(options.encoding, 'utf8')
     assert.equal(options.maxBuffer, 16 * 1024 * 1024)
     if (calls.length === 1) {
+        if (!lint) {
+            assert.equal(options.env.PYTEST_ADDOPTS, '')
+            if (process.platform === 'darwin') {
+                assert.equal(options.env.TMPDIR, '/tmp')
+                assert.equal(options.env.TMP, '/tmp')
+                assert.equal(options.env.TEMP, '/tmp')
+            }
+        }
         if (scenario === 'python-failure') return { status: 7, stderr: 'python check failed' }
         if (scenario === 'unavailable') return { error: { message: 'spawn uv ENOENT' } }
         if (scenario === 'signal') return { status: null, signal: 'SIGTERM' }
-        return { status: 0, stdout: lint ? 'All checks passed!\n' : '3 passed in 0.01s\n' }
+        return { status: 0, stdout: lint ? 'All checks passed!\n' : outputs.python ??
+            'HERMES_TEST_SUMMARY ' + JSON.stringify({
+                schema: 'hermes-test-summary/1', files: 1, completed: 1,
+                file_failures: 0, unmeasured_files: 0, passed: 3, failed: 0,
+                skipped: 0, errors: 0, xfailed: 0, xpassed: 0, deselected: 0
+            }) + '\n' }
     }
     return {
         status: scenario === 'desktop-failure' ? 9 : 0,
-        stdout: scenario === 'missing-summary' || lint ? '' : 'Tests  2 passed (2)\n'
+        stdout: scenario === 'missing-summary' || lint ? '' : outputs.desktop ?? 'Tests  2 passed (2)\n'
     }
 }
 syncBuiltinESMExports()
@@ -159,12 +175,12 @@ await import(pathToFileURL(adapter).href)
 """
 
 
-def _run_quality_adapter(adapter, scenario, cwd):
+def _run_quality_adapter(adapter, scenario, cwd, outputs=None):
         return subprocess.run(
                 [
                         "node", "--input-type=module", "--eval", QUALITY_ADAPTER_PROBE,
                         str(REPO_ROOT / "scripts" / "quality" / f"{adapter}.mjs"),
-                        str(REPO_ROOT.parent), scenario,
+                        str(REPO_ROOT.parent), scenario, json.dumps(outputs or {}),
                 ],
                 cwd=cwd,
                 capture_output=True,

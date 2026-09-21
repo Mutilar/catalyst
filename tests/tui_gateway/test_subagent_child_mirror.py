@@ -15,13 +15,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+pytestmark = pytest.mark.usefixtures("prepared_prompt_passthrough")
+
+
 @pytest.fixture()
-def server():
+def server(tmp_path, monkeypatch):
+    home = tmp_path / "hermes_test_child_mirror"
+    home.mkdir()
     with patch.dict(
         "sys.modules",
         {
             "hermes_constants": MagicMock(
-                get_hermes_home=MagicMock(return_value="/tmp/hermes_test_child_mirror")
+                get_hermes_home=MagicMock(return_value=home)
             ),
             "hermes_cli.env_loader": MagicMock(),
             "hermes_cli.banner": MagicMock(),
@@ -31,6 +36,7 @@ def server():
         import importlib
 
         mod = importlib.import_module("tui_gateway.server")
+        monkeypatch.setattr(mod, "get_hermes_home", lambda: home)
         yield mod
         mod._sessions.clear()
         mod._pending.clear()

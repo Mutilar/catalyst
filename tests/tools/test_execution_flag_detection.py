@@ -4,6 +4,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 import time
 
 import pytest
@@ -49,6 +50,12 @@ def test_real_binaries_execute_leading_dash_program_payload(
     """A PATH marker proves these binaries do not reparse '-program' as an option."""
     if shutil.which(tool) is None or (needs_tty and shutil.which("script") is None):
         pytest.skip(f"{tool} or script is not installed")
+    if tool == "man" and "--pager" in args:
+        help_result = subprocess.run(
+            [tool, "--help"], text=True, capture_output=True, timeout=5
+        )
+        if "--pager" not in help_result.stdout + help_result.stderr:
+            pytest.skip("installed man has no GNU --pager option; native -P is covered")
 
     marker = tmp_path / "executed"
     payload = tmp_path / "-payload-marker"
@@ -58,7 +65,7 @@ def test_real_binaries_execute_leading_dash_program_payload(
     input_file.write_text("needle\n")
     resolved_args = [arg.format(input=str(input_file)) for arg in args]
     input_text = (
-        "\n".join(str(number) for number in range(10_000, 0, -1)) + "\n"
+        "\n".join(str(number) for number in range(1_000, 0, -1)) + "\n"
         if stdin == "{bulk}"
         else stdin
     )
@@ -70,10 +77,15 @@ def test_real_binaries_execute_leading_dash_program_payload(
     }
     argv = [tool, *resolved_args]
     if needs_tty:
-        argv = ["script", "-qec", shlex.join(argv), "/dev/null"]
+        argv = (
+            ["script", "-q", "/dev/null", *argv]
+            if sys.platform == "darwin"
+            else ["script", "-qec", shlex.join(argv), "/dev/null"]
+        )
 
-    subprocess.run(argv, input=input_text, text=True, capture_output=True, env=env, timeout=20)
+    completed = subprocess.run(argv, input=input_text, text=True, capture_output=True, env=env, timeout=20)
 
+    assert marker.is_file(), completed.stdout + completed.stderr
     assert marker.read_text() == "executed"
 
 

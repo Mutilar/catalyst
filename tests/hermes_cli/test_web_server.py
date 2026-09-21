@@ -276,7 +276,7 @@ class TestWebServerEndpoints:
         # file to already exist.
         fake_db_path = tmp_path / "state.db"
         fake_db_path.touch()
-        monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", fake_db_path)
+        monkeypatch.setattr(hermes_state, "default_db_path", lambda: fake_db_path)
 
         captured = {}
 
@@ -310,7 +310,7 @@ class TestWebServerEndpoints:
         import hermes_cli.web_server as web_server
         import hermes_state
 
-        monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", tmp_path / "absent.db")
+        monkeypatch.setattr(hermes_state, "default_db_path", lambda: tmp_path / "absent.db")
 
         def _boom(*a, **k):
             raise AssertionError("SessionDB must not be constructed when db file is absent")

@@ -32,6 +32,17 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
+@pytest.fixture
+def prepared_prompt_passthrough(monkeypatch):
+    """Keep RPC/session tests independent of the separately tested intent layer."""
+    from tui_gateway import prompt_intent
+
+    monkeypatch.setattr(
+        prompt_intent, "admit_prompt",
+        lambda text, *_args, **_kwargs: {"prepared_text": text},
+    )
+
+
 # ── Per-file process isolation ──────────────────────────────────────────────
 # Tests run via ``scripts/run_tests_parallel.py``, which spawns a fresh
 # ``python -m pytest <file>`` subprocess per test file. Cross-file state

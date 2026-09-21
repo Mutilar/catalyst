@@ -30,6 +30,10 @@ Usage:
     with no special separator — a bare ``-q`` "just works". Anything after
     a literal ``--`` is also passed through, and stacks with bare flags.
 
+    --quality-summary emits exact aggregated pytest outcomes and file
+    completion counts as one HERMES_TEST_SUMMARY JSON record. Approximate
+    discovery counts are progress hints only, never quality evidence.
+
 Environment:
     HERMES_TEST_WORKERS  Override worker count (default: os.cpu_count())
     HERMES_TEST_PATHS    Override discovery roots (colon-sep, default: 'tests')
@@ -124,7 +128,7 @@ def _approximately_count_tests(
 
 
 def _discover_files(roots: List[Path]) -> List[Path]:
-    """Return every ``test_*.py`` under the given roots (sorted).
+    """Return pytest's ``test_*.py`` and ``*_test.py`` files (sorted).
 
     Roots may be directories (recursed for ``test_*.py``) or explicit
     ``.py`` files (included as-is, even if they don't match the
@@ -159,7 +163,9 @@ def _discover_files(roots: List[Path]) -> List[Path]:
             part for part in root.parts if part in _SKIP_PARTS
         }
         effective_skips = _SKIP_PARTS - root_skip_overrides
-        for path in root.rglob("test_*.py"):
+        for path in root.rglob("*.py"):
+            if not (path.name.startswith("test_") or path.name.endswith("_test.py")):
+                continue
             if any(part in effective_skips for part in path.parts):
                 continue
             real = path.resolve()
@@ -234,6 +240,7 @@ def _run_one_file(
     repo_root: Path,
     file_timeout: float,
     retries: int = 0,
+    coverage: bool = False,
 ) -> Tuple[Path, int, str, dict[str, int], float]:
     """Run ``python -m pytest <file> <pytest_args>`` in a fresh subprocess.
 
@@ -268,14 +275,14 @@ def _run_one_file(
     bound a pathologically slow or hung file as a whole.
     """
     file, rc, output, summary, subproc_wall = _run_one_file_once(
-        file, pytest_args, repo_root, file_timeout
+        file, pytest_args, repo_root, file_timeout, coverage
     )
     attempt = 0
     while rc != 0 and attempt < retries:
         attempt += 1
         first_output = output
         file, rc, output, summary, subproc_wall2 = _run_one_file_once(
-            file, pytest_args, repo_root, file_timeout
+            file, pytest_args, repo_root, file_timeout, coverage
         )
         subproc_wall += subproc_wall2
         if rc == 0:
@@ -303,9 +310,13 @@ def _run_one_file_once(
     pytest_args: List[str],
     repo_root: Path,
     file_timeout: float,
+    coverage: bool = False,
 ) -> Tuple[Path, int, str, dict[str, int], float]:
     """Single attempt of a per-file pytest subprocess (see _run_one_file)."""
-    cmd = [sys.executable, "-m", "pytest", str(file), *pytest_args]
+    command = ["pytest"]
+    if coverage:
+        command = ["coverage", "run", "--branch", "--parallel-mode", "--source=.", "-m", "pytest"]
+    cmd = [sys.executable, "-m", *command, str(file), *pytest_args]
     
     subproc_start = time.monotonic()
     # launch the pytest process
@@ -360,12 +371,15 @@ def _run_one_file_once(
 
         output +=  "\n"
 
-    if rc == 5:
+    empty_collection = rc == 5
+    if empty_collection:
         # No tests collected — every test in the file was filtered out.
         # Treat as a pass; surface info in a slightly distinct status
         # so the operator can spot it.
         rc = 0
     summary = _parse_pytest_summary(output)
+    if empty_collection and not summary:
+        summary = {"passed": 0}
     subproc_wall = time.monotonic() - subproc_start
     return file, rc, output, summary, subproc_wall
 
@@ -379,7 +393,7 @@ def _parse_pytest_summary(output: str) -> dict[str, int]:
     granularity instead of just file-level pass/fail.
 
     Returns a dict with keys ``passed``, ``failed``, ``skipped``, ``errors``,
-    ``xfailed``, ``xpassed`` (only keys found in the output are present).
+    ``xfailed``, ``xpassed``, ``deselected`` (only keys found in the output are present).
     """
     import re
 
@@ -389,8 +403,7 @@ def _parse_pytest_summary(output: str) -> dict[str, int]:
         line = line.strip()
         if not line:
             continue
-        # Match "N passed", "N failed", "N skipped", "N errors", "N xfailed", "N xpassed"
-        for m in re.finditer(r"(\d+)\s+(passed|failed|skipped|errors|xfailed|xpassed)", line):
+        for m in re.finditer(r"(\d+)\s+(passed|failed|skipped|errors|xfailed|xpassed|deselected)", line):
             result[m.group(2)] = int(m.group(1))
         # Also match "N error" (singular — pytest uses this sometimes).
         for m in re.finditer(r"(\d+)\s+error\b", line):
@@ -668,6 +681,16 @@ def main() -> int:
         help="Don't skip integration/ e2e/ during discovery",
     )
     parser.add_argument(
+        "--quality-summary",
+        action="store_true",
+        help="Emit exact pytest outcomes and file completion as HERMES_TEST_SUMMARY JSON",
+    )
+    parser.add_argument(
+        "--coverage",
+        action="store_true",
+        help="Instrument each isolated file with branch-aware coverage.py parallel data",
+    )
+    parser.add_argument(
         "--file-timeout",
         type=float,
         default=float(
@@ -753,6 +776,8 @@ def main() -> int:
     OUR_FLAGS = {
         "-j", "--jobs", "--paths", "--include-integration",
         "--file-timeout", "--file-retries", "--slice", "--generate-slices", "--files",
+        "--quality-summary",
+        "--coverage",
     }
     # pytest short flags that consume the NEXT token as their value.
     PYTEST_VALUE_FLAGS = {"-k", "-m", "-p", "-o", "-c", "-r", "-W"}
@@ -894,10 +919,14 @@ def main() -> int:
     fail_count = 0
     tests_passed = 0
     tests_failed = 0
+    unmeasured_files = 0
+    outcomes = dict.fromkeys(
+        ("passed", "failed", "skipped", "errors", "xfailed", "xpassed", "deselected"), 0
+    )
     lock = threading.Lock()
 
     def _on_done(file: Path, started_at: float, fut: "Future[Tuple[Path, int, str, dict[str, int], float]]") -> None:
-        nonlocal files_done, tests_done, pass_count, fail_count, tests_passed, tests_failed
+        nonlocal files_done, tests_done, pass_count, fail_count, tests_passed, tests_failed, unmeasured_files
         n_tests = test_counts.get(file, 0)
         try:
             fpath, rc, output, summary, subproc_wall = fut.result()
@@ -921,6 +950,10 @@ def main() -> int:
             # Accumulate test-level counts from parsed summary.
             tests_passed += summary.get("passed", 0)
             tests_failed += summary.get("failed", 0)
+            if not summary:
+                unmeasured_files += 1
+            for name in outcomes:
+                outcomes[name] += summary.get(name, 0)
             file_times.append((fpath, subproc_wall))
             if rc == 0:
                 pass_count += 1
@@ -944,7 +977,7 @@ def main() -> int:
             t0 = time.monotonic()
             fut = pool.submit(
                 _run_one_file, file, pytest_passthrough, repo_root,
-                args.file_timeout, args.file_retries,
+                args.file_timeout, args.file_retries, args.coverage,
             )
             fut.add_done_callback(lambda f, file=file, t0=t0: _on_done(file, t0, f))
             futures.append(fut)
@@ -958,6 +991,15 @@ def main() -> int:
     print()
     pct = min(100, (tests_done / approx_total_tests * 100)) if approx_total_tests else 0
     print(f"=== Summary: {len(files)} files, {tests_passed} tests passed, {tests_failed} failed ({pct:.0f}% complete) in {elapsed:.1f}s ({args.jobs} workers) ===")
+    if args.quality_summary:
+        print("HERMES_TEST_SUMMARY " + json.dumps({
+            "schema": "hermes-test-summary/1",
+            "files": len(files),
+            "completed": files_done,
+            "file_failures": fail_count,
+            "unmeasured_files": unmeasured_files,
+            **outcomes,
+        }, sort_keys=True))
 
     # Flaky files: failed once, passed on the automatic retry. Green, but
     # loudly reported so they get fixed instead of silently re-flaking.
@@ -1032,6 +1074,12 @@ def main() -> int:
                 print(f"  {_format_file(file, repo_root)}")
         return 1
 
+    if args.quality_summary and unmeasured_files:
+        print(
+            f"Quality summary incomplete: {unmeasured_files} files did not report pytest outcomes",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

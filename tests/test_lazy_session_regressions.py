@@ -13,7 +13,9 @@ import time
 import types
 from unittest.mock import MagicMock, patch
 
+import pytest
 
+pytestmark = pytest.mark.usefixtures("prepared_prompt_passthrough")
 
 # ===========================================================================
 # Helpers

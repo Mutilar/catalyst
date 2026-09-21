@@ -467,12 +467,13 @@ class TestSanePathIncludesHomebrew:
     """Verify _SANE_PATH includes macOS Homebrew directories."""
 
     @pytest.fixture(autouse=True)
-    def _disable_hermes_bin_injection(self):
+    def _disable_hermes_bin_injection(self, monkeypatch):
         """These tests assert the sane-path merge in isolation. Disable the
         hermes-install-dir prepend (a separate concern, covered by
         TestHermesBinDirOnPath) so a real ``hermes`` on the test runner's PATH
         doesn't shift the asserted PATH layout."""
         from tools.environments import local as local_mod
+        monkeypatch.setattr(local_mod, "_prepend_current_butler_bin", lambda path, _env: path)
         saved = local_mod._HERMES_BIN_DIR
         local_mod._HERMES_BIN_DIR = None  # resolved -> no dir to inject
         yield
@@ -580,6 +581,11 @@ class TestHermesBinDirOnPath:
     PATH (systemd, service managers, cron). See the discussion that motivated
     _resolve_hermes_bin_dir / _prepend_hermes_bin_dir.
     """
+
+    @pytest.fixture(autouse=True)
+    def _isolate_package_bin(self, monkeypatch):
+        from tools.environments import local as local_mod
+        monkeypatch.setattr(local_mod, "_prepend_current_butler_bin", lambda path, _env: path)
 
     def _reset_cache(self):
         from tools.environments import local as local_mod

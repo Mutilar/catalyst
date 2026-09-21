@@ -27,6 +27,26 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
+_DIAGNOSTIC_WORKER = """\
+import os
+import signal
+import subprocess
+import sys
+
+process = subprocess.Popen(["bash", "-c", sys.argv[2]], start_new_session=True)
+try:
+    result = process.wait(timeout=float(sys.argv[1]))
+except subprocess.TimeoutExpired:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait()
+    result = 124
+raise SystemExit(result)
+"""
+
+
 _SIGNAL_NAME_BY_NUM: Dict[int, str] = {}
 for _name in ("SIGTERM", "SIGINT", "SIGHUP", "SIGQUIT", "SIGUSR1", "SIGUSR2"):
     _val = getattr(signal, _name, None)
@@ -203,8 +223,8 @@ def spawn_async_diagnostic(
     """Fire-and-forget ``ps``-style snapshot written to ``log_path``.
 
     Runs as a detached subprocess so it can't block the asyncio event loop
-    or compete with platform teardown.  The subprocess uses its own
-    ``timeout`` so a wedged ``ps`` still self-cleans within
+    or compete with platform teardown. The standard-library worker enforces
+    its own deadline so a wedged ``ps`` still self-cleans within
     ``timeout_seconds``.
 
     Returns the subprocess PID on success, ``None`` on failure.  Never
@@ -255,7 +275,7 @@ def spawn_async_diagnostic(
         # start_new_session, a SIGKILL on our cgroup takes the diag down
         # before it can flush.
         proc = subprocess.Popen(
-            ["timeout", f"{timeout_seconds:.0f}", "bash", "-c", script],
+            [sys.executable, "-c", _DIAGNOSTIC_WORKER, str(timeout_seconds), script],
             stdout=fd,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,

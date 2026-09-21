@@ -17,6 +17,9 @@ from hermes_cli.browser_connect import ChromeDebugLaunch
 from tui_gateway import server
 
 
+pytestmark = pytest.mark.usefixtures("prepared_prompt_passthrough")
+
+
 @pytest.fixture(autouse=True)
 def _neuter_agent_prewarm_timer(request, monkeypatch):
     """Stub the deferred agent pre-warm timer for every test in this module.
@@ -1379,10 +1382,10 @@ def test_load_enabled_toolsets_rejects_disabled_mcp_env(monkeypatch, capsys):
         config_mod, "load_config", lambda: {"platform_toolsets": {"cli": ["memory"]}}
     )
 
-    # Sorted: ["kanban", "memory", "project"]. `kanban` is auto-recovered by
+    # Sorted: ["memory", "project", "workflows"]. `workflows` is auto-recovered by
     # _get_platform_tools (a non-configurable platform toolset in hermes-cli's
     # universe); `project` is GUI-only, folded in by _load_enabled_toolsets.
-    assert server._load_enabled_toolsets() == ["kanban", "memory", "project"]
+    assert server._load_enabled_toolsets() == ["memory", "project", "workflows"]
     err = capsys.readouterr().err
     assert "ignoring disabled MCP servers" in err
     assert "mcp-off" in err
@@ -1403,7 +1406,7 @@ def test_load_enabled_toolsets_falls_back_when_tui_env_invalid(monkeypatch, caps
         config_mod, "load_config", lambda: {"platform_toolsets": {"cli": ["memory"]}}
     )
 
-    assert server._load_enabled_toolsets() == ["kanban", "memory", "project"]
+    assert server._load_enabled_toolsets() == ["memory", "project", "workflows"]
     assert "using configured CLI toolsets" in capsys.readouterr().err
 
 
@@ -7478,8 +7481,8 @@ def test_prompt_submit_history_version_mismatch_surfaces_warning(monkeypatch):
         server._sessions.pop("sid", None)
 
 
-def test_prompt_submit_sanitizes_bracketed_paste_before_agent(monkeypatch):
-    """prompt.submit must sanitize corrupted user text before run_conversation."""
+def test_prompt_submit_forwards_admitted_text_before_agent(monkeypatch):
+    """Admission owns normalization; RPC forwards its prepared text unchanged."""
     captured: dict[str, str] = {}
 
     class _Agent:
@@ -7500,6 +7503,8 @@ def test_prompt_submit_sanitizes_bracketed_paste_before_agent(monkeypatch):
             self._target()
 
     corrupted = "hello[" + "~[[e" * 8
+    admit = Mock(return_value={"prepared_text": "hello"})
+    monkeypatch.setattr(server.prompt_intent, "admit_prompt", admit)
     server._sessions["sid"] = _session(agent=_Agent())
     try:
         monkeypatch.setattr(server.threading, "Thread", _ImmediateThread)
@@ -7518,6 +7523,7 @@ def test_prompt_submit_sanitizes_bracketed_paste_before_agent(monkeypatch):
             }
         )
         assert resp.get("result"), f"got error: {resp.get('error')}"
+        assert admit.call_args.args[0] == corrupted
         assert captured["prompt"] == "hello"
     finally:
         server._sessions.pop("sid", None)
@@ -9351,6 +9357,7 @@ def test_session_activate_returns_inflight_stream_before_completion(monkeypatch)
     started = threading.Event()
     release = threading.Event()
     done = threading.Event()
+    errors = []
 
     class _Agent:
         model = "model-live"
@@ -9371,12 +9378,15 @@ def test_session_activate_returns_inflight_stream_before_completion(monkeypatch)
             }
 
     server._sessions["sid-live"] = _session(agent=_Agent())
+    monkeypatch.setattr(server, "_sync_agent_model_with_config", lambda _sid, _session: None)
     monkeypatch.setattr(server, "make_stream_renderer", lambda cols: None)
     monkeypatch.setattr(server, "render_message", lambda raw, cols: None)
     monkeypatch.setattr(server, "_get_db", lambda: None)
-    monkeypatch.setattr(server, "_session_info", lambda agent: {"model": agent.model})
+    monkeypatch.setattr(server, "_session_info", lambda agent, session=None: {"model": agent.model})
 
     def _emit(event, sid, payload=None):
+        if event == "error":
+            errors.append(payload)
         if event == "message.complete":
             done.set()
 
@@ -9391,7 +9401,7 @@ def test_session_activate_returns_inflight_stream_before_completion(monkeypatch)
             }
         )
         assert submit["result"]["status"] == "streaming"
-        assert started.wait(2), "fake model did not stream before activation"
+        assert started.wait(2), f"fake model did not stream before activation: {errors}"
 
         resp = server.handle_request(
             {

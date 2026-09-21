@@ -59,6 +59,14 @@ class TestOpenRouterModels:
 
 class TestFetchOpenRouterModels:
     def test_live_fetch_recomputes_free_tags(self, monkeypatch):
+        monkeypatch.setattr(
+            "hermes_cli.model_catalog.get_curated_openrouter_models",
+            lambda: [
+                ("anthropic/claude-opus-4.8", ""),
+                ("qwen/qwen3.7-max", ""),
+                ("nvidia/nemotron-3-super-120b-a12b:free", ""),
+            ],
+        )
         class _Resp:
             def __enter__(self):
                 return self
@@ -150,6 +158,11 @@ class TestFetchOpenRouterModels:
         as 'unknown → allow' prevents the picker from silently emptying on
         those gateways.
         """
+        monkeypatch.setattr(
+            "hermes_cli.model_catalog.get_curated_openrouter_models",
+            lambda: [("anthropic/claude-opus-4.8", ""), ("qwen/qwen3.7-max", "")],
+        )
+
         class _Resp:
             def __enter__(self):
                 return self

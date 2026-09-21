@@ -122,6 +122,20 @@ class TestWslSystemdOperational:
 class TestSupportsSystemdServicesWSL:
     """Test that supports_systemd_services() handles WSL correctly."""
 
+    @pytest.fixture(autouse=True)
+    def _systemd_host(self, monkeypatch):
+        monkeypatch.setattr(
+            gateway.shutil, "which",
+            lambda command: "/usr/bin/systemctl" if command == "systemctl" else None,
+        )
+        monkeypatch.setattr(gateway, "is_container", lambda: False)
+
+    def test_missing_systemctl(self, monkeypatch):
+        monkeypatch.setattr(gateway, "is_linux", lambda: True)
+        monkeypatch.setattr(gateway, "is_termux", lambda: False)
+        monkeypatch.setattr(gateway.shutil, "which", lambda _command: None)
+        assert gateway.supports_systemd_services() is False
+
     def test_wsl_with_systemd(self, monkeypatch):
         """WSL + working systemd → True."""
         monkeypatch.setattr(gateway, "is_linux", lambda: True)

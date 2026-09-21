@@ -12,10 +12,6 @@ Usage:
     # Or from CLI
     python cli.py --gateway
 """
-from agent.generated.ae_glyphs import RELATION_ARGUMENT
-from agent.generated.ae_glyphs import OPERATION_CANCEL
-from agent.generated.ae_glyphs import HAT_PERFORMANCE, SIGNAL_PENDING, SIGNAL_WARNING
-
 # IMPORTANT: hermes_bootstrap must be the very first import — UTF-8 stdio
 # on Windows.  No-op on POSIX.  See hermes_bootstrap.py for full rationale.
 try:
@@ -26,6 +22,10 @@ except ModuleNotFoundError:
     # new code but ``uv pip install -e .`` didn't finish.  Missing bootstrap
     # means UTF-8 stdio setup is skipped on Windows; POSIX is unaffected.
     pass
+
+from agent.generated.ae_glyphs import RELATION_ARGUMENT
+from agent.generated.ae_glyphs import OPERATION_CANCEL
+from agent.generated.ae_glyphs import HAT_PERFORMANCE, SIGNAL_PENDING, SIGNAL_WARNING
 
 import asyncio
 import concurrent.futures

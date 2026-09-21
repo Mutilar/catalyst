@@ -12,6 +12,7 @@ Windows runner.
 from __future__ import annotations
 
 import os
+import json
 import signal
 import sys
 from pathlib import Path
@@ -293,7 +294,7 @@ class TestSigkillFallback:
     @pytest.mark.parametrize(
         "module_path, line_pattern",
         [
-            ("hermes_cli.kanban_db", 'getattr(signal, "SIGKILL", signal.SIGTERM)'),
+            ("gateway.status", 'getattr(signal, "SIGKILL", signal.SIGTERM)'),
         ],
     )
     def test_module_uses_getattr_fallback(self, module_path, line_pattern):
@@ -453,12 +454,11 @@ class TestReadmeNoLongerSaysWindowsUnsupported:
             "install copy to reflect the PowerShell installer."
         )
 
-    def test_readme_mentions_powershell_installer(self):
+    def test_canonical_manifest_and_installer_support_windows(self):
         root = Path(__file__).resolve().parents[2]
-        source = (root / "README.md").read_text(encoding="utf-8")
-        assert "install.ps1" in source, (
-            "README.md must point at scripts/install.ps1 for Windows users"
-        )
+        spec = json.loads((root / "SPEC.json").read_text(encoding="utf-8"))
+        assert "windows" in spec["quality_obligations"]["platform"]["supported_hosts"]
+        assert (root / "scripts" / "install.ps1").is_file()
 
 
 # ---------------------------------------------------------------------------
@@ -684,36 +684,15 @@ class TestTuiGatewayEntrySignalGuards:
 
 
 # ---------------------------------------------------------------------------
-# hermes_cli/kanban_db.py waitpid guard
+# Retired Python dispatcher
 # ---------------------------------------------------------------------------
 
 
-class TestKanbanWaitpidWindowsGuard:
-    """os.WNOHANG doesn't exist on Windows — the dispatcher tick reap loop
-    must be gated behind ``os.name != "nt"``."""
-
-    def test_source_gates_waitpid_loop(self):
+class TestRetiredPythonDispatcher:
+    @pytest.mark.parametrize("name", ["kanban.py", "kanban_db.py"])
+    def test_retired_dispatcher_is_not_shipped(self, name):
         root = Path(__file__).resolve().parents[2]
-        source = (root / "hermes_cli" / "kanban_db.py").read_text(encoding="utf-8")
-        # Find the waitpid call and confirm it's inside a POSIX gate.
-        idx = source.find("os.waitpid(-1, os.WNOHANG)")
-        assert idx > 0, "waitpid call must exist"
-        # Look backwards up to 400 chars for the gate. Accept either form:
-        #   `if os.name != "nt":` (run iff POSIX), or
-        #   `if os.name == "nt": return []` (early-return guard).
-        # Both correctly keep the waitpid loop off Windows; the early-return
-        # form is stronger because the rest of the function never runs.
-        preamble = source[max(0, idx - 400):idx]
-        guard_patterns = (
-            'os.name != "nt"',
-            "os.name != 'nt'",
-            'os.name == "nt"',  # early-return guard
-            "os.name == 'nt'",
-        )
-        assert any(p in preamble for p in guard_patterns), (
-            "os.waitpid(-1, os.WNOHANG) must sit behind an os.name guard "
-            f"(checked patterns: {guard_patterns})"
-        )
+        assert not (root / "hermes_cli" / name).exists()
 
 
 # ---------------------------------------------------------------------------

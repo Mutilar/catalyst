@@ -20,15 +20,18 @@ def _restore_stdout():
 
 
 @pytest.fixture()
-def server():
+def server(tmp_path, monkeypatch):
+    home = tmp_path / "hermes_test"
+    home.mkdir(exist_ok=True)
     with patch.dict("sys.modules", {
-        "hermes_constants": MagicMock(get_hermes_home=MagicMock(return_value="/tmp/hermes_test")),
+        "hermes_constants": MagicMock(get_hermes_home=MagicMock(return_value=home)),
         "hermes_cli.env_loader": MagicMock(),
         "hermes_cli.banner": MagicMock(),
         "hermes_state": MagicMock(),
     }):
         import importlib
         mod = importlib.import_module("tui_gateway.server")
+        monkeypatch.setattr(mod, "get_hermes_home", lambda: home)
         yield mod
         # Reset module-level session state without re-importing. importlib.reload
         # would re-register the module's atexit hooks (ThreadPoolExecutor

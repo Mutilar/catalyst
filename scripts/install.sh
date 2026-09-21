@@ -1206,7 +1206,10 @@ clone_repo() {
                 local stash_name
                 stash_name="hermes-install-autostash-$(date -u +%Y%m%d-%H%M%S)"
                 log_info "Local changes detected, stashing before update..."
-                git stash push --include-untracked -m "$stash_name"
+                if ! git stash push --include-untracked -m "$stash_name"; then
+                    log_error "Could not preserve local changes; repository update aborted."
+                    return 1
+                fi
                 autostash_ref="stash@{0}"
             fi
 
@@ -1215,15 +1218,24 @@ clone_repo() {
             # branches — on a non-single-branch checkout that turns each update
             # into a multi-minute download that can stall the installer.
             git remote set-branches origin "$BRANCH" 2>/dev/null || true
-            git fetch origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
-            git checkout -B "$BRANCH" "origin/$BRANCH"
+            if ! git fetch origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"; then
+                log_error "Could not fetch origin/$BRANCH; any stashed changes remain preserved."
+                return 1
+            fi
+            if ! git checkout -B "$BRANCH" "origin/$BRANCH"; then
+                log_error "Could not check out origin/$BRANCH; any stashed changes remain preserved."
+                return 1
+            fi
             # Managed installs should follow origin/$BRANCH exactly. If the
             # checkout has diverged (or has local-only commits), ff-only pull
             # cannot succeed — mirror ``hermes update`` and reset to the
             # fetched remote so bootstrap/install can recover.
             if ! git pull --ff-only origin "$BRANCH"; then
                 log_warn "Fast-forward not possible; resetting managed install to origin/$BRANCH..."
-                git reset --hard "origin/$BRANCH"
+                if ! git reset --hard "origin/$BRANCH"; then
+                    log_error "Could not align the managed checkout with origin/$BRANCH."
+                    return 1
+                fi
             fi
 
             if [ -n "$autostash_ref" ]; then
