@@ -3,7 +3,20 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { useEffect, useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type * as UguiEngine from '@/lib/ugui-engine'
+
 import { Thread } from '.'
+
+vi.mock('@/lib/ugui-engine', async importOriginal => {
+  const actual = await importOriginal<typeof UguiEngine>()
+  const { projectPackagedConversationText } = await import('../../../../vitest.setup')
+
+  return {
+    ...actual,
+    projectConversationText: async (source: string, running: boolean) =>
+      actual.parseConversationProjection(projectPackagedConversationText(source, running), source)
+  }
+})
 
 const createdAt = new Date('2026-05-01T00:00:00.000Z')
 
@@ -515,7 +528,7 @@ describe('assistant-ui streaming renderer', () => {
     expect(container.querySelector('[data-slot="aui_composer-clearance"]')).toBeNull()
   })
 
-  it('suppresses the action footer on sealed interim messages, keeping it on the final reply', () => {
+  it('suppresses the action footer on sealed interim messages, keeping it on the final reply', async () => {
     const { container } = render(
       <TranscriptHarness
         messages={[
@@ -528,9 +541,11 @@ describe('assistant-ui streaming renderer', () => {
     )
 
     // Interim commentary stays visible…
-    expect(container.textContent).toContain('Let me check the files.')
-    expect(container.textContent).toContain('Now applying the patch.')
-    expect(container.textContent).toContain('All done — patch applied.')
+    await waitFor(() => {
+      expect(container.textContent).toContain('Let me check the files.')
+      expect(container.textContent).toContain('Now applying the patch.')
+      expect(container.textContent).toContain('All done — patch applied.')
+    })
 
     // …but only the turn's final reply carries the copy/refresh action bar.
     const actionBars = container.querySelectorAll('[data-slot="aui_msg-actions"]')
@@ -572,18 +587,18 @@ describe('assistant-ui streaming renderer', () => {
   // layout, spring animation via rAF) only produces brittle change-detector
   // tests. The rendering/streaming-content tests below remain the contract.
 
-  it('renders an incomplete streaming fenced code block as a code card', async () => {
+  it('renders an incomplete streaming fenced code block inside the canonical document', async () => {
     const { container } = render(<RunningMessageHarness message={assistantMessage('```ts\nconst answer = 42\n')} />)
 
     await waitFor(() => {
-      expect(container.querySelector('[data-slot="code-card"]')).toBeTruthy()
+      expect(container.querySelector('[data-mcp-ugui="lucid-ugui-response/1"] pre code')).toBeTruthy()
     })
 
     expect(container.textContent).toContain('const answer = 42')
     expect(container.textContent).not.toContain('```ts')
   })
 
-  it('renders an incomplete streaming reasoning fenced code block as a code card', async () => {
+  it('renders an incomplete streaming reasoning fenced code block inside the canonical document', async () => {
     const { container } = render(<RunningReasoningHarness />)
     const ui = within(container)
     const thinkingToggle = ui.getByRole('button', { name: /thinking/i })
@@ -593,7 +608,7 @@ describe('assistant-ui streaming renderer', () => {
     }
 
     await waitFor(() => {
-      expect(container.querySelector('[data-slot="code-card"]')).toBeTruthy()
+      expect(container.querySelector('[data-mcp-ugui="lucid-ugui-response/1"] pre code')).toBeTruthy()
     })
 
     await waitFor(() => {
@@ -602,18 +617,19 @@ describe('assistant-ui streaming renderer', () => {
     expect(container.textContent).not.toContain('```ts')
   })
 
-  it('renders reasoning text without a leading token space', () => {
+  it('renders reasoning text without a leading token space', async () => {
     const { container } = render(<ReasoningHarness />)
     const ui = within(container)
 
     fireEvent.click(ui.getByRole('button', { name: /thinking/i }))
 
-    expect(container.querySelector('[data-slot="aui_reasoning-text"]')?.textContent).toBe(
-      'The user is asking what this file is.'
-    )
+    const reasoning = container.querySelector('[data-slot="aui_reasoning-text"]') as HTMLElement
+    const content = await within(reasoning).findByText('The user is asking what this file is.')
+
+    expect(content.textContent).toBe('The user is asking what this file is.')
   })
 
-  it('groups consecutive reasoning parts under one thinking disclosure', () => {
+  it('groups consecutive reasoning parts under one thinking disclosure', async () => {
     const { container } = render(<GroupedReasoningHarness />)
 
     const disclosures = container.querySelectorAll('[data-slot="aui_thinking-disclosure"]')
@@ -623,11 +639,11 @@ describe('assistant-ui streaming renderer', () => {
 
     const reasoningParts = container.querySelectorAll('[data-slot="aui_reasoning-text"]')
     expect(reasoningParts.length).toBe(2)
-    expect(reasoningParts[0]?.textContent).toBe('First thought.')
-    expect(reasoningParts[1]?.textContent).toBe('Second thought.')
+    expect((await within(reasoningParts[0] as HTMLElement).findByText('First thought.')).textContent).toBe('First thought.')
+    expect((await within(reasoningParts[1] as HTMLElement).findByText('Second thought.')).textContent).toBe('Second thought.')
   })
 
-  it('does not reopen an earlier completed thinking group when a later group is running', () => {
+  it('does not reopen an earlier completed thinking group when a later group is running', async () => {
     const { container } = render(<RunningMessageHarness message={assistantSeparatedReasoningMessage()} />)
 
     const disclosures = container.querySelectorAll('[data-slot="aui_thinking-disclosure"]')
@@ -636,7 +652,7 @@ describe('assistant-ui streaming renderer', () => {
     expect(disclosures[0].querySelector('button')?.getAttribute('aria-expanded')).toBe('false')
     expect(disclosures[1].querySelector('button')?.getAttribute('aria-expanded')).toBe('true')
     expect(container.textContent).not.toContain('Complete first thought.')
-    expect(container.textContent).toContain('Interim answer.')
+    await waitFor(() => expect(container.textContent).toContain('Interim answer.'))
   })
 
   it('does not render an inline todo panel — todos live in the composer status stack', () => {

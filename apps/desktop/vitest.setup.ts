@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+
 import { configure } from '@testing-library/react'
 
 // React 19 + Testing Library 16: opt into the act environment so render(),
@@ -10,6 +13,27 @@ import { configure } from '@testing-library/react'
 // CPU contention in CI. Success still resolves the instant the node appears;
 // the wider deadline only absorbs a starved runner, killing timing flakes.
 configure({ asyncUtilTimeout: 5000 })
+
+type PackagedConversationProjector = {
+  initSync: (input: { module: Uint8Array }) => unknown
+  ugui_project_conversation_text: (source: string, running: boolean) => string
+}
+
+let packagedProjector: PackagedConversationProjector | undefined
+
+export function projectPackagedConversationText(source: string, running: boolean): string {
+  if (!packagedProjector) {
+    const requirePackaged = createRequire(import.meta.url)
+    const module = requirePackaged('./public/wasm/ugui_gestalt_wasm.js') as PackagedConversationProjector
+
+    module.initSync({
+      module: readFileSync(requirePackaged.resolve('./public/wasm/ugui_gestalt_wasm_bg.wasm'))
+    })
+    packagedProjector = module
+  }
+
+  return packagedProjector.ugui_project_conversation_text(source, running)
+}
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>()

@@ -412,6 +412,7 @@ export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
     queryFn: getMcpCatalog,
     staleTime: 5 * 60_000
   })
+
   const runtimeQuery = useQuery({
     queryKey: ['mcp-runtime', normalizeProfileKey(activeProfile)],
     queryFn: listMcpServers,
@@ -654,6 +655,7 @@ export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
         }
       }
     }
+
     setProbes(observed)
   }, [runtimeQuery.data])
 

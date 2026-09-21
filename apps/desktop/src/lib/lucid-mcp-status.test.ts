@@ -179,6 +179,7 @@ describe('shared Rust/JS/Python GESTALT conformance', () => {
 
   it('preserves singular argument compatibility and rejects conflicting plural arguments', () => {
     const literal = `TERM \`MiXeD${gestaltContract.segments.separator}bytes\``
+
     const rendered = canonicalGestaltStream({
       signal: SIGNAL_GREEN,
       verb: 'get',
@@ -215,6 +216,7 @@ describe('shared Rust/JS/Python GESTALT conformance', () => {
   it('supports legacy intent and CLI shorthand alongside identity-free streams', () => {
     const intent = `Inspect MiXeD${gestaltContract.segments.separator}bytes`
     const command = `printf 'MiXeD${gestaltContract.segments.separator}bytes'`
+
     const rendered = canonicalGestaltStream({
       signal: SIGNAL_GREEN,
       withoutIdentity: true,

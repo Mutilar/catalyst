@@ -67,7 +67,7 @@ def _run_doctor(fix=False):
 
 
 class TestDoctorCommandInstallation:
-    """Tests for the ◆ Command Installation section."""
+    """Tests for the Command Installation section."""
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Symlink check is Unix-only")
     def test_correct_symlink_shows_ok(self, monkeypatch, tmp_path):

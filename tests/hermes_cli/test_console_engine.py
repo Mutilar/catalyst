@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from hermes_cli.console_engine import HermesConsoleEngine, run_console_repl
+from agent.generated.ae_glyphs import RELATION_DATUM
 
 
 EXPECTED_CONSOLE_COMMANDS = {
@@ -250,7 +251,7 @@ def test_console_status_hides_cli_next_step_footer(
     import hermes_cli.status as status_mod
 
     def fake_show_status(_args):
-        print("◆ Sessions")
+        print(f"{RELATION_DATUM} Sessions")
         print("Active: 3 session(s)")
         print()
         rule = "\u2500" * 60
@@ -281,7 +282,7 @@ def test_console_status_hides_osc_linked_cli_next_step_footer(
         return f"\x1b]8;;https://example.test\x1b\\{text}\x1b]8;;\x1b\\"
 
     def fake_show_status(_args):
-        print("◆ Sessions")
+        print(f"{RELATION_DATUM} Sessions")
         print("Active: 3 session(s)")
         print()
         print(osc_link("\u2500" * 60))

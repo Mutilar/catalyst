@@ -7,7 +7,7 @@
   <line x1="48" y1="72" x2="912" y2="72" stroke="#2b2410"/>
 
   <text x="64" y="106" fill="#ffdd66" font-family="JetBrains Mono, monospace" font-size="15">● You: What is Python?</text>
-  <text x="64" y="136" fill="#7ce38b" font-family="JetBrains Mono, monospace" font-size="15">◆ Hermes: Python is a high-level programming language.</text>
+  <text x="64" y="136" fill="#7ce38b" font-family="JetBrains Mono, monospace" font-size="15">ℹ️ Hermes: Python is a high-level programming language.</text>
   <text x="64" y="166" fill="#ffdd66" font-family="JetBrains Mono, monospace" font-size="15">● You: How do I install it?</text>
-  <text x="64" y="196" fill="#7ce38b" font-family="JetBrains Mono, monospace" font-size="15">◆ Hermes: [3 tool calls: web_search, web_extract, terminal]</text>
+  <text x="64" y="196" fill="#7ce38b" font-family="JetBrains Mono, monospace" font-size="15">ℹ️ Hermes: [3 tool calls: web_search, web_extract, terminal]</text>
 </svg>

@@ -34,11 +34,11 @@ This skill is a gateway to two open-source bioinformatics skill libraries. Inste
 
 ## Sources
 
-◆ **bioSkills** — 385 reference skills (code patterns, parameter guides, decision trees)
+ℹ️ **bioSkills** — 385 reference skills (code patterns, parameter guides, decision trees)
   Repo: https://github.com/GPTomics/bioSkills
   Format: SKILL.md per topic with code examples. Python/R/CLI.
 
-◆ **ClawBio** — 33 runnable pipeline skills (executable scripts, reproducibility bundles)
+ℹ️ **ClawBio** — 33 runnable pipeline skills (executable scripts, reproducibility bundles)
   Repo: https://github.com/ClawBio/ClawBio
   Format: Python scripts with demos. Each analysis exports report.md + commands.sh + environment.yml.
 

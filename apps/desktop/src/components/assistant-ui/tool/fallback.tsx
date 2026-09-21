@@ -329,6 +329,7 @@ function ToolEntry({ part }: ToolEntryProps) {
     () => extractToolUguiDocument(toolName, args, result),
     [args, result, toolName]
   )
+
   const [gestaltUgui, setGestaltUgui] = useState<ReturnType<typeof extractToolUguiDocument>>(null)
 
   useEffect(() => {
@@ -340,6 +341,7 @@ function ToolEntry({ part }: ToolEntryProps) {
       (!mcpToolIdentity(toolName) && !(isTerminalTool(toolName) && terminalRunsLucid(args)))
     ) {
       setGestaltUgui(null)
+
       return () => {
         cancelled = true
       }

@@ -18,6 +18,7 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
+from agent.generated.ae_glyphs import RELATION_DATUM
 
 # time-axis.ts LEAD_IN: the oldest node sits just off recency 0.
 LEAD_IN = 0.06
@@ -37,7 +38,7 @@ STYLE_DIM = "dim"
 
 # Legend glyphs mirror NODE_SHAPE (skill = circle, memory = diamond).
 SKILL_GLYPH = "●"
-MEMORY_GLYPH = "◆"
+MEMORY_GLYPH = RELATION_DATUM
 _LABEL_KEYS = tuple("123456789abc")
 
 Run = list  # [text, style, alpha, hex?]
@@ -518,15 +519,15 @@ def render_graph(payload: dict[str, Any], *, cols: int = 80, rows: int = 16, rev
             row.append([marker, STYLE_LABEL, 0.95])
         elif bucket.total:
             head_hex = cat_hex if bucket.skills else None
-            row.append(["✦" if bucket.skills else "◆", STYLE_SKILL if bucket.skills else STYLE_MEMORY, ink, head_hex])
+            row.append(["✦" if bucket.skills else RELATION_DATUM, STYLE_SKILL if bucket.skills else STYLE_MEMORY, ink, head_hex])
         if skill_len:
             # Bar colored by the day's dominant category — a learning heatmap.
             row.append(["━" * skill_len, STYLE_SKILL, ink, cat_hex])
         if memory_len:
             if memory_len == 1:
-                mem_trail = "◆"
+                mem_trail = RELATION_DATUM
             else:
-                mem_trail = "◆" + ("━" * (memory_len - 2)) + "◆"
+                mem_trail = RELATION_DATUM + ("━" * (memory_len - 2)) + RELATION_DATUM
             row.append([mem_trail, STYLE_MEMORY, max(0.65, ink)])
         if bar_len < bar_w:
             # Empty space keeps counts aligned; starmap texture lives in the

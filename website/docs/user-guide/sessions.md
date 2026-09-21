@@ -150,7 +150,7 @@ When you resume a session, Hermes displays a compact recap of the previous conve
 <p className="docs-figure-caption">Resume mode shows a compact recap panel with recent user and assistant turns before returning you to the live prompt.</p>
 
 The recap:
-- Shows **user messages** (gold `●`) and **assistant responses** (green `◆`)
+- Shows **user messages** (gold `●`) and **assistant responses** (green `ℹ️`)
 - **Truncates** long messages (300 chars for user, 200 chars / 3 lines for assistant)
 - **Collapses tool calls** to a count with tool names (e.g., `[3 tool calls: terminal, web_search]`)
 - **Hides** system messages, tool results, and internal reasoning

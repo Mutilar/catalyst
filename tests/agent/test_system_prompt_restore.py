@@ -22,6 +22,7 @@ import pytest
 
 from agent.conversation_loop import _restore_or_build_system_prompt
 from gateway.session_context import get_agent_role, reset_session_vars
+from agent.generated.ae_glyphs import RELATION_DATUM
 
 
 def _make_agent(session_db=None, prebuilt_prompt: str = "BUILT_PROMPT"):
@@ -72,7 +73,7 @@ class TestStoredPromptReuse:
 
     def test_present_row_with_unicode_preserved(self):
         """Non-ASCII bytes in the stored prompt are not mangled."""
-        stored = "Stored prompt with unicode: ☤ ⚗ ◆ — and emoji 🦊"
+        stored = f"Stored prompt with unicode: ☤ ⚗ {RELATION_DATUM} — and emoji 🦊"
         db = MagicMock()
         db.get_session.return_value = {"system_prompt": stored}
         agent = _make_agent(session_db=db)

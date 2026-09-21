@@ -15,7 +15,7 @@ describe('DialogContent geometry', () => {
       </Dialog>
     )
 
-    const dialog = document.querySelector('[data-slot="dialog-content"]')
+    const dialog = globalThis.document.querySelector('[data-slot="dialog-content"]')
 
     expect(dialog?.className).toContain('resize')
     expect(dialog?.className).toContain('max-w-[calc(100vw-2rem)]')

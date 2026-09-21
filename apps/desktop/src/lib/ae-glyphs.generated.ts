@@ -1,6 +1,6 @@
 // GENERATED from quine/canon/GLYPH.json; do not edit.
 
-const TOKENS = {"category.hats":"🎩","category.mechanisms":"🎼","delimiter.segment":" · ","hat.accessibility":"♿","hat.ai-agent":"🦾","hat.architecture":"📐","hat.cross-surface":"🌐","hat.design":"🎨","hat.observability":"📊","hat.performance":"⚡","hat.security":"🔒","hat.testability":"🧪","hat.tooling":"🔧","identity.android-shell":"📱","identity.butler":"🤖","identity.catalyst":"🚀","identity.envelope":"✉️","identity.genui":"🔮","identity.linux-shell":"🐚","identity.lucid":"🧠","identity.macos-shell":"💻","identity.maintainer-console":"🛠️","identity.marketplace":"🛍️","identity.parakeet":"🦜","identity.penguin":"🐧","identity.plexus":"🌐","identity.plexus-service":"📡","identity.plexus-service-path":"🛰️","identity.projects":"🧩","identity.quine":"🧬","identity.repo-maintenance":"🔧","identity.run":"🔥","identity.shell-host":"💻","identity.shells":"🖥️","identity.site":"🌐","identity.speech":"🎤","identity.store":"📮","identity.ugui":"🖼️","identity.windows-shell":"🪟","operation.cancel":"⛔","operation.dispatch":"🚀","operation.get":"🔎","operation.morph":"🧬","operation.set":"✏️","operation.show":"🖼️","operation.steer":"🧭","relation.action":"➡️","relation.argument":"⚙️","relation.datum":"◆","relation.evidence":"🔎","relation.noun":"🎯","relation.timing":"⏳","relation.verb":"⚡","role.butler":"🎩","role.em":"🎼","role.engineer":"🦾","role.penguin":"🐧","role.sidekick":"🧭","signal.green":"🟢","signal.pending":"⏳","signal.red":"🔴","signal.warning":"⚠️"} as const
+const TOKENS = {"category.hats":"🎩","category.mechanisms":"🎼","delimiter.segment":" · ","hat.accessibility":"♿","hat.ai-agent":"🦾","hat.architecture":"📐","hat.cross-surface":"🌐","hat.design":"🎨","hat.observability":"📊","hat.performance":"⚡","hat.security":"🔒","hat.testability":"🧪","hat.tooling":"🔧","identity.android-shell":"📱","identity.butler":"🤖","identity.catalyst":"🚀","identity.envelope":"✉️","identity.genui":"🔮","identity.keystone":"🪨","identity.linux-shell":"🐚","identity.lucid":"🧠","identity.macos-shell":"💻","identity.maintainer-console":"🛠️","identity.marketplace":"🛍️","identity.parakeet":"🦜","identity.penguin":"🐧","identity.plexus":"🌐","identity.plexus-service":"📡","identity.plexus-service-path":"🛰️","identity.projects":"🧩","identity.quine":"🧬","identity.repo-maintenance":"🔧","identity.run":"🔥","identity.shell-host":"💻","identity.shells":"🖥️","identity.site":"🌐","identity.speech":"🎤","identity.store":"📮","identity.ugui":"🖼️","identity.windows-shell":"🪟","operation.cancel":"⛔","operation.copy":"⧉","operation.dispatch":"🚀","operation.get":"🔎","operation.morph":"🧬","operation.set":"✏️","operation.show":"🖼️","operation.steer":"🧭","relation.action":"➡️","relation.argument":"⚙️","relation.datum":"ℹ️","relation.evidence":"🔎","relation.noun":"🎯","relation.timing":"⏳","relation.verb":"⚡","role.butler":"🎩","role.em":"🎼","role.engineer":"🦾","role.penguin":"🐧","role.sidekick":"🧭","signal.green":"🟢","signal.pending":"⏳","signal.red":"🔴","signal.warning":"⚠️"} as const
 const MARKER = /\[\[([a-z0-9.-]+)\]\]/g
 
 export type GlyphRole = keyof typeof TOKENS
@@ -11,7 +11,10 @@ export function glyph(role: GlyphRole): string {
 
 export function glyphText(template: string): string {
   return template.replace(MARKER, (_match, role: string) => {
-    if (!(role in TOKENS)) throw new Error(`unknown GLYPH role: ${role}`)
+    if (!(role in TOKENS)) {
+      throw new Error(`unknown GLYPH role: ${role}`)
+    }
+
     return glyph(role as GlyphRole)
   })
 }
@@ -34,6 +37,7 @@ export const IDENTITY_BUTLER = TOKENS["identity.butler"]
 export const IDENTITY_CATALYST = TOKENS["identity.catalyst"]
 export const IDENTITY_ENVELOPE = TOKENS["identity.envelope"]
 export const IDENTITY_GENUI = TOKENS["identity.genui"]
+export const IDENTITY_KEYSTONE = TOKENS["identity.keystone"]
 export const IDENTITY_LINUX_SHELL = TOKENS["identity.linux-shell"]
 export const IDENTITY_LUCID = TOKENS["identity.lucid"]
 export const IDENTITY_MACOS_SHELL = TOKENS["identity.macos-shell"]
@@ -56,6 +60,7 @@ export const IDENTITY_STORE = TOKENS["identity.store"]
 export const IDENTITY_UGUI = TOKENS["identity.ugui"]
 export const IDENTITY_WINDOWS_SHELL = TOKENS["identity.windows-shell"]
 export const OPERATION_CANCEL = TOKENS["operation.cancel"]
+export const OPERATION_COPY = TOKENS["operation.copy"]
 export const OPERATION_DISPATCH = TOKENS["operation.dispatch"]
 export const OPERATION_GET = TOKENS["operation.get"]
 export const OPERATION_MORPH = TOKENS["operation.morph"]

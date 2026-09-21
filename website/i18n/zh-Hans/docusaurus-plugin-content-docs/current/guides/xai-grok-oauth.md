@@ -87,7 +87,7 @@ Web 仪表盘和桌面应用使用相同的设备代码流程：显示验证 URL
 hermes doctor
 ```
 
-`◆ Auth Providers` 部分将显示每个 provider 的当前状态，包括 `xai-oauth`。
+`ℹ️ Auth Providers` 部分将显示每个 provider 的当前状态，包括 `xai-oauth`。
 
 ## 切换模型
 

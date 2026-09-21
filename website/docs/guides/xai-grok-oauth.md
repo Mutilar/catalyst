@@ -87,7 +87,7 @@ The same device-code flow applies when you sign in from the web dashboard or the
 hermes doctor
 ```
 
-The `◆ Auth Providers` section will show the current state of every provider, including `xai-oauth`.
+The `ℹ️ Auth Providers` section will show the current state of every provider, including `xai-oauth`.
 
 ## Switching Models
 

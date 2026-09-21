@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { MODEL_VISIBLE_TOOL_RESULT_KEY } from '@/lib/tool-presentation'
 import { canonicalGestaltStream } from '@/lib/lucid-gestalt'
+import { MODEL_VISIBLE_TOOL_RESULT_KEY } from '@/lib/tool-presentation'
 
 import { mcpModelTrace, shouldBoundToolGroup, technicalTrace, UNBOUNDABLE_TOOLS } from './fallback'
 

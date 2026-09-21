@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { getSession } from '@/hermes'
+import { glyphText } from '@/lib/ae-glyphs.generated'
 import { textPart } from '@/lib/chat-messages'
 import { $composerAttachments, $composerDraft, type ComposerAttachment, setComposerDraft } from '@/store/composer'
 import { $notifications, clearNotifications } from '@/store/notifications'
@@ -187,15 +188,7 @@ function Harness({
       submitText: (...args: Parameters<typeof actions.submitText>) =>
         act(async () => actions.submitText(...args)) as Promise<boolean>
     })
-  }, [
-    actions.cancelRun,
-    actions.restoreToMessage,
-    actions.redirectPrompt,
-    actions.steerPrompt,
-    actions.submitText,
-    activeSessionIdRef,
-    onReady
-  ])
+  }, [actions, activeSessionIdRef, onReady])
 
   return null
 }
@@ -211,7 +204,10 @@ describe('usePromptActions /title', () => {
       vi.restoreAllMocks()
     })
 
-    it.each(['🟢 · ◆ Keep literal [200~ content\n', ' 🟢 · ◆ Leading space stays significant'])('preserves byte-zero eligibility in plain prompt transport: %s', async text => {
+    it.each([
+      glyphText('[[signal.green]][[delimiter.segment]][[relation.datum]] Keep literal [200~ content\n'),
+      glyphText(' [[signal.green]][[delimiter.segment]][[relation.datum]] Leading space stays significant')
+    ])('preserves byte-zero eligibility in plain prompt transport: %s', async text => {
       const requestGateway = vi.fn(async () => ({}) as never)
       let handle: HarnessHandle | null = null
       await actRender(<Harness onReady={value => (handle = value)} refreshSessions={async () => undefined} requestGateway={requestGateway} />)
@@ -1354,9 +1350,11 @@ describe('usePromptActions submit / queue drain semantics', () => {
     )
   })
 
-  it('a normal (non-queue) submit still respects the busyRef guard', async () => {
+  it('a normal submit retries gateway contention even when the local busy ref is stale', async () => {
     const busyRef = { current: true }
+
     const requestGateway = vi.fn(async () => ({}) as never)
+      .mockRejectedValueOnce(new Error('4009: session busy'))
 
     let handle: HarnessHandle | null = null
     await actRender(
@@ -1368,10 +1366,20 @@ describe('usePromptActions submit / queue drain semantics', () => {
       />
     )
 
-    const accepted = await handle!.submitText('should be blocked')
+    const accepted = await handle!.submitText('send after settling')
 
-    expect(accepted).toBe(false)
-    expect(requestGateway).not.toHaveBeenCalledWith('prompt.submit', expect.anything())
+    expect(accepted).toBe(true)
+    expect(requestGateway).toHaveBeenCalledTimes(2)
+    expect(requestGateway.mock.calls[0]).toEqual(requestGateway.mock.calls[1])
+    expect(requestGateway).toHaveBeenCalledWith(
+      'prompt.submit',
+      {
+        session_id: RUNTIME_SESSION_ID,
+        text: 'send after settling',
+        submission_id: expect.any(String)
+      },
+      1_800_000
+    )
   })
 })
 

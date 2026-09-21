@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComposerAttachment } from '@/store/composer'
 
 import { requestComposerSubmit } from '../focus'
+
 import { useComposerSubmit } from './use-composer-submit'
 
 interface SubmitHarnessOptions {
@@ -20,7 +21,7 @@ function renderSubmitHook({
   text = ''
 }: SubmitHarnessOptions = {}) {
   const draftRef = { current: text }
-  const editor = document.createElement('div')
+  const editor = globalThis.document.createElement('div')
   editor.dataset.slot = 'composer-rich-input'
   editor.textContent = text
   const editorRef = { current: editor }
@@ -75,6 +76,7 @@ describe('useComposerSubmit busy-turn routing', () => {
     const { onSubmit, onSteer } = renderSubmitHook({
       attachments: [{ id: 'draft-file', kind: 'file', label: 'notes.txt' }], text: 'unrelated draft'
     })
+
     const original = '  checking testing\n\n'
     const penguinRecovery = { submission_id: 'failed-submission', action: 'bypass' as const }
     act(() => requestComposerSubmit(original, { target: 'main', penguinRecovery }))

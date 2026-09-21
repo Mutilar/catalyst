@@ -98,7 +98,7 @@ def test_grid_runs_are_text_style_alpha():
 def test_bars_render_skills_and_memories():
     frame = render.render_graph(_payload(skills=10, memories=4), cols=72, rows=18, reveal=1.0)
     flat = _flatten(frame["grid"])
-    # Skills draw as comet trails (━), memories anchor on diamonds (◆).
+    # Skills draw as comet trails (━), memories use canonical datum markers.
     assert "━" in flat
     assert render.MEMORY_GLYPH in flat
     styles = _styles(frame["grid"])

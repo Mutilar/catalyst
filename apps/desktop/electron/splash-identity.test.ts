@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { readSplashIdentity } from './splash-identity'
@@ -8,10 +9,12 @@ import { readSplashIdentity } from './splash-identity'
 describe('read-only WITNESS splash identity', () => {
   let root: string
   const decision = { schema: 'lucid-host-role-decision/1', role: 'WITNESS', witness_alias: 'brianhu', witness_glyph: '🐧' }
+
   function write(relative: string, text: string) {
     fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true })
     fs.writeFileSync(path.join(root, relative), text)
   }
+
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'splash-identity-'))
     write('run/state/runtime/lucid-host-role.json', JSON.stringify(decision))
@@ -30,10 +33,12 @@ describe('read-only WITNESS splash identity', () => {
   })
   it('rejects missing, oversized, malformed, and symlinked decisions', () => {
     const target = path.join(root, 'run/state/runtime/lucid-host-role.json')
+
     for (const text of ['{', ' '.repeat(4097)]) {
       fs.writeFileSync(target, text)
       expect(readSplashIdentity(path.join(root, 'catalyst'))).toBeNull()
     }
+
     fs.unlinkSync(target)
     expect(readSplashIdentity(path.join(root, 'catalyst'))).toBeNull()
     write('other.json', JSON.stringify(decision))

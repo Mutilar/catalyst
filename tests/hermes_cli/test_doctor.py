@@ -281,7 +281,7 @@ def test_check_gateway_service_linger_skips_when_service_not_installed(monkeypat
 
 
 class TestDoctorMemoryProviderSection:
-    """The ◆ Memory Provider section should respect memory.provider config."""
+    """The Memory Provider section should respect memory.provider config."""
 
     def _make_hermes_home(self, tmp_path, provider=""):
         """Create a minimal HERMES_HOME with config.yaml."""
@@ -1087,12 +1087,12 @@ class TestHasHealthyOauthFallbackForXai:
 
 
 # ---------------------------------------------------------------------------
-# ◆ Auth Providers — xAI OAuth display in run_doctor()
+# Auth Providers — xAI OAuth display in run_doctor()
 # ---------------------------------------------------------------------------
 
 
 class TestDoctorXaiOAuthStatus:
-    """The ◆ Auth Providers section must show xAI OAuth login state.
+    """The Auth Providers section must show xAI OAuth login state.
 
     xAI OAuth is checked in a *separate* try/except block so that an import
     failure (or runtime exception) cannot silence the Nous / Codex / Gemini /
@@ -1201,7 +1201,7 @@ class TestDoctorXaiOAuthStatus:
         with contextlib.redirect_stdout(buf):
             doctor_mod.run_doctor(Namespace(fix=False))
         out = buf.getvalue()
-        # The ◆ Auth Providers header must still appear — other providers unaffected.
+        # The Auth Providers header must still appear — other providers unaffected.
         assert "Auth Providers" in out
 
     def test_import_failure_does_not_affect_other_providers(self, monkeypatch, tmp_path):
@@ -1252,7 +1252,7 @@ class TestDoctorXaiOAuthStatus:
 
 
 # ---------------------------------------------------------------------------
-# ◆ Auth Providers — codex CLI import hint placement (issue #27975)
+# Auth Providers — codex CLI import hint placement (issue #27975)
 # ---------------------------------------------------------------------------
 
 

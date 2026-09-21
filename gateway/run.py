@@ -14,7 +14,6 @@ Usage:
 """
 from agent.generated.ae_glyphs import RELATION_ARGUMENT
 from agent.generated.ae_glyphs import OPERATION_CANCEL
-from agent.generated.ae_glyphs import RELATION_DATUM
 from agent.generated.ae_glyphs import HAT_PERFORMANCE, SIGNAL_PENDING, SIGNAL_WARNING
 
 # IMPORTANT: hermes_bootstrap must be the very first import — UTF-8 stdio
@@ -62,6 +61,7 @@ from agent.conversation_loop import INTERRUPT_WAITING_FOR_MODEL_PREFIX
 from agent.i18n import t
 from hermes_cli.config import cfg_get
 from hermes_cli.fallback_config import get_fallback_chain
+from agent.generated.ae_glyphs import RELATION_DATUM
 
 # --- Agent cache tuning ---------------------------------------------------
 # Bounds the per-session AIAgent cache to prevent unbounded growth in
@@ -13349,7 +13349,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
                                         _aux_model = getattr(_comp, "_last_aux_model_failure_model", "")
                                         _aux_err = getattr(_comp, "_last_aux_model_failure_error", None) or "unknown error"
                                         _aux_msg = (
-                                            f"ℹ️ Configured compression model `{_aux_model}` "
+                                            f"{RELATION_DATUM} Configured compression model `{_aux_model}` "
                                             f"failed ({_aux_err}). Recovered using your main "
                                             "model — context is intact — but you may want to "
                                             "check `auxiliary.compression.model` in config.yaml."
@@ -16351,7 +16351,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewaySlashCommandsMixin):
             result = await execute()
             if choice == "always":
                 note = (
-                    "\n\nℹ️ Future /clear, /new, /reset, and /undo will run "
+                    f"\n\n{RELATION_DATUM} Future /clear, /new, /reset, and /undo will run "
                     "without confirmation. Re-enable via "
                     "`approvals.destructive_slash_confirm: true` in config.yaml."
                 )

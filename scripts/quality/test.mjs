@@ -30,6 +30,9 @@ const python = execute('uv', [
   '--project',
   'catalyst',
   '--frozen',
+  '--offline',
+  '--extra',
+  'dev',
   'pytest',
   'catalyst/tests',
   '-q'

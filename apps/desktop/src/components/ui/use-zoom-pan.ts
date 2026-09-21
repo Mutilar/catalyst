@@ -55,9 +55,11 @@ export function useZoomPan(surfaceRef: RefObject<HTMLElement | null>) {
       }
 
       const rect = surfaceRef.current?.getBoundingClientRect()
+
       if (!rect) {
         return
       }
+
       const cx = event.clientX - rect.left - rect.width / 2
       const cy = event.clientY - rect.top - rect.height / 2
 
@@ -68,9 +70,11 @@ export function useZoomPan(surfaceRef: RefObject<HTMLElement | null>) {
 
   useEffect(() => {
     const surface = surfaceRef.current
+
     if (!surface) {
       return
     }
+
     surface.addEventListener('wheel', onWheel, { passive: false })
 
     return () => surface.removeEventListener('wheel', onWheel)

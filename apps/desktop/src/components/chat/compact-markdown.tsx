@@ -30,8 +30,9 @@ const TAG_CLASSES = {
 function tagged<T extends keyof typeof TAG_CLASSES>(Tag: T) {
   const Component = (({ className, ...rest }: ComponentProps<T>) => {
     const Element = Tag as ElementType
+    const direction = Tag === 'ul' || Tag === 'ol' || Tag === 'blockquote' ? 'auto' : undefined
 
-    return <Element className={cn(TAG_CLASSES[Tag], className)} {...rest} />
+    return <Element className={cn(TAG_CLASSES[Tag], className)} dir={direction} {...rest} />
   }) as FC<ComponentProps<T>>
 
   Component.displayName = `Md.${Tag}`
@@ -64,6 +65,7 @@ function MarkdownCode({ className, ...rest }: ComponentProps<'code'>) {
   return (
     <code
       className={cn('rounded bg-muted/80 px-1 py-px font-mono text-[0.86em] text-muted-foreground', className)}
+      dir="ltr"
       {...rest}
     />
   )
@@ -96,6 +98,7 @@ const COMPONENTS = {
   ol: tagged('ol'),
   p: tagged('p'),
   pre: tagged('pre'),
+  strong: 'strong' as const,
   table: MarkdownTable,
   td: tagged('td'),
   th: tagged('th'),

@@ -90,7 +90,7 @@ Token refresh (standard OAuth `refresh_token` grant) runs automatically at each 
 hermes doctor
 ```
 
-The `◆ Auth Providers` section will show:
+The `ℹ️ Auth Providers` section will show:
 
 ```
 ✓ MiniMax OAuth  (logged in, region=global)

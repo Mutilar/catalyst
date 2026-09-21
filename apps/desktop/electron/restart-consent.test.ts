@@ -15,11 +15,13 @@ const roots: string[] = []
 function root() {
   const value = fs.mkdtempSync(path.join(os.tmpdir(), 'catalyst-restart-consent-'))
   roots.push(value)
+
   return value
 }
 
 function publishIntent(repoRoot: string, byte = 'a', state: 'deferred' | 'pending' = 'pending') {
   const digest = byte.repeat(64)
+
   const intent = {
     schema: RESTART_INTENT_SCHEMA,
     child_id: 'catalyst',
@@ -30,9 +32,11 @@ function publishIntent(repoRoot: string, byte = 'a', state: 'deferred' | 'pendin
     owner: 'RUN',
     observed_epoch_ms: 42
   }
+
   const directory = path.join(repoRoot, 'run/state/runtime')
   fs.mkdirSync(directory, { recursive: true })
   fs.writeFileSync(path.join(directory, 'catalyst-restart-intent.json'), JSON.stringify(intent))
+
   return intent
 }
 
@@ -74,6 +78,7 @@ describe('Catalyst restart consent bridge', () => {
         'utf8'
       )
     )
+
     expect(decision).toMatchObject({
       action: 'defer',
       generation_hash: intent.generation_hash,

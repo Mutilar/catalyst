@@ -39,6 +39,20 @@ def test_code_block_without_box_chars_is_not_wrapped(gen_module):
     assert "pip install foo" in result
 
 
+def test_datum_projection_preserves_translations_and_geometric_examples(gen_module):
+    retired = chr(0x25C6)
+    current = chr(0x2139) + chr(0xFE0F)
+    registry = {
+        "active_profile": "canonical",
+        "profiles": {"canonical": {"tokens": {"relation.datum": current}}},
+        "bindings": {"retired_tokens": {retired: "relation.datum"}},
+    }
+    source = f"{retired} **配置**\n> {retired} Translation stays exact\nSymbols: `{retired} ◇`\n"
+    expected = f"{current} **配置**\n> {current} Translation stays exact\nSymbols: `{retired} ◇`\n"
+    assert gen_module.project_datum_markers(source, registry) == expected
+    assert gen_module.project_datum_markers(expected, registry) == expected
+
+
 def test_code_block_with_box_chars_gets_wrapped(gen_module):
     """A code fence containing Unicode box-drawing chars must be wrapped in
     ascii-guard-ignore comments so the docs-site-checks lint can't fail on

@@ -34,11 +34,11 @@ description: "来自 bioSkills 和 ClawBio 的 400+ 生物信息学技能网关"
 
 ## 来源
 
-◆ **bioSkills** — 385 个参考技能（代码模式、参数指南、决策树）
+ℹ️ **bioSkills** — 385 个参考技能（代码模式、参数指南、决策树）
   仓库：https://github.com/GPTomics/bioSkills
   格式：每个主题一个 SKILL.md，含代码示例。支持 Python/R/CLI。
 
-◆ **ClawBio** — 33 个可运行的流程技能（可执行脚本、可复现性包）
+ℹ️ **ClawBio** — 33 个可运行的流程技能（可执行脚本、可复现性包）
   仓库：https://github.com/ClawBio/ClawBio
   格式：带演示的 Python 脚本。每次分析导出 report.md + commands.sh + environment.yml。
 

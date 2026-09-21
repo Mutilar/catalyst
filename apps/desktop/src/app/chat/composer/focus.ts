@@ -10,8 +10,9 @@
  * steal focus from the composer effect.
  */
 
-import type { InlineRefInput } from './inline-refs'
 import type { SubmitTextOptions } from '@/app/session/hooks/use-prompt-actions/utils'
+
+import type { InlineRefInput } from './inline-refs'
 import { RICH_INPUT_SLOT } from './rich-editor'
 
 /** Composer routing key. The main chat is `'main'`, the edit composer

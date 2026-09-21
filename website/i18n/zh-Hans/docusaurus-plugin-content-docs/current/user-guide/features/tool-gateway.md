@@ -140,7 +140,7 @@ hermes status
 **Nous Tool Gateway** 小节示例：
 
 ```
-◆ Nous Tool Gateway
+ℹ️ Nous Tool Gateway
   Nous Portal   ✓ managed tools available
   Web tools       ✓ active via Nous subscription
   Image gen       ✓ active via Nous subscription

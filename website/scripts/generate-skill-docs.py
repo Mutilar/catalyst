@@ -13,6 +13,7 @@ Sidebar is updated to nest all per-skill pages under Skills → Bundled / Option
 """
 
 from __future__ import annotations
+import json
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -732,6 +733,38 @@ def write_sidebar(entries):
     print(f"Updated sidebar: {sidebar_path}")
 
 
+def project_datum_markers(source: str, registry: dict[str, Any]) -> str:
+    current = registry["profiles"][registry["active_profile"]]["tokens"]["relation.datum"]
+    for retired, role in registry.get("bindings", {}).get("retired_tokens", {}).items():
+        if role == "relation.datum":
+            source = re.sub(
+                r"^([ \t>]*)(?:" + re.escape(retired) + r")(?=[ \t])",
+                lambda match: match[1] + current,
+                source,
+                flags=re.MULTILINE,
+            )
+    return source
+
+
+def refresh_localized_datum_markers() -> int:
+    registry_path = REPO.parent / "quine/canon/GLYPH.json"
+    if not registry_path.is_file():
+        return 0
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    changed = 0
+    for path in sorted((REPO / "website/i18n").glob(
+        "*/docusaurus-plugin-content-docs/current/user-guide/skills/**/*.md"
+    )):
+        source = path.read_text(encoding="utf-8")
+        if "auto-generated from the skill's SKILL.md by website/scripts/generate-skill-docs.py" not in source:
+            continue
+        projected = project_datum_markers(source, registry)
+        if projected != source:
+            path.write_text(projected, encoding="utf-8")
+            changed += 1
+    return changed
+
+
 def main():
     entries = discover_skills()
     print(f"Discovered {len(entries)} skills")
@@ -767,6 +800,7 @@ def main():
 
     # Update sidebar
     write_sidebar(entries)
+    print(f"Updated datum markers in {refresh_localized_datum_markers()} localized skill pages")
 
 
 if __name__ == "__main__":

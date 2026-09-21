@@ -26,6 +26,7 @@ from plugins.teams_pipeline.subscriptions import (
     maintain_graph_subscriptions,
 )
 from tools.microsoft_graph_auth import MicrosoftGraphConfigError, MicrosoftGraphTokenProvider
+from agent.generated.ae_glyphs import RELATION_DATUM
 
 
 def register_cli(subparser: argparse.ArgumentParser) -> None:
@@ -267,7 +268,7 @@ def _cmd_list(args) -> None:
     print(f"\n{len(jobs)} Teams pipeline job(s):\n")
     for job in jobs:
         meeting_id = ((job.get("meeting_ref") or {}).get("meeting_id") or "unknown")
-        print(f"  ◆ {job.get('job_id')}")
+        print(f"  {RELATION_DATUM} {job.get('job_id')}")
         print(f"    status: {job.get('status')}")
         print(f"    meeting: {meeting_id}")
         if job.get("selected_artifact_strategy"):
@@ -358,7 +359,7 @@ def _cmd_subscriptions(args) -> None:
 
     print(f"\n{len(subscriptions)} Microsoft Graph subscription(s):\n")
     for sub in subscriptions:
-        print(f"  ◆ {sub.get('id') or 'unknown'}")
+        print(f"  {RELATION_DATUM} {sub.get('id') or 'unknown'}")
         print(f"    resource: {sub.get('resource') or 'unknown'}")
         print(f"    changeType: {sub.get('changeType') or 'unknown'}")
         if sub.get("expirationDateTime"):

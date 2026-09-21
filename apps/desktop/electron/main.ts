@@ -101,8 +101,6 @@ import {
   reviewUnstage
 } from './git-review-ops'
 import { gitRootForIpc } from './git-root'
-import { decideCatalystRestart, readCatalystRestartIntent } from './restart-consent'
-import { readSplashIdentity } from './splash-identity'
 import {
   addWorktree,
   cleanupManagedWorktree,
@@ -138,6 +136,7 @@ import { decideProfileDeleteAction, profileNameFromDeleteRequest, resolveRoutePr
 import { resolveRebuiltMacBundle } from './rebuilt-bundle'
 import * as remoteLifecycle from './remote-lifecycle'
 import { RemoteLivenessTracker, RemoteRevalidationCoordinator, revalidateRemoteConnection } from './remote-liveness'
+import { decideCatalystRestart, readCatalystRestartIntent } from './restart-consent'
 import {
   buildSessionWindowUrl,
   chatWindowWebPreferences,
@@ -147,6 +146,7 @@ import {
   SESSION_WINDOW_MIN_WIDTH
 } from './session-windows'
 import { ensureSpawnHelperExecutable } from './spawn-helper-perms'
+import { readSplashIdentity } from './splash-identity'
 import { createBootstrapCoordinator, sshConfigFingerprint } from './ssh-bootstrap-coordinator'
 import { collectSshConfigHosts, parseSshGOutput } from './ssh-config'
 import {
@@ -3543,6 +3543,7 @@ function resolveHermesBackend(backendArgs) {
   //    checkout. Honour it as-is (no bootstrap; the user is driving).
   const overrideRoot = process.env.HERMES_DESKTOP_HERMES_ROOT && path.resolve(process.env.HERMES_DESKTOP_HERMES_ROOT)
   const overrideSourceVenv = overrideRoot && path.join(overrideRoot, '.venv')
+
   const overrideVenvRoot =
     overrideSourceVenv && fileExists(getVenvPython(overrideSourceVenv)) ? overrideSourceVenv : VENV_ROOT
 
@@ -8001,9 +8002,11 @@ async function startHermes() {
 
     hermesProcess.stdout.on('data', rememberLog)
     hermesProcess.stderr.on('data', rememberLog)
+
     const forwardSemanticObservation = createSemanticObservationForwarder(line => {
       process.stderr.write(line)
     })
+
     hermesProcess.stderr.on('data', forwardSemanticObservation)
     let backendReady = false
     let rejectBackendStart = null

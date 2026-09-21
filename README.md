@@ -5,9 +5,9 @@ Catalyst is the desktop executive shell that packages Hermes Agent, hosts Electr
 
 ## 🚀 What you can do
 
-- ◆ Provide one cross-platform CLI, gateway, TUI, web, and desktop experience over the Hermes Agent core.
-- ◆ Preserve durable conversation, model, profile, history, and UI identity while workers recycle across source and Butler runtime generations.
-- ◆ Carry explicit LUCID role selection and bounded semantic intents across the desktop-to-Butler boundary.
+- ℹ️ Provide one cross-platform CLI, gateway, TUI, web, and desktop experience over the Hermes Agent core.
+- ℹ️ Preserve durable conversation, model, profile, history, and UI identity while workers recycle across source and Butler runtime generations.
+- ℹ️ Carry explicit LUCID role selection and bounded semantic intents across the desktop-to-Butler boundary.
 
 ## 🔒 Contract
 

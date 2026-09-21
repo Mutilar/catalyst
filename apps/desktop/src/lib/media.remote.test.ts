@@ -173,6 +173,7 @@ describe('resolveUguiMediaReference', () => {
         'UGUI media reference is not an admitted screen artifact'
       )
     }
+
     await expect(
       resolveUguiMediaReference('artifact://screen/screen-123.preview.png')
     ).rejects.toThrow('Screen artifact resolver returned an invalid image')

@@ -32,8 +32,8 @@ Notion API + ntn CLI：页面、数据库、Markdown、Workers。
 
 通过两种方式与 Notion 交互。两种方式使用同一个集成 token——根据可用情况选择。
 
-◆ **`ntn` CLI** — Notion 官方 CLI。语法更简洁，支持单行文件上传，Workers 必须使用此方式。截至 2026 年 5 月仅支持 macOS + Linux（Windows 支持"即将推出"）。**已安装时为默认方式。**
-◆ **HTTP + curl** — 全平台可用，包括 Windows。**`ntn` 未安装时的默认回退方式。**
+ℹ️ **`ntn` CLI** — Notion 官方 CLI。语法更简洁，支持单行文件上传，Workers 必须使用此方式。截至 2026 年 5 月仅支持 macOS + Linux（Windows 支持"即将推出"）。**已安装时为默认方式。**
+ℹ️ **HTTP + curl** — 全平台可用，包括 Windows。**`ntn` 未安装时的默认回退方式。**
 
 ## 配置
 

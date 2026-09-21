@@ -9,6 +9,7 @@ from hermes_gestalt import canonical_stream, parse_stream
 from agent.generated import ae_glyphs as glyph
 from agent.generated.ae_glyphs import SIGNAL_GREEN, SIGNAL_PENDING
 from tui_gateway.lucid_traversal import Traversal, MAX_STEPS
+from agent.generated.ae_glyphs import RELATION_DATUM
 
 
 SUBMISSION = "submission-000000000001"
@@ -791,7 +792,7 @@ def test_semantic_output_cannot_select_direct_execution(response):
 
 
 def test_table_only_gestalt_does_not_require_an_invented_routing_label():
-    response = '| ◆ | Meaning |\n|---|---|\n| 🔎 | Compare the options |'
+    response = f'| {RELATION_DATUM} | Meaning |\n|---|---|\n| 🔎 | Compare the options |'
     result = prompt_intent.decode_preparation("Compare options", response, ROOT)
     assert result == {"classification": "semantic", "gestalt": response}
 

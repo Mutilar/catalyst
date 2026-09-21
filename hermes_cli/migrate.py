@@ -11,6 +11,7 @@ from typing import Any
 
 from hermes_cli.colors import Colors, color
 from hermes_cli.config import load_config
+from agent.generated.ae_glyphs import RELATION_DATUM
 
 
 def cmd_migrate(args: Any) -> int:
@@ -41,7 +42,7 @@ def cmd_migrate_xai(args: Any) -> int:
 
     print()
     print(color(
-        f"◆ xAI Model Retirement Migration ({RETIREMENT_DATE})",
+        f"{RELATION_DATUM} xAI Model Retirement Migration ({RETIREMENT_DATE})",
         Colors.CYAN, Colors.BOLD,
     ))
     print()

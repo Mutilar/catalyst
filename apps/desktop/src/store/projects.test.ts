@@ -133,6 +133,14 @@ describe('projectNameForCwd', () => {
     expect(projectNameForCwd('/repos/website/src/app')).toBe('Website')
   })
 
+  it('uses the observed tree when the current store has changed', () => {
+    const observed = [treeNode({ id: 'p_web', label: 'Observed', path: '/repos/website' })]
+    $projectTree.set([treeNode({ id: 'p_web', label: 'Current', path: '/repos/website' })])
+
+    expect(projectNameForCwd('/repos/website/src', observed)).toBe('Observed')
+    expect(projectNameForCwd('/repos/website/src')).toBe('Current')
+  })
+
   it('matches nested repo and worktree paths, not just the project root', () => {
     $projectTree.set([
       treeNode({

@@ -94,6 +94,7 @@ const witnessDirectEnvironment = {
   AE_WITNESS_DIRECT_ENDPOINT: process.env.AE_WITNESS_DIRECT_ENDPOINT,
   AE_WITNESS_DIRECT_TOKEN: process.env.AE_WITNESS_DIRECT_TOKEN
 }
+
 delete process.env.AE_WITNESS_DIRECT_ENDPOINT
 delete process.env.AE_WITNESS_DIRECT_TOKEN
 
@@ -104,7 +105,7 @@ function buildDesktopBackendEnv({
   currentEnv = process.env,
   platform = process.platform,
   pathModule = pathModuleForPlatform(platform)
-}: any = {}) {
+}: any = {}): NodeJS.ProcessEnv {
   const delimiter = delimiterForPlatform(platform)
   const currentPythonPath = currentEnv?.PYTHONPATH || ''
   const key = pathEnvKey(currentEnv, platform)

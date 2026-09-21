@@ -3,7 +3,6 @@ import { type ComponentProps, memo, useCallback, useEffect, useState } from 'rea
 
 import { requestComposerSubmit } from '@/app/chat/composer/focus'
 import { useComposerScope } from '@/app/chat/composer/scope'
-
 import { McpUguiDocument } from '@/components/assistant-ui/tool/mcp-ugui'
 import { Button } from '@/components/ui/button'
 import { Loader } from '@/components/ui/loader'
@@ -36,14 +35,17 @@ interface UguiTextContentProps {
 export function UguiTextContent({ text, isRunning, containerClassName, containerProps, copyText, allowContinuations = true, onContinuation }: UguiTextContentProps) {
   const { t } = useI18n()
   const { target } = useComposerScope()
+
   const submitContinuation = useCallback((prompt: string) => {
     requestComposerSubmit(prompt, { target })
   }, [target])
+
   const [projection, setProjection] = useState<Projection | null>(null)
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let cancelled = false
+
     const project = () => {
       void projectConversationText(text, isRunning).then(
         result => {
@@ -57,10 +59,14 @@ export function UguiTextContent({ text, isRunning, containerClassName, container
         }
       )
     }
+
     const frame = isRunning ? requestAnimationFrame(project) : null
+
     if (!isRunning) {project()}
+
     return () => {
       cancelled = true
+
       if (frame !== null) {cancelAnimationFrame(frame)}
     }
   }, [text, isRunning, attempt])
@@ -69,6 +75,7 @@ export function UguiTextContent({ text, isRunning, containerClassName, container
   // text must not display a previous message's document, even before effects run.
   const current = projection && text.startsWith(projection.source) ? projection : null
   const error = current?.source === text ? current.error : null
+
   const failure: Document = {
     schema: 'lucid-ugui-response/1', id: 'conversation.projection.error', type: 'document',
     header: [], actions: [],
@@ -85,7 +92,7 @@ export function UguiTextContent({ text, isRunning, containerClassName, container
           <Button onClick={() => setAttempt(value => value + 1)} size="xs" variant="text">{t.common.retry}</Button>
         </>
       ) : current?.documents ? current.documents.map(document => (
-        <ParagraphDocument document={document} key={document.id} copyText={copyText} onContinuation={allowContinuations ? onContinuation ?? submitContinuation : undefined} />
+        <ParagraphDocument copyText={copyText} document={document} key={document.id} onContinuation={allowContinuations ? onContinuation ?? submitContinuation : undefined} />
       )) : <Loader label={t.common.loading} />}
     </div>
   )
@@ -101,5 +108,6 @@ const ParagraphDocument = memo(function ParagraphDocument({ document, onContinua
 
 export const UguiText = memo(function UguiText() {
   const { text, status } = useMessagePartText()
+
   return <UguiTextContent isRunning={status.type === 'running'} text={text} />
 })

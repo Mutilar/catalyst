@@ -14,6 +14,7 @@ from hermes_cli.config import get_project_root, get_hermes_home, get_env_path
 from hermes_cli.env_loader import load_hermes_dotenv
 from hermes_constants import display_hermes_home
 from hermes_constants import agent_browser_runnable
+from agent.generated.ae_glyphs import RELATION_DATUM
 
 PROJECT_ROOT = get_project_root()
 HERMES_HOME = get_hermes_home()
@@ -190,9 +191,9 @@ def check_info(text: str):
 
 
 def _section(title: str) -> None:
-    """Print a doctor section banner: blank line + bold cyan ◆ title."""
+    """Print a doctor section banner with the canonical datum marker."""
     print()
-    print(color(f"◆ {title}", Colors.CYAN, Colors.BOLD))
+    print(color(f"{RELATION_DATUM} {title}", Colors.CYAN, Colors.BOLD))
 
 
 def _fail_and_issue(text: str, detail: str, fix: str, issues: list[str]) -> None:

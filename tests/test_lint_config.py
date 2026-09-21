@@ -18,7 +18,9 @@ opens and we're back to the original Windows-regression trap.
 
 from __future__ import annotations
 
+import json
 import pathlib
+import subprocess
 
 import pytest
 
@@ -112,3 +114,119 @@ class TestLintWorkflow:
             pytest.fail(f"lint.yml is not valid YAML: {exc}")
         assert isinstance(parsed, dict)
         assert "jobs" in parsed
+
+
+QUALITY_ADAPTER_PROBE = r"""
+import assert from 'node:assert/strict'
+import childProcess from 'node:child_process'
+import { syncBuiltinESMExports } from 'node:module'
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+const [adapter, repository, scenario] = process.argv.slice(1)
+const lint = path.basename(adapter) === 'lint.mjs'
+const expected = [
+    lint
+        ? ['uv', 'tool', 'run', '--offline', '--from', 'ruff==0.15.10', 'ruff', 'check', 'catalyst']
+        : ['uv', 'run', '--project', 'catalyst', '--frozen', '--offline', '--extra', 'dev',
+            'pytest', 'catalyst/tests', '-q'],
+    ['npm', '--prefix', 'catalyst/apps/desktop', 'run', lint ? 'check:lint' : 'test:ui']
+]
+const calls = []
+childProcess.spawnSync = (command, args, options) => {
+    calls.push([command, ...args])
+    assert.equal(options.cwd, repository)
+    assert.equal(options.encoding, 'utf8')
+    assert.equal(options.maxBuffer, 16 * 1024 * 1024)
+    if (calls.length === 1) {
+        if (scenario === 'python-failure') return { status: 7, stderr: 'python check failed' }
+        if (scenario === 'unavailable') return { error: { message: 'spawn uv ENOENT' } }
+        if (scenario === 'signal') return { status: null, signal: 'SIGTERM' }
+        return { status: 0, stdout: lint ? 'All checks passed!\n' : '3 passed in 0.01s\n' }
+    }
+    return {
+        status: scenario === 'desktop-failure' ? 9 : 0,
+        stdout: scenario === 'missing-summary' || lint ? '' : 'Tests  2 passed (2)\n'
+    }
+}
+syncBuiltinESMExports()
+process.on('exit', () => {
+    const early = ['python-failure', 'unavailable', 'signal'].includes(scenario)
+    assert.deepEqual(calls, expected.slice(0, early ? 1 : 2))
+})
+process.argv = [process.execPath, adapter, '--check']
+await import(pathToFileURL(adapter).href)
+"""
+
+
+def _run_quality_adapter(adapter, scenario, cwd):
+        return subprocess.run(
+                [
+                        "node", "--input-type=module", "--eval", QUALITY_ADAPTER_PROBE,
+                        str(REPO_ROOT / "scripts" / "quality" / f"{adapter}.mjs"),
+                        str(REPO_ROOT.parent), scenario,
+                ],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                check=False,
+        )
+
+
+@pytest.mark.parametrize("adapter", ["lint", "test"])
+@pytest.mark.parametrize(
+        ("scenario", "exit_code"),
+        [("success", 0), ("python-failure", 7), ("unavailable", 2),
+         ("signal", 1), ("desktop-failure", 9)],
+)
+def test_quality_adapters_select_offline_tools_and_propagate_failures(adapter, scenario, exit_code, tmp_path):
+        result = _run_quality_adapter(adapter, scenario, tmp_path)
+        assert result.returncode == exit_code, result.stdout + result.stderr
+        if adapter == "test" and scenario == "success":
+                assert "test result: ok. 5 passed; 0 failed;" in result.stdout
+        elif scenario != "success":
+                assert "test result: ok." not in result.stdout
+
+
+@pytest.mark.parametrize("adapter", ["lint", "test"])
+def test_quality_adapters_reject_missing_check_argument(adapter, tmp_path):
+        result = subprocess.run(
+                ["node", str(REPO_ROOT / "scripts" / "quality" / f"{adapter}.mjs")],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                check=False,
+        )
+        assert result.returncode == 2
+        assert "usage:" in result.stderr
+
+
+def test_quality_adapter_requires_both_test_summaries(tmp_path):
+        result = _run_quality_adapter("test", "missing-summary", tmp_path)
+        assert result.returncode == 2, result.stdout + result.stderr
+        assert "quality summary unavailable" in result.stderr
+        assert "test result: ok." not in result.stdout
+
+
+@pytest.mark.parametrize("dimension", ["lint", "test"])
+def test_quality_source_inputs_exist_and_bind_desktop_configuration(dimension):
+        spec = json.loads((REPO_ROOT / "SPEC.json").read_text(encoding="utf-8"))
+        contract = spec["quality_obligations"]["dimensions"][dimension]
+        inputs = contract["source_inputs"]
+        for source in inputs:
+                if not any(character in source for character in "*?["):
+                        assert (REPO_ROOT.parent / source).is_file(), source
+        assert "catalyst/apps/desktop/package.json" in inputs
+        assert "catalyst/apps/desktop/tsconfig*.json" in inputs
+        assert "quine/canon/IGNORE-POLICY.json" in inputs
+        if dimension == "lint":
+                assert contract["tool"] == "ruff+tsc+eslint"
+                assert set(contract["investment"]["tooling"]) == {"ruff", "tsc", "eslint"}
+                assert "catalyst/eslint.config.shared.mjs" in inputs
+                assert "catalyst/apps/desktop/eslint.config.mjs" in inputs
+        else:
+                assert contract["tool"] == "pytest+vitest"
+                assert set(contract["investment"]["tooling"]) == {"pytest", "vitest"}
+                assert "catalyst/scripts/quality/lint.mjs" in inputs
+                assert "catalyst/apps/desktop/vitest.config.ts" in inputs
+                assert "catalyst/apps/desktop/vitest.setup.ts" in inputs

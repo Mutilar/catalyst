@@ -26,7 +26,7 @@
     {
       "id": "spec.catalyst.contracts",
       "type": "data_table",
-      "heading": "◆ Contracts",
+      "heading": "ℹ️ Contracts",
       "columns": [
         "Source",
         "Contract",
@@ -72,14 +72,14 @@
   "provenance": {
     "schema": "ugui-provenance/1",
     "sourceSchema": "envelope-semantic-document/1",
-    "parentHash": "sha256:1a441db020c7d8f927ddd5711ccd4933cdaa7744d5232896c7cbe0123792667d",
+    "parentHash": "sha256:245052ff8eeb78ed4122796b2819ee0da7b2bd21ee4b85e8dd961e41b791a8b9",
     "observedEpoch": 0,
     "sourceField": "intent.args.document"
   },
   "projectionReceipt": {
     "schema": "envelope-document-projection/1",
-    "semanticHash": "sha256:1a441db020c7d8f927ddd5711ccd4933cdaa7744d5232896c7cbe0123792667d",
-    "markdownHash": "sha256:aedff4592dee9f4f2e467a2f6fd6c98938f91e5071e0be94dd0f2df9ca440319",
+    "semanticHash": "sha256:245052ff8eeb78ed4122796b2819ee0da7b2bd21ee4b85e8dd961e41b791a8b9",
+    "markdownHash": "sha256:2c8592ca40b70702865018f3a565b7bd71960ce5aa90ad92f6a6e3ef0ba3ea39",
     "sections": 4,
     "omitted": []
   }

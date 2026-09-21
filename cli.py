@@ -44,6 +44,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from agent.generated.ae_glyphs import RELATION_DATUM
 
 logger = logging.getLogger(__name__)
 
@@ -11085,7 +11086,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             return
         if event_type == "moa.aggregating":
             agg = function_name or ""
-            self._spinner_text = f"◆ aggregating ({agg})" if agg else "◆ aggregating"
+            self._spinner_text = f"{RELATION_DATUM} aggregating ({agg})" if agg else f"{RELATION_DATUM} aggregating"
             self._invalidate()
             return
 

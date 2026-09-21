@@ -10,7 +10,20 @@ import { AssistantRuntimeProvider, type ThreadMessage, useExternalStoreRuntime }
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import type * as UguiEngine from '@/lib/ugui-engine'
+
 import { Thread } from '.'
+
+vi.mock('@/lib/ugui-engine', async importOriginal => {
+  const actual = await importOriginal<typeof UguiEngine>()
+  const { projectPackagedConversationText } = await import('../../../../vitest.setup')
+
+  return {
+    ...actual,
+    projectConversationText: async (source: string, running: boolean) =>
+      actual.parseConversationProjection(projectPackagedConversationText(source, running), source)
+  }
+})
 
 const createdAt = new Date('2026-06-01T00:00:00.000Z')
 

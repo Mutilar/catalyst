@@ -258,11 +258,11 @@ Auto-detects CPU count, RAM, platform, ffmpeg. Adapts worker count, resolution, 
 
 ## Requirements
 
-◆ Python 3.10+
-◆ NumPy, Pillow, SciPy (audio modes)
-◆ ffmpeg on PATH
-◆ A monospace font (Menlo, Courier, Monaco, auto-detected)
-◆ Optional: OpenCV, ElevenLabs API key (TTS mode)
+ℹ️ Python 3.10+
+ℹ️ NumPy, Pillow, SciPy (audio modes)
+ℹ️ ffmpeg on PATH
+ℹ️ A monospace font (Menlo, Courier, Monaco, auto-detected)
+ℹ️ Optional: OpenCV, ElevenLabs API key (TTS mode)
 
 ## File structure
 

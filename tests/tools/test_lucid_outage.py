@@ -2,7 +2,6 @@ from agent.generated.ae_glyphs import IDENTITY_LUCID
 from agent.generated.ae_glyphs import IDENTITY_RUN
 from agent.generated.ae_glyphs import DELIMITER_SEGMENT
 from agent.generated.ae_glyphs import RELATION_ACTION
-from agent.generated.ae_glyphs import RELATION_DATUM
 from agent.generated.ae_glyphs import SIGNAL_WARNING
 from agent.generated.ae_glyphs import SIGNAL_RED
 from agent.generated.ae_glyphs import SIGNAL_GREEN
@@ -15,6 +14,7 @@ import pytest
 from tools import lucid_outage
 
 from hermes_gestalt import canonical_stream, parse_stream, semantic_action
+from agent.generated.ae_glyphs import RELATION_DATUM
 
 
 _GESTALT_ROOT = Path(__file__).parents[3]

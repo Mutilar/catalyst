@@ -22,9 +22,9 @@
       "heading": "🚀 What you can do",
       "ordered": false,
       "items": [
-        "◆ Provide one cross-platform CLI, gateway, TUI, web, and desktop experience over the Hermes Agent core.",
-        "◆ Preserve durable conversation, model, profile, history, and UI identity while workers recycle across source and Butler runtime generations.",
-        "◆ Carry explicit LUCID role selection and bounded semantic intents across the desktop-to-Butler boundary."
+        "ℹ️ Provide one cross-platform CLI, gateway, TUI, web, and desktop experience over the Hermes Agent core.",
+        "ℹ️ Preserve durable conversation, model, profile, history, and UI identity while workers recycle across source and Butler runtime generations.",
+        "ℹ️ Carry explicit LUCID role selection and bounded semantic intents across the desktop-to-Butler boundary."
       ],
       "semanticKind": "list"
     },
@@ -102,14 +102,14 @@
   "provenance": {
     "schema": "ugui-provenance/1",
     "sourceSchema": "envelope-semantic-document/1",
-    "parentHash": "sha256:859f60d30e450e46077b0e6b0e7df77efa041736be307e8113ca4b2ae90d2013",
+    "parentHash": "sha256:c84c7956111da1255402967786f132045dfe6df929cd18653f5b98e46183b74b",
     "observedEpoch": 0,
     "sourceField": "intent.args.document"
   },
   "projectionReceipt": {
     "schema": "envelope-document-projection/1",
-    "semanticHash": "sha256:859f60d30e450e46077b0e6b0e7df77efa041736be307e8113ca4b2ae90d2013",
-    "markdownHash": "sha256:0700c132cb426753b1aa9ec0e07139e8aa8032dc7bdf761039018dfdea65d6d5",
+    "semanticHash": "sha256:c84c7956111da1255402967786f132045dfe6df929cd18653f5b98e46183b74b",
+    "markdownHash": "sha256:989d5c82d7ad9d559324e45e7417d2a890a599d9abddab30b8ed0c15ef68aec6",
     "sections": 5,
     "omitted": []
   }

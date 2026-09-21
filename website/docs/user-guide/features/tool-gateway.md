@@ -68,7 +68,7 @@ hermes status             # Full system status (Tool Gateway is one section)
 `hermes portal info` shows a section like:
 
 ```
-◆ Nous Tool Gateway
+ℹ️ Nous Tool Gateway
   Nous Portal     ✓ managed tools available
   Web tools       ✓ active via Nous subscription
   Image gen       ✓ active via Nous subscription

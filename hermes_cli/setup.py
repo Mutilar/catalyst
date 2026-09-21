@@ -25,6 +25,7 @@ from hermes_cli.nous_subscription import get_nous_subscription_features
 from tools.tool_backend_helpers import managed_nous_tools_enabled
 from utils import base_url_hostname
 from hermes_constants import get_optional_skills_dir
+from agent.generated.ae_glyphs import RELATION_DATUM
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +157,7 @@ from hermes_cli.colors import Colors, color
 def print_header(title: str):
     """Print a section header."""
     print()
-    print(color(f"◆ {title}", Colors.CYAN, Colors.BOLD))
+    print(color(f"{RELATION_DATUM} {title}", Colors.CYAN, Colors.BOLD))
 
 
 from hermes_cli.cli_output import (  # noqa: E402

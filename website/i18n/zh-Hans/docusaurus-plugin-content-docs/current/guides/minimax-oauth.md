@@ -92,7 +92,7 @@ Hermes 针对 MiniMax OAuth 端点实现了 PKCE 设备码流程：
 hermes doctor
 ```
 
-`◆ Auth Providers` 部分将显示：
+`ℹ️ Auth Providers` 部分将显示：
 
 ```
 ✓ MiniMax OAuth  (logged in, region=global)

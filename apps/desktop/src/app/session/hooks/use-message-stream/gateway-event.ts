@@ -433,6 +433,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         const source = `twitch:${JSON.stringify(payload.direct_operation)}`
         updateSessionState(sessionId, state => {
           const message = { id: identity, role: 'system' as const, parts: [textPart(source)] }
+
           return {
             ...state,
             messages: state.messages.some(current => current.id === identity)

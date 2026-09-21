@@ -32,8 +32,8 @@ The following is the complete skill definition that Hermes loads when this skill
 
 Talk to Notion two ways. Same integration token works for both — pick by what's available.
 
-◆ **`ntn` CLI** — Notion's official CLI. Shorter syntax, one-line file uploads, required for Workers. macOS + Linux only as of May 2026 (Windows support "coming soon"). **Default when installed.**
-◆ **HTTP + curl** — works everywhere including Windows. **Default fallback** when `ntn` isn't installed.
+ℹ️ **`ntn` CLI** — Notion's official CLI. Shorter syntax, one-line file uploads, required for Workers. macOS + Linux only as of May 2026 (Windows support "coming soon"). **Default when installed.**
+ℹ️ **HTTP + curl** — works everywhere including Windows. **Default fallback** when `ntn` isn't installed.
 
 ## Setup
 

@@ -296,7 +296,7 @@ Environment variables:
 ```
  Profile          Model                        Gateway      Alias        Distribution
  ───────────────    ───────────────────────────    ───────────    ───────────    ────────────────────
- ◆default         claude-sonnet-4              stopped      —            —
+ ℹ️default         claude-sonnet-4              stopped      —            —
   coder           gpt-5                        stopped      coder        —
   research-bot    claude-opus-4                stopped      research-bot research-bot@1.0.0
   telemetry       claude-sonnet-4              running      telemetry    telemetry@2.3.1

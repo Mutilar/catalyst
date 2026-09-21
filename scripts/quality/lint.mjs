@@ -25,10 +25,11 @@ function execute(command, args) {
 }
 
 execute('uv', [
+  'tool',
   'run',
-  '--project',
-  'catalyst',
-  '--frozen',
+  '--offline',
+  '--from',
+  'ruff==0.15.10',
   'ruff',
   'check',
   'catalyst'

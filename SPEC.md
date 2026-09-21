@@ -7,7 +7,7 @@ Human projection of the registered JSON contract.
 
 **JSON is authority.** This page navigates it; it does not restate it.
 
-## ◆ Contracts
+## ℹ️ Contracts
 
 | Source | Contract | Scope |
 |---|---|---|

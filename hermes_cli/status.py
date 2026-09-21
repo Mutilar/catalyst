@@ -8,6 +8,7 @@ import os
 import sys
 import subprocess  # noqa: F401 — re-exported for tests that monkeypatch status.subprocess to guard against regressions
 from pathlib import Path
+from agent.generated.ae_glyphs import RELATION_DATUM
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
@@ -115,7 +116,7 @@ def show_status(args):
     # Environment
     # =========================================================================
     print()
-    print(color("◆ Environment", Colors.CYAN, Colors.BOLD))
+    print(color(f"{RELATION_DATUM} Environment", Colors.CYAN, Colors.BOLD))
     print(f"  Project:      {PROJECT_ROOT}")
     print(f"  Python:       {sys.version.split()[0]}")
 
@@ -134,7 +135,7 @@ def show_status(args):
     # API Keys
     # =========================================================================
     print()
-    print(color("◆ API Keys", Colors.CYAN, Colors.BOLD))
+    print(color(f"{RELATION_DATUM} API Keys", Colors.CYAN, Colors.BOLD))
 
     # Values may be a single env var name (str) or a tuple of alternates (first found wins).
     keys: dict[str, str | tuple[str, ...]] = {
@@ -190,7 +191,7 @@ def show_status(args):
     # Auth Providers (OAuth)
     # =========================================================================
     print()
-    print(color("◆ Auth Providers", Colors.CYAN, Colors.BOLD))
+    print(color(f"{RELATION_DATUM} Auth Providers", Colors.CYAN, Colors.BOLD))
 
     try:
         from hermes_cli.auth import (
@@ -332,7 +333,7 @@ def show_status(args):
     if managed_nous_tools_enabled():
         features = get_nous_subscription_features(config)
         print()
-        print(color("◆ Nous Tool Gateway", Colors.CYAN, Colors.BOLD))
+        print(color(f"{RELATION_DATUM} Nous Tool Gateway", Colors.CYAN, Colors.BOLD))
         if not features.nous_auth_present:
             print("  Nous Portal   ✗ not logged in")
         else:
@@ -354,7 +355,7 @@ def show_status(args):
         # Nous OAuth without entitlement, or an opaque inference key without
         # Portal account information, cannot enable the Tool Gateway.
         print()
-        print(color("◆ Nous Tool Gateway", Colors.CYAN, Colors.BOLD))
+        print(color(f"{RELATION_DATUM} Nous Tool Gateway", Colors.CYAN, Colors.BOLD))
         message = format_nous_portal_entitlement_message(
             nous_account_info,
             capability="managed web, image, TTS, STT, browser, and Modal tools",
@@ -367,7 +368,7 @@ def show_status(args):
     # API-Key Providers
     # =========================================================================
     print()
-    print(color("◆ API-Key Providers", Colors.CYAN, Colors.BOLD))
+    print(color(f"{RELATION_DATUM} API-Key Providers", Colors.CYAN, Colors.BOLD))
 
     apikey_providers = {
         "Z.AI / GLM":       ("GLM_API_KEY", "ZAI_API_KEY", "Z_AI_API_KEY"),
@@ -408,7 +409,7 @@ def show_status(args):
     # Terminal Configuration
     # =========================================================================
     print()
-    print(color("◆ Terminal Backend", Colors.CYAN, Colors.BOLD))
+    print(color(f"{RELATION_DATUM} Terminal Backend", Colors.CYAN, Colors.BOLD))
 
     terminal_cfg = config.get("terminal", {}) if isinstance(config.get("terminal"), dict) else {}
     terminal_env = os.getenv("TERMINAL_ENV", "")
@@ -435,7 +436,7 @@ def show_status(args):
     # Messaging Platforms
     # =========================================================================
     print()
-    print(color("◆ Messaging Platforms", Colors.CYAN, Colors.BOLD))
+    print(color(f"{RELATION_DATUM} Messaging Platforms", Colors.CYAN, Colors.BOLD))
 
     platforms = {
         "Telegram": ("TELEGRAM_BOT_TOKEN", "TELEGRAM_HOME_CHANNEL"),
@@ -487,7 +488,7 @@ def show_status(args):
     # Gateway Status
     # =========================================================================
     print()
-    print(color("◆ Gateway Service", Colors.CYAN, Colors.BOLD))
+    print(color(f"{RELATION_DATUM} Gateway Service", Colors.CYAN, Colors.BOLD))
 
     try:
         from hermes_cli.gateway import get_gateway_runtime_snapshot, _format_gateway_pids
@@ -523,7 +524,7 @@ def show_status(args):
     # Cron Jobs
     # =========================================================================
     print()
-    print(color("◆ Scheduled Jobs", Colors.CYAN, Colors.BOLD))
+    print(color(f"{RELATION_DATUM} Scheduled Jobs", Colors.CYAN, Colors.BOLD))
 
     jobs_file = get_hermes_home() / "cron" / "jobs.json"
     if jobs_file.exists():
@@ -545,7 +546,7 @@ def show_status(args):
     # Sessions
     # =========================================================================
     print()
-    print(color("◆ Sessions", Colors.CYAN, Colors.BOLD))
+    print(color(f"{RELATION_DATUM} Sessions", Colors.CYAN, Colors.BOLD))
 
     # Gateway session count: state.db is the source of truth (#9006);
     # fall back to sessions.json for pre-migration installs.
@@ -586,7 +587,7 @@ def show_status(args):
     # =========================================================================
     if deep:
         print()
-        print(color("◆ Deep Checks", Colors.CYAN, Colors.BOLD))
+        print(color(f"{RELATION_DATUM} Deep Checks", Colors.CYAN, Colors.BOLD))
         
         # Check OpenRouter connectivity
         openrouter_key = os.getenv("OPENROUTER_API_KEY", "")

@@ -16,6 +16,7 @@ import sys
 import time
 from functools import lru_cache
 from typing import Any, Optional
+from agent.generated.ae_glyphs import RELATION_DATUM
 
 _TITLE_COLOR = "#E8C463"
 
@@ -245,7 +246,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
         console.print("[grey62]No learning yet.[/grey62]")
         return 0
     for node in nodes:
-        glyph = "◆" if node.get("kind") == "memory" else "●"
+        glyph = RELATION_DATUM if node.get("kind") == "memory" else "●"
         date = format_date(node.get("timestamp"))
         console.print(f"[grey54]{node['id']}[/grey54]  {glyph} {node.get('label', '')}  [grey54]{date}[/grey54]")
     return 0
