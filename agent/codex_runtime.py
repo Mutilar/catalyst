@@ -692,7 +692,11 @@ def run_codex_app_server_turn(
     # return reaches us. Do NOT append again — that would duplicate.
 
     try:
-        turn = agent._codex_session.run_turn(user_input=user_message)
+        from agent.ae_role_control import native_role_control_callback
+        callback = native_role_control_callback(agent, messages)
+        turn = agent._codex_session.run_turn(
+            user_input=user_message, **({"control_callback": callback} if callback is not None else {})
+        )
     except Exception as exc:
         logger.exception("codex app-server turn failed")
         # Crash → unconditionally drop the session so the next turn

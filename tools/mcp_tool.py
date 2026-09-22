@@ -3620,6 +3620,51 @@ _HOST_CONTEXT_EXTENSION = "com.asg.lucid/host-context"
 _HOST_BOOTSTRAP_SCHEMA = "hermes-lucid-bootstrap-decision/1"
 _AGENT_ROLES = {"EM", "SIDEKICK", "BUTLER", "ENGINEER", "PENGUIN"}
 
+def role_control_host_request(params: dict, host_meta: Optional[dict] = None) -> dict:
+    """Use the negotiated private host channel; never a model tool or offline fallback."""
+    from mcp.types import Request, Result
+    from mcp.shared.exceptions import McpError
+    from anyio import BrokenResourceError, ClosedResourceError, EndOfStream
+    from datetime import timedelta
+
+    with _lock:
+        server = _servers.get("LUCID")
+    if server is None or server.session is None:
+        raise RuntimeError("role-control-host-offline")
+    capabilities = getattr(getattr(server, "initialize_result", None), "capabilities", None)
+    experimental = capabilities.get("experimental") if isinstance(capabilities, dict) else getattr(capabilities, "experimental", None)
+    contract = experimental.get("com.asg.lucid/role-control-host") if isinstance(experimental, dict) else None
+    if not isinstance(contract, dict) or contract.get("schema") != "ae-role-control-host/1":
+        raise RuntimeError("role-control-host-not-negotiated")
+    metadata = host_meta if host_meta is not None else _preferred_tool_call_meta(server)
+    context = metadata.get(_HOST_CONTEXT_EXTENSION) if isinstance(metadata, dict) else None
+    if not isinstance(context, dict) or context.get("authority") != "none" or not context.get("session_id"):
+        raise RuntimeError("role-control-host-context-unavailable")
+    if "bootstrap" in context or "_meta" in params or "localCapability" in params:
+        raise ValueError("role-control-host-authority-injection")
+    wire = dict(params)
+    wire["_meta"] = {_HOST_CONTEXT_EXTENSION: dict(context)}
+    if len(json.dumps(wire).encode("utf-8")) > 16384:
+        raise ValueError("role-control-host-request-bound")
+
+    async def send():
+        response = await server.session.send_request(
+            Request(method="role/control", params=wire),
+            Result,
+            request_read_timeout_seconds=timedelta(seconds=5),
+        )
+        return response.model_dump(by_alias=True, exclude_none=True)
+
+    try:
+        result = _run_on_mcp_loop(send, timeout=6)
+    except McpError as error:
+        raise RuntimeError("role-control-host-refused") from error
+    except (BrokenResourceError, ClosedResourceError, EndOfStream) as error:
+        raise RuntimeError("role-control-host-transport-unavailable") from error
+    if not isinstance(result, dict) or result.get("schema") != "ae-role-control-host-result/1":
+        raise RuntimeError("role-control-host-response-invalid")
+    return result
+
 
 def _bump_server_error(server_name: str) -> None:
     """Increment the consecutive-failure count for ``server_name``.
@@ -3691,16 +3736,20 @@ def _preferred_tool_call_meta(
             }
             value = arguments.get("value") if isinstance(arguments, dict) else None
             action = value.get("action") if isinstance(value, dict) else None
-            if tool_name == "set" and arguments.get("path") == "role" and action in {
-                "signin",
-                "recover",
-            }:
-                host_context["bootstrap"] = {
-                    "schema": _HOST_BOOTSTRAP_SCHEMA,
-                    "action": action,
-                    "role": role,
-                    "role_session_id": session_id,
-                }
+            if (
+                tool_name == "set"
+                and isinstance(arguments, dict)
+                and arguments.get("path") == "role"
+            ):
+                if "value" not in arguments:
+                    action = "signin"
+                if action in {"signin", "recover"}:
+                    host_context["bootstrap"] = {
+                        "schema": _HOST_BOOTSTRAP_SCHEMA,
+                        "action": action,
+                        "role": role,
+                        "role_session_id": session_id,
+                    }
             meta[_HOST_CONTEXT_EXTENSION] = host_context
     return meta or None
 

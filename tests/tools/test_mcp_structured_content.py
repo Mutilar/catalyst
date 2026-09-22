@@ -303,8 +303,19 @@ class TestStructuredContentPreservation:
 
         assert meta["com.asg.lucid/host-context"]["bootstrap"]["role"] == role
 
+    @pytest.mark.parametrize(
+        ("arguments", "action"),
+        [
+            ({"path": "role"}, "signin"),
+            (
+                {"context": "role", "path": "role", "value": {"action": "signin"}},
+                "signin",
+            ),
+            ({"path": "role", "value": {"action": "recover"}}, "recover"),
+        ],
+    )
     def test_penguin_model_session_derives_read_only_lucid_bootstrap(
-        self, _patch_mcp_server
+        self, _patch_mcp_server, arguments, action
     ):
         from gateway.session_context import (
             bind_agent_role_from_system_prompt,
@@ -336,7 +347,7 @@ class TestStructuredContentPreservation:
         meta = mcp_tool._preferred_tool_call_meta(
             server,
             "set",
-            {"path": "role", "value": {"action": "signin"}},
+            arguments,
         )
 
         assert meta["com.asg.lucid/host-context"] == {
@@ -344,7 +355,7 @@ class TestStructuredContentPreservation:
             "authority": "none",
             "bootstrap": {
                 "schema": "hermes-lucid-bootstrap-decision/1",
-                "action": "signin",
+                "action": action,
                 "role": "PENGUIN",
                 "role_session_id": "penguin-session",
             },

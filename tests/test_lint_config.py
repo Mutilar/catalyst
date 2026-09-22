@@ -153,7 +153,7 @@ childProcess.spawnSync = (command, args, options) => {
         if (scenario === 'python-failure') return { status: 7, stderr: 'python check failed' }
         if (scenario === 'unavailable') return { error: { message: 'spawn uv ENOENT' } }
         if (scenario === 'signal') return { status: null, signal: 'SIGTERM' }
-        return { status: 0, stdout: lint ? 'All checks passed!\n' : outputs.python ??
+        return { status: outputs.python_status ?? 0, stdout: lint ? 'All checks passed!\n' : outputs.python ??
             'HERMES_TEST_SUMMARY ' + JSON.stringify({
                 schema: 'hermes-test-summary/1', files: 1, completed: 1,
                 file_failures: 0, unmeasured_files: 0, passed: 3, failed: 0,
@@ -161,7 +161,7 @@ childProcess.spawnSync = (command, args, options) => {
             }) + '\n' }
     }
     return {
-        status: scenario === 'desktop-failure' ? 9 : 0,
+        status: scenario === 'desktop-failure' ? 9 : outputs.desktop_status ?? 0,
         stdout: scenario === 'missing-summary' || lint ? '' : outputs.desktop ?? 'Tests  2 passed (2)\n'
     }
 }

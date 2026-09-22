@@ -38,6 +38,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from agent.codex_responses_adapter import _summarize_user_message_for_log
+from agent.ae_role_control import apply_role_controls, RoleControlError
 from agent.conversation_compression import (
     COMPRESSION_RETRY_CONTEXT_REDUCED_STATUS_TEMPLATE,
     COMPRESSION_RETRY_MESSAGES_STATUS_TEMPLATE,
@@ -921,6 +922,7 @@ def run_conversation(
         )
 
     while (api_call_count < agent.max_iterations and agent.iteration_budget.remaining > 0) or agent._budget_grace_call:
+        apply_role_controls(agent, messages, conversation_history)
         _redirect_text = agent._drain_pending_redirect()
         if _redirect_text:
             _apply_active_turn_redirect(agent, messages, _redirect_text)
@@ -5768,6 +5770,13 @@ def run_conversation(
             
             else:
                 # No tool calls - this is the final response
+                if api_call_count < agent.max_iterations and agent.iteration_budget.remaining > 0:
+                    if apply_role_controls(agent, messages, conversation_history, candidate={
+                        "role": "assistant", "content": assistant_message.content or "",
+                        "finish_reason": "role_control_continue",
+                    }):
+                        final_response = None
+                        continue
                 final_response = assistant_message.content or ""
                 
                 # Fix: unmute output when entering the no-tool-call branch
@@ -6265,6 +6274,8 @@ def run_conversation(
                     agent._safe_print(f"🎉 Conversation completed after {api_call_count} OpenAI-compatible API call(s)")
                 break
             
+        except RoleControlError:
+            raise
         except Exception as e:
             # Phase-aware error classification. The huge outer try/except spans
             # both the actual API request and all local post-processing of the

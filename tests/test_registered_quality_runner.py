@@ -71,6 +71,51 @@ def test_registered_summary_preserves_actual_outcomes(
         assert f"test result: ok. {summary}\n" in result.stdout
 
 
+@pytest.mark.parametrize(
+    ("python_status", "python_counts", "desktop_status", "desktop", "failed"),
+    [
+        (1, {"failed": 2, "file_failures": 1}, 0, "Tests 5 passed (5)", 2),
+        (1, {"errors": 1, "file_failures": 1}, 0, "Tests 5 passed (5)", 1),
+        (0, {}, 1, "Tests 2 failed | 5 passed (7)", 2),
+        (1, {"failed": 2, "file_failures": 1}, 1, "Tests 2 failed | 5 passed (7)", 4),
+    ],
+)
+def test_complete_failures_publish_measured_counts_without_claiming_success(
+    tmp_path, python_status, python_counts, desktop_status, desktop, failed
+):
+    result = _run_quality_adapter(
+        "test",
+        "success",
+        tmp_path,
+        outputs={
+            "python": python_summary(**python_counts),
+            "python_status": python_status,
+            "desktop": desktop,
+            "desktop_status": desktop_status,
+        },
+    )
+    assert result.returncode == 1, result.stderr
+    assert f"running {12 + failed} tests\n" in result.stdout
+    assert (
+        f"test result: FAILED. 12 passed; {failed} failed; 0 ignored; "
+        "0 measured; 0 filtered out;"
+    ) in result.stdout
+    assert "test result: ok." not in result.stdout
+    assert "quality summary unavailable" not in result.stderr
+
+
+def test_unattributed_file_failure_cannot_publish_a_success_summary(tmp_path):
+    result = _run_quality_adapter(
+        "test",
+        "success",
+        tmp_path,
+        outputs={"python": python_summary(file_failures=1), "python_status": 1},
+    )
+    assert result.returncode != 0
+    assert "quality summary unavailable" in result.stderr
+    assert "test result: ok." not in result.stdout
+
+
 @pytest.mark.parametrize("unmeasured", [False, True])
 def test_native_runner_measures_complete_file_selection(tmp_path, monkeypatch, unmeasured):
     monkeypatch.setenv("PYTEST_ADDOPTS", "")

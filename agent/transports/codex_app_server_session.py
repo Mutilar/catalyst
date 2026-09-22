@@ -426,6 +426,23 @@ class CodexAppServerSession:
         accepted_turn_id = response.get("turnId") if isinstance(response, dict) else None
         return accepted_turn_id in {None, turn_id}
 
+    def request_steer_bound(self, text: str) -> None:
+        """Require explicit acknowledgement of this exact native turn for broker delivery."""
+        with self._active_turn_lock:
+            turn_id, thread_id, client = self._active_turn_id, self._thread_id, self._client
+        if self._interrupt_event.is_set() or not turn_id or not thread_id or client is None:
+            raise RuntimeError("native-control-target-unavailable")
+        try:
+            response = client.request("turn/steer", {
+                "threadId": thread_id,
+                "input": [{"type": "text", "text": text}],
+                "expectedTurnId": turn_id,
+            }, timeout=10)
+        except (CodexAppServerError, TimeoutError) as error:
+            raise RuntimeError("native-control-delivery-unknown") from error
+        if not isinstance(response, dict) or response.get("turnId") != turn_id:
+            raise RuntimeError("native-control-acknowledgement-unknown")
+
     # ---------- diagnostics ----------
 
     def _format_error_with_stderr(
@@ -474,6 +491,7 @@ class CodexAppServerSession:
         turn_timeout: float = 600.0,
         notification_poll_timeout: float = 0.25,
         post_tool_quiet_timeout: float = 90.0,
+        control_callback=None,
     ) -> TurnResult:
         """Send a user message and block until turn/completed, while
         forwarding server-initiated approval requests and projecting items
@@ -566,12 +584,17 @@ class CodexAppServerSession:
         # within post_tool_quiet_timeout and the turn hasn't completed, we
         # fast-fail and retire the session.
         last_tool_completion_at: Optional[float] = None
+        next_control_poll = 0.0
 
         while time.monotonic() < deadline and not turn_complete:
             if self._interrupt_event.is_set():
                 self._issue_interrupt(result.turn_id)
                 result.interrupted = True
                 break
+            if control_callback is not None and time.monotonic() >= next_control_poll:
+                next_control_poll = time.monotonic() + 1.0
+                if not control_callback(self):
+                    control_callback = None
 
             # Detect a dead subprocess between iterations. If codex exited
             # (e.g. crashed, segfaulted, or its auth refresh thread killed

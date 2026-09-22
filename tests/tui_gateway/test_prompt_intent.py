@@ -1030,11 +1030,12 @@ def test_missing_handoff_never_executes(monkeypatch):
         "operation": CLI_OPERATION, "refusal": "witness-handoff-unavailable", "ran": False}
 
 
-def test_direct_wire_request_has_exact_five_field_contract(monkeypatch):
+@pytest.mark.parametrize("operation", [CLI_OPERATION, {"channel": "lucid", "verb": "get", "argv": ["role"]}])
+def test_direct_wire_request_has_exact_five_field_contract(monkeypatch, operation):
     monkeypatch.setattr(prompt_intent, "_ENDPOINT", "127.0.0.1:12345")
     monkeypatch.setattr(prompt_intent, "_TOKEN", "fixture-token")
-    receipt = {"schema": "run-witness-direct/2", "submission_id": SUBMISSION,
-        "workspace": "/workspace", "operation": CLI_OPERATION, "ran": True, "exit_code": 0}
+    receipt = {"schema": "run-witness-direct/1", "submission_id": SUBMISSION,
+        "workspace": "/workspace", "operation": operation, "ran": True, "exit_code": 0}
     stream = Mock()
     connection = Mock()
     connection.__enter__ = Mock(return_value=stream)
@@ -1046,11 +1047,21 @@ def test_direct_wire_request_has_exact_five_field_contract(monkeypatch):
     file.__exit__ = Mock(return_value=False)
     stream.makefile.return_value = file
     monkeypatch.setattr(prompt_intent.socket, "create_connection", Mock(return_value=connection))
-    assert prompt_intent.execute_direct(SUBMISSION, "/workspace", CLI_OPERATION) == receipt
+    assert prompt_intent.execute_direct(SUBMISSION, "/workspace", operation) == receipt
     wire = stream.sendall.call_args.args[0]
     assert wire.endswith(b"\n")
-    assert json.loads(wire) == {"schema": "run-witness-direct/2", "submission_id": SUBMISSION,
-        "workspace": "/workspace", "operation": CLI_OPERATION, "token": "fixture-token"}
+    assert json.loads(wire) == {"schema": "run-witness-direct/1", "submission_id": SUBMISSION,
+        "workspace": "/workspace", "operation": operation, "token": "fixture-token"}
+    for field, value, reason in [
+        ("schema", f"run-witness-direct/{2}", "executor-receipt-invalid"),
+        ("submission_id", SUBMISSION + "-other", "executor-receipt-binding"),
+        ("workspace", "/other", "executor-receipt-binding"),
+        ("operation", {**operation, "argv": ["different"]}, "executor-receipt-binding"),
+    ]:
+        reader.readline.return_value = (json.dumps({**receipt, field: value}) + "\n").encode()
+        with pytest.raises(ValueError, match=reason):
+            prompt_intent.execute_direct(SUBMISSION, "/workspace", operation)
+    assert stream.sendall.call_count == 5
 
 
 @pytest.mark.parametrize("receipt,state,execution", [

@@ -6695,12 +6695,13 @@ class AIAgent:
             getattr(self, "_session_db", None), getattr(self, "session_id", None)
         )
         from agent.auxiliary_client import scoped_runtime_main
+        from agent.ae_role_control import role_control_turn
 
         # The outer token restores the caller's Context even though turn setup
         # replaces the value with the live runtime after fallback restoration.
         # Keep the scope local instead of storing ContextVar tokens on the agent,
         # which may be observed from another thread.
-        with scoped_runtime_main({}):
+        with scoped_runtime_main({}), role_control_turn(self):
             try:
                 return run_conversation(
                     self,

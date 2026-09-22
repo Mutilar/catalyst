@@ -17,7 +17,7 @@ PARENT_HASH = f"sha256:{'a' * 64}"
 
 def witness_receipt(submission, workspace, operation, presentation):
     return {
-        "schema": "run-witness-direct/2",
+        "schema": "run-witness-direct/1",
         "submission_id": submission,
         "workspace": workspace,
         "operation": operation,

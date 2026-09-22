@@ -39,7 +39,8 @@ def test_real_read_tool_binaries_confirm_option_ownership(
         ("rg", ["--pre", "-payload-marker", "needle", "{input}"], None, False),
         ("rg", ["--hostname-bin=-payload-marker", "needle", "{input}"], None, False),
         ("sort", ["--buffer-size=1K", "--compress-program", "-payload-marker"], "{bulk}", False),
-        ("ag", ["--pager=-payload-marker", "needle", "{input}"], None, True),
+        # ag passes a shell command to popen, unlike tools that accept an executable argv.
+        ("ag", ["--pager='-payload-marker'", "needle", "{input}"], None, True),
         ("man", ["--pager", "-payload-marker", "ls"], None, True),
         ("man", ["-P", "-payload-marker", "ls"], None, True),
     ],
@@ -48,11 +49,16 @@ def test_real_binaries_execute_leading_dash_program_payload(
     tmp_path, tool, args, stdin, needs_tty
 ):
     """A PATH marker proves these binaries do not reparse '-program' as an option."""
-    if shutil.which(tool) is None or (needs_tty and shutil.which("script") is None):
-        pytest.skip(f"{tool} or script is not installed")
+    # Apple's sort passes compression commands through a shell; this case pins GNU's argv contract.
+    executable = "gsort" if tool == "sort" and sys.platform == "darwin" else tool
+    if tool == "man" and "--pager" in args and sys.platform == "darwin":
+        executable = "gman"
+    binary = shutil.which(executable)
+    if binary is None or (needs_tty and shutil.which("script") is None):
+        pytest.skip(f"{executable} or script is not installed")
     if tool == "man" and "--pager" in args:
         help_result = subprocess.run(
-            [tool, "--help"], text=True, capture_output=True, timeout=5
+            [binary, "--help"], text=True, capture_output=True, timeout=5
         )
         if "--pager" not in help_result.stdout + help_result.stderr:
             pytest.skip("installed man has no GNU --pager option; native -P is covered")
@@ -75,7 +81,7 @@ def test_real_binaries_execute_leading_dash_program_payload(
         "MARKER": str(marker),
         "TERM": "xterm",
     }
-    argv = [tool, *resolved_args]
+    argv = [binary, *resolved_args]
     if needs_tty:
         argv = (
             ["script", "-q", "/dev/null", *argv]

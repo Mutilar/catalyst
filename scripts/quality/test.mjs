@@ -9,7 +9,7 @@ if (process.argv.length !== 3 || process.argv[2] !== '--check') {
   process.exit(2)
 }
 
-function execute(command, args, environment = {}) {
+function execute(command, args, environment = {}, summaryMarker) {
   const result = spawnSync(command, args, {
     cwd: repository,
     env: {
@@ -26,8 +26,10 @@ function execute(command, args, environment = {}) {
     console.error(`${command} unavailable: ${result.error.message}`)
     process.exit(2)
   }
-  if (result.status !== 0) process.exit(result.status ?? 1)
-  return `${result.stdout ?? ''}\n${result.stderr ?? ''}`
+  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`
+  if (result.status === null) process.exit(1)
+  if (result.status !== 0 && !summaryMarker.test(output)) process.exit(result.status)
+  return { output, status: result.status }
 }
 
 const python = execute('uv', [
@@ -56,15 +58,15 @@ const python = execute('uv', [
   'tests',
   '--',
   '-q'
-], { PYTEST_ADDOPTS: '' })
+], { PYTEST_ADDOPTS: '' }, /^HERMES_TEST_SUMMARY /m)
 const desktop = execute('npm', [
   '--prefix',
   'catalyst/apps/desktop',
   'run',
   'test:ui'
-])
+], {}, /^\s*Tests\s+/m)
 
-const summaries = python.split('\n').filter(line => line.startsWith('HERMES_TEST_SUMMARY '))
+const summaries = python.output.split('\n').filter(line => line.startsWith('HERMES_TEST_SUMMARY '))
 let pytest
 try {
   if (summaries.length === 1) pytest = JSON.parse(summaries[0].slice('HERMES_TEST_SUMMARY '.length))
@@ -73,23 +75,31 @@ try {
   process.exit(2)
 }
 const fields = ['files', 'completed', 'file_failures', 'unmeasured_files', 'passed', 'failed', 'skipped', 'errors', 'xfailed', 'xpassed', 'deselected']
-const vitest = desktop.match(/Tests\s+(\d+) passed(?:\s|\(|$)/m)
+const desktopSummary = desktop.output.match(/^\s*Tests\s+([^\n]+)/m)?.[1]
+const count = (output, label) =>
+  Number.parseInt(output.match(new RegExp(`(?:^|\\s)(\\d+) ${label}(?:,|\\s|$)`, 'm'))?.[1] ?? '0', 10)
+const desktopPassed = desktopSummary ? count(desktopSummary, 'passed') : 0
+const desktopFailed = desktopSummary ? count(desktopSummary, 'failed') : 0
 if (!pytest || pytest.schema !== 'hermes-test-summary/1'
   || !fields.every(field => Number.isSafeInteger(pytest[field]) && pytest[field] >= 0)
   || pytest.files === 0 || pytest.completed !== pytest.files
-  || pytest.file_failures !== 0 || pytest.unmeasured_files !== 0
-  || pytest.failed !== 0 || pytest.errors !== 0 || pytest.passed + pytest.xpassed === 0 || !vitest) {
-  console.error('quality summary unavailable: exact passing counts and complete file execution are required')
-  process.exit(2)
+  || pytest.unmeasured_files !== 0
+  || (pytest.file_failures > 0 && pytest.failed + pytest.errors === 0)
+  || !desktopSummary
+  || pytest.passed + pytest.xpassed + pytest.failed + pytest.errors === 0
+  || desktopPassed + desktopFailed === 0
+  || (python.status === 0) !== (pytest.failed + pytest.errors + pytest.file_failures === 0)
+  || (desktop.status === 0) !== (desktopFailed === 0)) {
+  console.error('quality summary unavailable: consistent measured counts and complete file execution are required')
+  process.exit(python.status || desktop.status || 2)
 }
-const count = (output, label) =>
-  Number.parseInt(output.match(new RegExp(`(?:^|\\s)(\\d+) ${label}(?:,|\\s|$)`, 'm'))?.[1] ?? '0', 10)
-const passed = pytest.passed + pytest.xpassed + Number.parseInt(vitest[1], 10)
-const desktopSummary = desktop.match(/Tests[^\n]*/m)?.[0] ?? ''
+const passed = pytest.passed + pytest.xpassed + desktopPassed
+const failed = pytest.failed + pytest.errors + desktopFailed
 const ignored = pytest.skipped + pytest.xfailed
   + count(desktopSummary, 'skipped') + count(desktopSummary, 'todo')
 const filtered = pytest.deselected
-console.log(`running ${passed + ignored} tests`)
+console.log(`running ${passed + failed + ignored} tests`)
 console.log(
-  `test result: ok. ${passed} passed; 0 failed; ${ignored} ignored; 0 measured; ${filtered} filtered out;`
+  `test result: ${failed ? 'FAILED' : 'ok'}. ${passed} passed; ${failed} failed; ${ignored} ignored; 0 measured; ${filtered} filtered out;`
 )
+process.exit(python.status || desktop.status || 0)

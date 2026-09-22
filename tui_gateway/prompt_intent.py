@@ -31,6 +31,7 @@ from tui_gateway import penguin_funnel
 
 _ENDPOINT = os.environ.pop("AE_WITNESS_DIRECT_ENDPOINT", "")
 _TOKEN = os.environ.pop("AE_WITNESS_DIRECT_TOKEN", "")
+_WITNESS_DIRECT_SCHEMA = "run-witness-direct/1"
 _MAX_RESPONSE = 524_288
 _PENGUIN_TIMEOUT_SECONDS = 30
 _CACHE_TTL = 3600
@@ -657,7 +658,7 @@ def execute_direct(submission: str, workspace: str, operation: dict) -> dict:
     host, separator, port = _ENDPOINT.rpartition(":")
     if host != "127.0.0.1" or not separator or not port.isdecimal():
         return {"operation": operation, "refusal": "witness-handoff-invalid", "ran": False}
-    request = {"schema": "run-witness-direct/2", "submission_id": submission,
+    request = {"schema": _WITNESS_DIRECT_SCHEMA, "submission_id": submission,
         "operation": operation, "workspace": workspace, "token": _TOKEN}
     with socket.create_connection((host, int(port)), timeout=35) as stream:
         _track(stream)
@@ -667,7 +668,7 @@ def execute_direct(submission: str, workspace: str, operation: dict) -> dict:
     if len(raw) > _MAX_RESPONSE or not raw.endswith(b"\n"):
         raise ValueError("executor-response-bound")
     receipt = json.loads(raw)
-    if not isinstance(receipt, dict) or receipt.get("schema") != "run-witness-direct/2":
+    if not isinstance(receipt, dict) or receipt.get("schema") != _WITNESS_DIRECT_SCHEMA:
         raise ValueError("executor-receipt-invalid")
     if receipt.get("ran") and (receipt.get("submission_id") != submission
         or receipt.get("workspace") != workspace or receipt.get("operation") != operation):
