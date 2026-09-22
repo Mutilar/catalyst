@@ -3,13 +3,13 @@ Integration tests for the desktop boot handshake fix (PR #50231 / issue #50209).
 
 Simulates a slow hermes_cli.gateway import (15-30 s on a fresh Windows install
 with Defender scanning every new .pyc) by patching the two helpers that touch
-the blocking import and measuring event-loop freedom + response latency.
+the blocking import and measuring readiness ordering + response latency.
 
 Three scenarios are covered:
 
-1. _lifespan fire-and-forget: patched _warm_gateway_module sleeps N seconds in
-   a thread; TestClient startup must complete in << N seconds (event loop not
-   blocked, HERMES_DASHBOARD_READY would fire immediately).
+1. _lifespan warmup: patched _warm_gateway_module sleeps in a thread;
+   TestClient startup must wait for it so HERMES_DASHBOARD_READY cannot fire
+   while import-time GIL pressure still starves the serving loop.
 
 2. get_status run_in_executor: patched _resolve_restart_drain_timeout sleeps N
    seconds in a thread; a concurrent fast endpoint (/api/version) must respond
@@ -53,31 +53,50 @@ def _make_slow_drain(seconds: float):
 
 
 # ---------------------------------------------------------------------------
-# Test 1 — _lifespan fire-and-forget does not block the event loop
+# Test 1 — _lifespan completes warmup before reporting ready
 # ---------------------------------------------------------------------------
 
-def test_lifespan_warmup_is_nonblocking():
+def test_lifespan_waits_for_gateway_warmup_before_ready():
     """
-    _warm_gateway_module runs in an executor (fire-and-forget).
-    Even if it sleeps for SLOW_SECONDS, TestClient startup must complete
-    in well under that time — proving the event loop was never blocked and
-    HERMES_DASHBOARD_READY would have fired without delay.
+    _warm_gateway_module runs in an executor, but lifespan startup awaits it.
+    Uvicorn emits the ready sentinel only after lifespan completes, so startup
+    must not report ready while import-time GIL pressure can starve probes.
     """
     from fastapi.testclient import TestClient
 
-    with patch.object(web_server_mod, "_warm_gateway_module", _make_slow_warm(SLOW_SECONDS)):
+    warmup_seconds = 0.2
+
+    with patch.object(web_server_mod, "_warm_gateway_module", _make_slow_warm(warmup_seconds)):
         t0 = time.perf_counter()
         with TestClient(web_server_mod.app, raise_server_exceptions=False) as _client:
             startup_ms = (time.perf_counter() - t0) * 1000
 
-    # Startup must complete in under half of SLOW_SECONDS (generous margin).
-    # If the import were synchronous, startup would block for >= SLOW_SECONDS.
-    threshold_ms = (SLOW_SECONDS * 1000) / 2
-    assert startup_ms < threshold_ms, (
-        f"_lifespan blocked the event loop: startup took {startup_ms:.0f} ms "
-        f"but slow import is {SLOW_SECONDS * 1000:.0f} ms — "
-        f"fire-and-forget is not working."
+    assert startup_ms >= warmup_seconds * 1000, (
+        f"lifespan reported ready after {startup_ms:.0f} ms, before the "
+        f"{warmup_seconds * 1000:.0f} ms gateway warmup completed"
     )
+
+
+def test_lifespan_installs_loop_filter_before_gateway_warmup():
+    """Finish synchronous serving setup before starting gateway warmup."""
+    from fastapi.testclient import TestClient
+
+    loop_filter_installed = threading.Event()
+    warmup_started = threading.Event()
+
+    def _install_loop_filter():
+        loop_filter_installed.set()
+
+    def _warm_gateway():
+        assert loop_filter_installed.is_set()
+        warmup_started.set()
+
+    with (
+        patch.object(web_server_mod, "_install_loop_noise_filter", _install_loop_filter),
+        patch.object(web_server_mod, "_warm_gateway_module", _warm_gateway),
+        TestClient(web_server_mod.app, raise_server_exceptions=False),
+    ):
+        assert warmup_started.wait(timeout=1)
 
 
 # ---------------------------------------------------------------------------

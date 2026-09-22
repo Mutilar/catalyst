@@ -166,10 +166,17 @@ def _start_desktop_cron_ticker(stop_event: "threading.Event", interval: int = 60
 
 
 def _warm_gateway_module() -> None:
-    try:
-        import hermes_cli.gateway  # noqa: F401
-    except Exception:
-        pass
+    for module_name in (
+        "hermes_cli.gateway",
+        "gateway.config",
+        "hermes_cli.auth",
+        "hermes_cli.dashboard_auth",
+        "httpx",
+    ):
+        try:
+            importlib.import_module(module_name)
+        except Exception:
+            pass
 
 
 def _resolve_restart_drain_timeout() -> float:
@@ -179,6 +186,15 @@ def _resolve_restart_drain_timeout() -> float:
     except ImportError:
         from gateway.restart import DEFAULT_GATEWAY_RESTART_DRAIN_TIMEOUT
         return DEFAULT_GATEWAY_RESTART_DRAIN_TIMEOUT
+
+
+def _install_loop_noise_filter() -> None:
+    try:
+        from tui_gateway.loop_noise import install_loop_noise_filter
+
+        install_loop_noise_filter(asyncio.get_running_loop())
+    except Exception as exc:  # pragma: no cover - best-effort
+        _log.debug("loop noise filter install skipped: %s", exc)
 
 
 @asynccontextmanager
@@ -192,13 +208,17 @@ async def _lifespan(app: "FastAPI"):
     # event loop during lifespan startup — see _get_event_state's docstring.
     app.state.chat_argv_lock = asyncio.Lock()
 
-    # Fire hermes_cli.gateway import into a background thread so the event
-    # loop is not blocked and HERMES_DASHBOARD_READY fires without delay.
-    # On a cold Windows install the module chain triggers .pyc compilation
-    # and Defender real-time scans that can stall the event loop for 15-30s.
-    # Running in an executor means the cost is paid in a worker thread while
-    # the server socket is already open and accepting probes.
-    asyncio.get_event_loop().run_in_executor(None, _warm_gateway_module)
+    # Finish synchronous serving-loop setup before starting the background
+    # gateway import. Otherwise that import can hold Python's import lock while
+    # _serve waits to import the loop filter after announcing the ready port.
+    _install_loop_noise_filter()
+
+    # Complete the gateway import before announcing readiness. On a cold
+    # install the module chain triggers .pyc compilation and antivirus scans;
+    # although the import runs in a worker, it can hold the GIL long enough to
+    # starve every HTTP probe. Awaiting it keeps the event loop unblocked while
+    # ensuring the ready sentinel means the serving plane can actually respond.
+    await asyncio.get_running_loop().run_in_executor(None, _warm_gateway_module)
 
     # Desktop-spawned backends (HERMES_DESKTOP=1) fire cron jobs themselves,
     # since the app has no gateway running the scheduler. Server `hermes
@@ -20051,19 +20071,6 @@ def start_server(
             else:
                 print(f"  Hermes Web UI → http://{host}:{actual_port}")
             _maybe_open_browser(host, actual_port, open_browser, initial_profile)
-
-            # Collapse the peer-hangup teardown flood (#50005). When the Desktop
-            # forcibly closes its WebSocket mid-write, asyncio logs a full
-            # traceback per pending connection-lost callback — 50+ identical
-            # WinError 10054 (ConnectionResetError) lines per disconnect on
-            # Windows. This filter downgrades exactly that class to one debug
-            # line and passes every other loop error through unchanged.
-            try:
-                from tui_gateway.loop_noise import install_loop_noise_filter
-
-                install_loop_noise_filter(asyncio.get_running_loop())
-            except Exception as exc:  # pragma: no cover - best-effort
-                _log.debug("loop noise filter install skipped: %s", exc)
 
             # ── Loop heartbeat watchdog (CF-1) ───────────────────────────
             # Confirm the GIL-pressure hypothesis in production. Re-arm a 2s
