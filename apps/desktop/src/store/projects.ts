@@ -12,12 +12,7 @@ import { $gateway, activeGateway, ensureActiveGatewayOpen } from '@/store/gatewa
 import { setSidebarAgentsGrouped } from '@/store/layout'
 import { notify } from '@/store/notifications'
 import { $activeGatewayProfile, requestFreshSession } from '@/store/profile'
-import {
-  $selectedStoredSessionId,
-  $sessions,
-  sessionMatchesStoredId,
-  workspaceCwdForNewSession
-} from '@/store/session'
+import { $selectedStoredSessionId, $sessions, sessionMatchesStoredId, workspaceCwdForNewSession } from '@/store/session'
 import type { ProjectInfo, ProjectsPayload } from '@/types/hermes'
 
 // First-class, per-profile Projects (named, multi-folder workspaces). State is

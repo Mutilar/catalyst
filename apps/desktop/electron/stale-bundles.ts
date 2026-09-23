@@ -46,17 +46,23 @@ interface StaleBundleOptions {
 }
 
 function bundleBaseName(entryName: string): string | null {
-  if (!entryName.endsWith('.app')) {return null}
+  if (!entryName.endsWith('.app')) {
+    return null
+  }
 
   return entryName.slice(0, -'.app'.length)
 }
 
 function isSupersededBundleName(baseName: string): boolean {
-  if ((SHIPPED_BUNDLE_NAMES as readonly string[]).includes(baseName)) {return true}
+  if ((SHIPPED_BUNDLE_NAMES as readonly string[]).includes(baseName)) {
+    return true
+  }
 
   const rollback = ROLLBACK_SUFFIX_PATTERN.exec(baseName)
 
-  if (!rollback) {return false}
+  if (!rollback) {
+    return false
+  }
 
   return (SHIPPED_BUNDLE_NAMES as readonly string[]).includes(rollback[1])
 }
@@ -76,13 +82,19 @@ function staleBundlePaths({ runningAppPath, siblingNames }: StaleBundleOptions):
 
   for (const entryName of siblingNames) {
     // Rule 1: never propose the running bundle.
-    if (entryName === runningName) {continue}
+    if (entryName === runningName) {
+      continue
+    }
 
     const baseName = bundleBaseName(entryName)
 
-    if (!baseName) {continue}
+    if (!baseName) {
+      continue
+    }
 
-    if (!isSupersededBundleName(baseName)) {continue}
+    if (!isSupersededBundleName(baseName)) {
+      continue
+    }
 
     // Rule 2: siblings only — path.join keeps this inside runningDir.
     stale.push(path.join(runningDir, entryName))

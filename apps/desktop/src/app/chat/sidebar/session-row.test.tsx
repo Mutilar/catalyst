@@ -246,5 +246,4 @@ describe('SidebarSessionRow', () => {
 
     expect(container.querySelector('span[class*="w-auto"][class*="size-3.5"]')).toBeNull()
   })
-
 })

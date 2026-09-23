@@ -24,7 +24,9 @@ function fakeDoc(): FakeDoc {
     setHidden(next: boolean) {
       this.hidden = next
 
-      for (const fn of [...listeners]) {fn()}
+      for (const fn of [...listeners]) {
+        fn()
+      }
     },
     get listenerCount() {
       return listeners.size
@@ -52,7 +54,9 @@ function fakeRaf() {
       const due = [...pending.entries()]
       pending.clear()
 
-      for (const [, cb] of due) {cb(now)}
+      for (const [, cb] of due) {
+        cb(now)
+      }
     },
     get pendingCount() {
       return pending.size

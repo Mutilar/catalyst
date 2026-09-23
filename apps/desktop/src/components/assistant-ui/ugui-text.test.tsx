@@ -14,10 +14,12 @@ import { UguiTextContent } from './ugui-text'
 
 const mocks = vi.hoisted(() => ({ project: vi.fn(), invoke: vi.fn(), submit: vi.fn() }))
 vi.mock('@/app/chat/composer/focus', async importOriginal => ({
-  ...await importOriginal<typeof ComposerFocus>(), requestComposerSubmit: mocks.submit
+  ...(await importOriginal<typeof ComposerFocus>()),
+  requestComposerSubmit: mocks.submit
 }))
 vi.mock('@/lib/ugui-engine', async importOriginal => ({
-  ...await importOriginal<typeof UguiEngine>(), projectConversationText: mocks.project
+  ...(await importOriginal<typeof UguiEngine>()),
+  projectConversationText: mocks.project
 }))
 vi.mock('@/hermes', () => ({ invokeUguiAction: mocks.invoke }))
 
@@ -25,10 +27,15 @@ type Paragraph = ConversationProjection['documents'][number]
 
 function document(body: string, source = body): Paragraph {
   return {
-    schema: 'lucid-ugui-response/1', id: 'paragraph', type: 'lucid',
+    schema: 'lucid-ugui-response/1',
+    id: 'paragraph',
+    type: 'lucid',
     header: [{ id: 'title', type: 'text', body: SIGNAL_GREEN }],
-    sections: [{ id: 'atom', type: 'text', body }], actions: [],
-    source, revision: `${body}:${source}`, streamState: 'complete'
+    sections: [{ id: 'atom', type: 'text', body }],
+    actions: [],
+    source,
+    revision: `${body}:${source}`,
+    streamState: 'complete'
   }
 }
 
@@ -38,7 +45,9 @@ function snapshot(...documents: Paragraph[]): ConversationProjection {
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>(done => {resolve = done})
+  const promise = new Promise<T>(done => {
+    resolve = done
+  })
 
   return { promise, resolve }
 }
@@ -55,13 +64,16 @@ afterEach(() => {
 describe('assistant canonical UGUI boundary', () => {
   it('routes projected recovery actions through the supplied callback rather than ordinary submission', async () => {
     const value = document('Evidence')
-    value.actions = [{ id: 'retry', type: 'button', label: 'Retry', value: 'Retry',
-      action: 'conversation.submit', disabled: false }]
+    value.actions = [
+      { id: 'retry', type: 'button', label: 'Retry', value: 'Retry', action: 'conversation.submit', disabled: false }
+    ]
     mocks.project.mockResolvedValue(snapshot(value))
     const recover = vi.fn()
 
-    const source = [canonicalGestaltStream({ signal: SIGNAL_RED, service: IDENTITY_PENGUIN, evidence: ['REFUSED'] }),
-      `${RELATION_ACTION} ${JSON.stringify('Retry')}`].join(DELIMITER_SEGMENT)
+    const source = [
+      canonicalGestaltStream({ signal: SIGNAL_RED, service: IDENTITY_PENGUIN, evidence: ['REFUSED'] }),
+      `${RELATION_ACTION} ${JSON.stringify('Retry')}`
+    ].join(DELIMITER_SEGMENT)
 
     render(<UguiTextContent isRunning={false} onContinuation={recover} text={source} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Retry' }))
@@ -73,8 +85,16 @@ describe('assistant canonical UGUI boundary', () => {
 
   it('renders CYOA from actions[] in the canonical footer and submits to the owning chat', async () => {
     const value = document('Evidence')
-    value.actions = [{ id: 'choice', type: 'button', label: 'Inspect', value: 'Inspect',
-      action: 'conversation.submit', disabled: false }]
+    value.actions = [
+      {
+        id: 'choice',
+        type: 'button',
+        label: 'Inspect',
+        value: 'Inspect',
+        action: 'conversation.submit',
+        disabled: false
+      }
+    ]
     mocks.project.mockResolvedValue(snapshot(value))
     render(
       <ComposerScopeProvider value={{ ...MAIN_COMPOSER_SCOPE, target: 'tile:review' }}>
@@ -93,10 +113,12 @@ describe('assistant canonical UGUI boundary', () => {
   it('uses exactly the same frame and section styling as a tool result', () => {
     const value = document('Shared semantics')
 
-    const { container } = render(<>
-      <McpUguiDocument document={value} />
-      <McpUguiDocument document={value} presentationOnly />
-    </>)
+    const { container } = render(
+      <>
+        <McpUguiDocument document={value} />
+        <McpUguiDocument document={value} presentationOnly />
+      </>
+    )
 
     const frames = container.querySelectorAll('[data-mcp-ugui]')
     expect(frames).toHaveLength(2)
@@ -119,8 +141,16 @@ describe('assistant canonical UGUI boundary', () => {
   it('does not activate an unfinished action', () => {
     const submit = vi.fn()
     const value = document('')
-    value.actions = [{ id: 'choice', type: 'button', label: 'Inspect', value: 'Inspect',
-      action: 'conversation.submit', disabled: true }]
+    value.actions = [
+      {
+        id: 'choice',
+        type: 'button',
+        label: 'Inspect',
+        value: 'Inspect',
+        action: 'conversation.submit',
+        disabled: true
+      }
+    ]
     render(<McpUguiDocument document={value} onContinuation={submit} presentationOnly />)
     const button = screen.getByRole('button', { name: 'Inspect' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
@@ -143,7 +173,9 @@ describe('assistant canonical UGUI boundary', () => {
     vi.stubGlobal('hermesDesktop', { ...window.hermesDesktop, writeClipboard: copy })
     const record = JSON.stringify({ original_input: 'original', transformed_input: 'GESTALT' })
     const projected = document('Prepared visual content', 'GESTALT')
-    projected.actions = [{ id: 'choice', type: 'button', label: 'Inspect', value: 'Inspect', action: 'conversation.submit' }]
+    projected.actions = [
+      { id: 'choice', type: 'button', label: 'Inspect', value: 'Inspect', action: 'conversation.submit' }
+    ]
     mocks.project.mockResolvedValue(snapshot(projected))
     render(<UguiTextContent allowContinuations={false} copyText={record} isRunning={false} text="GESTALT" />)
     await screen.findByText('Prepared visual content')
@@ -151,7 +183,9 @@ describe('assistant canonical UGUI boundary', () => {
     await waitFor(() => expect(copy).toHaveBeenCalledWith(record))
     const action = screen.queryByRole('button', { name: 'Inspect' })
 
-    if (action) {fireEvent.click(action)}
+    if (action) {
+      fireEvent.click(action)
+    }
     expect(mocks.submit).not.toHaveBeenCalled()
     expect(mocks.invoke).not.toHaveBeenCalled()
   })
@@ -212,9 +246,14 @@ describe('assistant canonical UGUI boundary', () => {
   })
 
   it('retains all paragraphs instead of slicing nested sections at 64', async () => {
-    mocks.project.mockResolvedValue(snapshot(...Array.from({ length: 100 }, (_, i) => ({
-      ...document(`Paragraph ${i}`), id: `paragraph-${i}`
-    }))))
+    mocks.project.mockResolvedValue(
+      snapshot(
+        ...Array.from({ length: 100 }, (_, i) => ({
+          ...document(`Paragraph ${i}`),
+          id: `paragraph-${i}`
+        }))
+      )
+    )
     render(<UguiTextContent isRunning={false} text="source" />)
     await screen.findByText('Paragraph 99')
   })

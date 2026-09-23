@@ -7,10 +7,10 @@ interface UgUiSkinDocument {
   name: string
 }
 
-const modules = import.meta.glob<UgUiSkinDocument>(
-  '../../../../../genui/ugui/skins/bindings/*.json',
-  { eager: true, import: 'default' }
-)
+const modules = import.meta.glob<UgUiSkinDocument>('../../../../../genui/ugui/skins/bindings/*.json', {
+  eager: true,
+  import: 'default'
+})
 
 /** Every generated UGUI binding, bundled from the canonical skin catalog. */
 const entries: Array<[string, DesktopTheme]> = []

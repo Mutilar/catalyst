@@ -67,7 +67,13 @@ import {
 } from '@/store/session-states'
 import { broadcastSessionsChanged } from '@/store/session-sync'
 import { isWatchWindow } from '@/store/windows'
-import type { SessionCreateResponse, SessionInfo, SessionMessage, SessionResumeResponse, UsageStats } from '@/types/hermes'
+import type {
+  SessionCreateResponse,
+  SessionInfo,
+  SessionMessage,
+  SessionResumeResponse,
+  UsageStats
+} from '@/types/hermes'
 
 import { NEW_CHAT_ROUTE, sessionRoute, SETTINGS_ROUTE } from '../../../routes'
 import type { ClientSessionState, SidebarNavItem } from '../../../types'
@@ -1227,15 +1233,12 @@ export function useSessionActions({
     [copy, forkBranch]
   )
 
-  const prepareSessionForPrompt = useCallback(
-    async (_prompt: string): Promise<boolean> => {
-      // Ordinary follow-up prompts never auto-fork into a managed worktree.
-      // Explicit branching/worktree commands still route through forkBranch()
-      // and the dedicated New worktree / Start work UI.
-      return true
-    },
-    []
-  )
+  const prepareSessionForPrompt = useCallback(async (_prompt: string): Promise<boolean> => {
+    // Ordinary follow-up prompts never auto-fork into a managed worktree.
+    // Explicit branching/worktree commands still route through forkBranch()
+    // and the dedicated New worktree / Start work UI.
+    return true
+  }, [])
 
   const removeSession = useCallback(
     async (storedSessionId: string) => {

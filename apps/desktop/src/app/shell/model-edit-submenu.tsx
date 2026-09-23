@@ -222,11 +222,7 @@ export function ModelEditSubmenu({
         <>
           <DropdownMenuLabel className={dropdownMenuSectionLabel}>{copy.options}</DropdownMenuLabel>
           {annotations.map(annotation => (
-            <DropdownMenuItem
-              className={dropdownMenuRow}
-              disabled
-              key={`${annotation.label}:${annotation.value}`}
-            >
+            <DropdownMenuItem className={dropdownMenuRow} disabled key={`${annotation.label}:${annotation.value}`}>
               {annotation.label}
               <span className="ml-auto text-(--ui-text-secondary)">{annotation.value}</span>
             </DropdownMenuItem>

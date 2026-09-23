@@ -254,7 +254,6 @@ function PetSpriteImpl({ info, zoom = 1, stateOverride, rowOverride }: PetSprite
         drawnFrame = frame
         drawnRow = row
       }
-
     }
 
     // Park while the window is hidden/occluded. The redraw guard above already

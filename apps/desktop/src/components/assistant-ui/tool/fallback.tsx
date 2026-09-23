@@ -325,10 +325,7 @@ function ToolEntry({ part }: ToolEntryProps) {
   const sideDiff = useStore($toolInlineDiff(toolCallId ?? ''))
   const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(result)
 
-  const rawMcpUgui = useMemo(
-    () => extractToolUguiDocument(toolName, args, result),
-    [args, result, toolName]
-  )
+  const rawMcpUgui = useMemo(() => extractToolUguiDocument(toolName, args, result), [args, result, toolName])
 
   const [gestaltUgui, setGestaltUgui] = useState<ReturnType<typeof extractToolUguiDocument>>(null)
 

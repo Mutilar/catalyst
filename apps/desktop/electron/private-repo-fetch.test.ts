@@ -2,12 +2,7 @@ import assert from 'node:assert/strict'
 
 import { describe, test } from 'vitest'
 
-import {
-  explainFetchFailure,
-  fetchRepoFile,
-  type GhProbe,
-  shouldTryGhFallback
-} from './private-repo-fetch'
+import { explainFetchFailure, fetchRepoFile, type GhProbe, shouldTryGhFallback } from './private-repo-fetch'
 
 const REPO = 'SlowGreek/costas-code'
 const REF = 'abc1234'
@@ -62,9 +57,13 @@ describe('fetchRepoFile', () => {
       filePath: FILE,
       url: URL,
       httpGet: async () => Buffer.from('public content'),
-      gh: gh({ fetchFile: () => { ghCalls++;
+      gh: gh({
+        fetchFile: () => {
+          ghCalls++
 
- return Buffer.from('') } })
+          return Buffer.from('')
+        }
+      })
     })
 
     assert.equal(body.toString(), 'public content')
@@ -159,9 +158,13 @@ describe('fetchRepoFile', () => {
         filePath: FILE,
         url: URL,
         httpGet: httpFailing(500),
-        gh: gh({ fetchFile: () => { ghCalls++;
+        gh: gh({
+          fetchFile: () => {
+            ghCalls++
 
- return Buffer.from('') } })
+            return Buffer.from('')
+          }
+        })
       })
     )
     assert.equal(ghCalls, 0)

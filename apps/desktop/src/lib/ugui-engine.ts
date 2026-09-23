@@ -1,4 +1,9 @@
-import { extractMcpGestalt, extractMcpUguiDocument, type McpUguiDocument, uguiDocumentIssue } from '@/lib/tool-presentation'
+import {
+  extractMcpGestalt,
+  extractMcpUguiDocument,
+  type McpUguiDocument,
+  uguiDocumentIssue
+} from '@/lib/tool-presentation'
 
 type UguiWasmInitInput = BufferSource | Request | string | URL | WebAssembly.Module
 
@@ -75,17 +80,23 @@ export function parseConversationProjection(payload: string, source: string): Co
   const value = object(parsed, '/')
 
   if (value.schema === 'ugui-conversation-text-error/1') {
-    const code = typeof value.code === 'string' && /^[a-z0-9-]{1,128}$/.test(value.code)
-      ? value.code : 'unrecognized-refusal'
+    const code =
+      typeof value.code === 'string' && /^[a-z0-9-]{1,128}$/.test(value.code) ? value.code : 'unrecognized-refusal'
 
     return refuse('refused', '/code', code)
   }
 
   if (value.schema !== 'ugui-conversation-text/1') {
-    const observed = typeof value.schema === 'string' && /^[a-z0-9._/-]{1,128}$/i.test(value.schema)
-      ? value.schema : typeof value.schema
+    const observed =
+      typeof value.schema === 'string' && /^[a-z0-9._/-]{1,128}$/i.test(value.schema)
+        ? value.schema
+        : typeof value.schema
 
-    return refuse('schema-mismatch', '/schema', `expected=ugui-conversation-text/1 observed=${observed}; rebuild matching renderer and WASM through the UGUI factory`)
+    return refuse(
+      'schema-mismatch',
+      '/schema',
+      `expected=ugui-conversation-text/1 observed=${observed}; rebuild matching renderer and WASM through the UGUI factory`
+    )
   }
 
   if (value.authority !== 'presentation-only') {
@@ -97,7 +108,11 @@ export function parseConversationProjection(payload: string, source: string): Co
   }
 
   if (!Array.isArray(value.documents)) {
-    return refuse('shape-invalid', '/documents', 'expected=array; rebuild matching renderer and WASM through the UGUI factory')
+    return refuse(
+      'shape-invalid',
+      '/documents',
+      'expected=array; rebuild matching renderer and WASM through the UGUI factory'
+    )
   }
 
   for (const [index, candidate] of value.documents.entries()) {
@@ -142,9 +157,7 @@ function boundedError(error: unknown): string {
 }
 
 export function resolveUguiModuleUrls(baseUrl: string): string[] {
-  return ['wasm/ugui_gestalt_wasm.js', 'wasm/catalyst_wasm.js'].map(
-    asset => new URL(asset, baseUrl).href
-  )
+  return ['wasm/ugui_gestalt_wasm.js', 'wasm/catalyst_wasm.js'].map(asset => new URL(asset, baseUrl).href)
 }
 
 export function resolveUguiWasmUrl(moduleUrl: string): string {
@@ -166,9 +179,7 @@ export async function initializeUguiModule(
     const assetName = parsed.pathname.split('/').pop()
 
     const input =
-      parsed.protocol === 'file:' && assetName && readPackagedWasm
-        ? await readPackagedWasm(assetName)
-        : wasmUrl
+      parsed.protocol === 'file:' && assetName && readPackagedWasm ? await readPackagedWasm(assetName) : wasmUrl
 
     await module.default({ module_or_path: input })
   }
@@ -259,9 +270,7 @@ export async function loadResidentUguiApp(
   return parseResidentDocument(load(appId, source, seed))
 }
 
-export async function inputResidentUguiApp(
-  message: Record<string, unknown>
-): Promise<ResidentUguiAppDocument> {
+export async function inputResidentUguiApp(message: Record<string, unknown>): Promise<ResidentUguiAppDocument> {
   const module = await loadUgUi()
   const input = module?.ugui_app_input
 
@@ -272,10 +281,7 @@ export async function inputResidentUguiApp(
   return parseResidentDocument(input(JSON.stringify(message)))
 }
 
-export async function mountResidentUguiDocument(
-  root: Element,
-  document: ResidentUguiAppDocument
-): Promise<void> {
+export async function mountResidentUguiDocument(root: Element, document: ResidentUguiAppDocument): Promise<void> {
   const module = await loadUgUi()
   const mount = module?.ugui_mount_application_document
 
@@ -313,9 +319,7 @@ export async function projectLucidGestalt(gestalt: string): Promise<McpUguiDocum
   return (await projectLucidGestaltDetailed(gestalt)).document
 }
 
-export async function projectLucidGestaltDetailed(
-  gestalt: string
-): Promise<UguiProjectionResult> {
+export async function projectLucidGestaltDetailed(gestalt: string): Promise<UguiProjectionResult> {
   if (!gestalt.trim()) {
     return { document: null, error: 'gestalt-empty' }
   }
@@ -343,9 +347,7 @@ export async function projectLucidGestaltDetailed(
 
     const extracted = extractMcpUguiDocument(document)
 
-    return extracted
-      ? { document: extracted, error: null }
-      : { document: null, error: 'projector-document-invalid' }
+    return extracted ? { document: extracted, error: null } : { document: null, error: 'projector-document-invalid' }
   } catch (error) {
     return { document: null, error: `projector-execution-failed: ${boundedError(error)}` }
   }

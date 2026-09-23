@@ -3,9 +3,7 @@ import { readFileSync } from 'node:fs'
 
 import { test } from 'vitest'
 
-const packageJson = JSON.parse(
-  readFileSync(new URL('../package.json', import.meta.url), 'utf8')
-)
+const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 
 const indexHtml = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
 

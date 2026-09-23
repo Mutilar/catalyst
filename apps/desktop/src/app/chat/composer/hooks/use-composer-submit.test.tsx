@@ -74,7 +74,8 @@ describe('useComposerSubmit busy-turn routing', () => {
 
   it('preserves recovery input and metadata without taking draft attachments', async () => {
     const { onSubmit, onSteer } = renderSubmitHook({
-      attachments: [{ id: 'draft-file', kind: 'file', label: 'notes.txt' }], text: 'unrelated draft'
+      attachments: [{ id: 'draft-file', kind: 'file', label: 'notes.txt' }],
+      text: 'unrelated draft'
     })
 
     const original = '  checking testing\n\n'

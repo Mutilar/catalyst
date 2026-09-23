@@ -11,9 +11,7 @@ export interface ApiFailureEnvelope {
 export function isApiConnectionReset(error: unknown): boolean {
   const raw = error instanceof Error ? error.message : String(error ?? '')
 
-  return (
-    (error as NodeJS.ErrnoException)?.code === 'ECONNRESET' || raw.toLowerCase().includes('socket hang up')
-  )
+  return (error as NodeJS.ErrnoException)?.code === 'ECONNRESET' || raw.toLowerCase().includes('socket hang up')
 }
 
 export function shouldRetryApiRequest(error: unknown, method = 'GET', upload = false): boolean {

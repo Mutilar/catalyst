@@ -58,7 +58,9 @@ function hermesRuntimeImportProbe() {
 }
 
 function catalystRuntimeRootForCommand(command: string): string | null {
-  if (!command) {return null}
+  if (!command) {
+    return null
+  }
   let current: string
 
   try {
@@ -79,7 +81,9 @@ function catalystRuntimeRootForCommand(command: string): string | null {
 
     const parent = path.dirname(current)
 
-    if (parent === current) {break}
+    if (parent === current) {
+      break
+    }
     current = parent
   }
 
@@ -153,10 +157,7 @@ function shouldTrustHermesOverride(hermesOverride?: string) {
   return typeof hermesOverride === 'string' && hermesOverride.trim().length > 0
 }
 
-function verifyHermesCli(
-  hermesCommand: string,
-  opts?: { shell?: boolean; requireCatalystFinalization?: boolean }
-) {
+function verifyHermesCli(hermesCommand: string, opts?: { shell?: boolean; requireCatalystFinalization?: boolean }) {
   if (!hermesCommand) {
     return false
   }
@@ -172,10 +173,14 @@ function verifyHermesCli(
     if (opts?.requireCatalystFinalization) {
       const root = catalystRuntimeRootForCommand(hermesCommand)
 
-      if (!root) {return false}
+      if (!root) {
+        return false
+      }
       const loop = fs.readFileSync(path.join(root, 'agent', 'conversation_loop.py'))
 
-      if (!loop.includes(Buffer.from('get_pre_final_decision'))) {return false}
+      if (!loop.includes(Buffer.from('get_pre_final_decision'))) {
+        return false
+      }
     }
 
     return true

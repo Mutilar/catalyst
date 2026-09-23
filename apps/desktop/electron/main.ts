@@ -457,9 +457,7 @@ function loadInstallStamp() {
 const INSTALL_STAMP = loadInstallStamp()
 
 if (INSTALL_STAMP) {
-  console.log(
-    `🟢 desktop install-stamp revision=${INSTALL_STAMP.commit.slice(0, 12)} dirty=${INSTALL_STAMP.dirty}`
-  )
+  console.log(`🟢 desktop install-stamp revision=${INSTALL_STAMP.commit.slice(0, 12)} dirty=${INSTALL_STAMP.dirty}`)
 } else if (IS_PACKAGED) {
   // Dev builds without a stamp are normal; packaged builds without one
   // mean the bootstrap won't know what to clone. Surface clearly.
@@ -2323,10 +2321,7 @@ async function checkUpdates() {
     }
   }
 
-  const fetched = await runGit(
-    ['fetch', '--quiet', 'origin', remoteTrackingRefspec(branch)],
-    { cwd: updateRoot }
-  )
+  const fetched = await runGit(['fetch', '--quiet', 'origin', remoteTrackingRefspec(branch)], { cwd: updateRoot })
 
   if (fetched.code !== 0) {
     return {
@@ -2984,10 +2979,7 @@ async function applyUpdatesPosixInApp(opts: any) {
   // there would bypass the Costas update channel on the very first migration.
   const { branch: configuredBranch } = readDesktopUpdateConfig()
 
-  const branch = await resolveHealedBranch(
-    updateRoot,
-    configuredBranch || DEFAULT_UPDATE_BRANCH
-  )
+  const branch = await resolveHealedBranch(updateRoot, configuredBranch || DEFAULT_UPDATE_BRANCH)
 
   const branchArgs = buildUpdateBranchArgs(branch)
 
@@ -4753,6 +4745,7 @@ async function waitForHermes(baseUrl, token, signal?, probePath = '/api/status')
       } else {
         lastError = error
       }
+
       await new Promise((resolve, reject) => {
         const timer = setTimeout(resolve, 500)
         signal?.addEventListener(
@@ -8693,9 +8686,7 @@ function createWindow() {
       return
     }
 
-    rememberLog(
-      `[renderer console] ${details.message} (${details.sourceId}:${details.lineNumber})`
-    )
+    rememberLog(`[renderer console] ${details.message} (${details.sourceId}:${details.lineNumber})`)
   })
 
   if (DEV_SERVER) {
@@ -8992,9 +8983,7 @@ ipcMain.handle('hermes:bootstrap:cancel', async () => {
 ipcMain.handle('hermes:boot-progress:get', async () => bootProgressState)
 ipcMain.handle('hermes:splash-identity:get', () => readSplashIdentity(SOURCE_REPO_ROOT))
 ipcMain.handle('hermes:restart-consent:get', () => readCatalystRestartIntent(SOURCE_REPO_ROOT))
-ipcMain.handle('hermes:restart-consent:decide', (_event, request) =>
-  decideCatalystRestart(SOURCE_REPO_ROOT, request)
-)
+ipcMain.handle('hermes:restart-consent:decide', (_event, request) => decideCatalystRestart(SOURCE_REPO_ROOT, request))
 ipcMain.handle('hermes:bootstrap:get', async () => getBootstrapState())
 ipcMain.handle('hermes:connection-config:get', async (_event, profile) =>
   sanitizeDesktopConnectionConfig(readDesktopConnectionConfig(), profile)
@@ -9439,77 +9428,77 @@ async function mergeRemoteProfileSessions(searchParams, remoteProfiles) {
 
 ipcMain.handle('hermes:api', async (_event, request) => {
   try {
-  // Remote-profile session requests would otherwise hit the local primary off
-  // each profile's on-disk state.db — fine for local profiles, but a remote
-  // profile's sessions live on its remote host, so the UI's IDs 404 (or mutations
-  // no-op) the moment they run there. Route reads + mutations to the remote.
-  const rerouted = await interceptSessionRequestForRemote(request)
+    // Remote-profile session requests would otherwise hit the local primary off
+    // each profile's on-disk state.db — fine for local profiles, but a remote
+    // profile's sessions live on its remote host, so the UI's IDs 404 (or mutations
+    // no-op) the moment they run there. Route reads + mutations to the remote.
+    const rerouted = await interceptSessionRequestForRemote(request)
 
-  if (rerouted !== undefined) {
-    return rerouted
-  }
-
-  const tornDownProfile = await prepareProfileDeleteRequest(request)
-
-  const profile = request?.profile
-  // After tearing down a backend for profile deletion, route to the primary
-  // backend instead of spawning a fresh pool backend.  A freshly spawned
-  // backend calls ensure_hermes_home() which recreates the profile directory,
-  // defeating the deletion and leaving a zombie process.
-  const routeProfile = resolveRouteProfile(tornDownProfile, profile)
-  const connection = await ensureBackend(routeProfile)
-  const timeoutMs = resolveTimeoutMs(request?.timeoutMs, DEFAULT_FETCH_TIMEOUT_MS)
-
-  const requestPath = pathWithGlobalRemoteProfile(request.path, profile, {
-    globalRemote: globalRemoteActive(),
-    profileRemoteOverride: profileHasRemoteOverride(profile)
-  })
-
-  const url = `${connection.baseUrl}${requestPath}`
-
-  // OAuth gateways authenticate REST via EITHER a native bearer token
-  // (cookieless RFC 8252 flow) OR the HttpOnly session cookie held in the OAuth
-  // partition. Prefer the native bearer when present (mirroring
-  // mintGatewayWsTicket): the native flow never sets a cookie, so routing an
-  // oauth-mode REST call through the cookie-only path returns 401 no_cookie even
-  // though a valid bearer is held. Cookie mode rides Electron's net stack bound
-  // to the OAuth partition so the cookie attaches automatically. Token/local
-  // modes keep using the static session-token header.
-  if (connection.authMode === 'oauth') {
-    // The OAuth path rides electron.net with JSON headers; multipart isn't
-    // wired there. Fail loudly rather than corrupting the upload.
-    if (request?.upload) {
-      throw new Error('File uploads are not supported against OAuth-gated remote backends yet.')
+    if (rerouted !== undefined) {
+      return rerouted
     }
 
-    // Native bearer first (cookieless). ensureNativeAccessToken transparently
-    // refreshes a near-expiry AT via /auth/native/refresh; a null return means
-    // no native session (resolveOauthRestAuth then selects the cookie path).
-    const nativeAt = await ensureNativeAccessToken(connection.baseUrl).catch(() => null)
-    const restAuth = resolveOauthRestAuth(nativeAt)
+    const tornDownProfile = await prepareProfileDeleteRequest(request)
 
-    if (restAuth.kind === 'bearer') {
-      return await fetchJson(url, null, {
+    const profile = request?.profile
+    // After tearing down a backend for profile deletion, route to the primary
+    // backend instead of spawning a fresh pool backend.  A freshly spawned
+    // backend calls ensure_hermes_home() which recreates the profile directory,
+    // defeating the deletion and leaving a zombie process.
+    const routeProfile = resolveRouteProfile(tornDownProfile, profile)
+    const connection = await ensureBackend(routeProfile)
+    const timeoutMs = resolveTimeoutMs(request?.timeoutMs, DEFAULT_FETCH_TIMEOUT_MS)
+
+    const requestPath = pathWithGlobalRemoteProfile(request.path, profile, {
+      globalRemote: globalRemoteActive(),
+      profileRemoteOverride: profileHasRemoteOverride(profile)
+    })
+
+    const url = `${connection.baseUrl}${requestPath}`
+
+    // OAuth gateways authenticate REST via EITHER a native bearer token
+    // (cookieless RFC 8252 flow) OR the HttpOnly session cookie held in the OAuth
+    // partition. Prefer the native bearer when present (mirroring
+    // mintGatewayWsTicket): the native flow never sets a cookie, so routing an
+    // oauth-mode REST call through the cookie-only path returns 401 no_cookie even
+    // though a valid bearer is held. Cookie mode rides Electron's net stack bound
+    // to the OAuth partition so the cookie attaches automatically. Token/local
+    // modes keep using the static session-token header.
+    if (connection.authMode === 'oauth') {
+      // The OAuth path rides electron.net with JSON headers; multipart isn't
+      // wired there. Fail loudly rather than corrupting the upload.
+      if (request?.upload) {
+        throw new Error('File uploads are not supported against OAuth-gated remote backends yet.')
+      }
+
+      // Native bearer first (cookieless). ensureNativeAccessToken transparently
+      // refreshes a near-expiry AT via /auth/native/refresh; a null return means
+      // no native session (resolveOauthRestAuth then selects the cookie path).
+      const nativeAt = await ensureNativeAccessToken(connection.baseUrl).catch(() => null)
+      const restAuth = resolveOauthRestAuth(nativeAt)
+
+      if (restAuth.kind === 'bearer') {
+        return await fetchJson(url, null, {
+          method: request?.method,
+          body: request?.body,
+          timeoutMs,
+          bearer: restAuth.token
+        })
+      }
+
+      return await fetchJsonViaOauthSession(url, {
         method: request?.method,
         body: request?.body,
-        timeoutMs,
-        bearer: restAuth.token
+        timeoutMs
       })
     }
 
-    return await fetchJsonViaOauthSession(url, {
+    return await fetchJson(url, connection.token, {
       method: request?.method,
       body: request?.body,
+      upload: request?.upload,
       timeoutMs
     })
-  }
-
-  return await fetchJson(url, connection.token, {
-    method: request?.method,
-    body: request?.body,
-    upload: request?.upload,
-    timeoutMs
-  })
   } catch (error) {
     return apiIpcFailure(error)
   }
@@ -10836,13 +10825,17 @@ app.whenReady().then(() => {
  * stale-bundles.ts and is unit-tested there.
  */
 function retireStaleAppBundles() {
-  if (!IS_MAC || !app.isPackaged) {return}
+  if (!IS_MAC || !app.isPackaged) {
+    return
+  }
 
   try {
     // process.execPath -> Catalyst.app/Contents/MacOS/Catalyst
     const runningAppPath = path.resolve(path.dirname(process.execPath), '..', '..')
 
-    if (!runningAppPath.endsWith('.app')) {return}
+    if (!runningAppPath.endsWith('.app')) {
+      return
+    }
 
     const parentDir = path.dirname(runningAppPath)
 
@@ -10851,7 +10844,9 @@ function retireStaleAppBundles() {
       siblingNames: fs.readdirSync(parentDir)
     })
 
-    if (stale.length === 0) {return}
+    if (stale.length === 0) {
+      return
+    }
 
     for (const bundlePath of stale) {
       try {

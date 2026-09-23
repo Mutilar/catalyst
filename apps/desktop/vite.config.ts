@@ -28,17 +28,21 @@ const fsAllow = [
 
 export default defineConfig({
   base: './',
-  plugins: [react(), tailwindcss(), {
-    name: 'splash-identity-preview',
-    apply: 'serve',
-    configureServer(server) {
-      server.middlewares.use('/__splash-identity', (_request, response) => {
-        response.setHeader('Content-Type', 'application/json')
-        response.setHeader('Cache-Control', 'no-store')
-        response.end(JSON.stringify(readSplashIdentity(path.resolve(__dirname, '../..'))))
-      })
+  plugins: [
+    react(),
+    tailwindcss(),
+    {
+      name: 'splash-identity-preview',
+      apply: 'serve',
+      configureServer(server) {
+        server.middlewares.use('/__splash-identity', (_request, response) => {
+          response.setHeader('Content-Type', 'application/json')
+          response.setHeader('Cache-Control', 'no-store')
+          response.end(JSON.stringify(readSplashIdentity(path.resolve(__dirname, '../..'))))
+        })
+      }
     }
-  }],
+  ],
   css: {
     // Pin an explicit (empty) PostCSS config. Tailwind is handled entirely by
     // `@tailwindcss/vite`, so the renderer needs no PostCSS plugins — and

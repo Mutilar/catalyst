@@ -10,10 +10,7 @@ describe('buildVersion', () => {
   test('a CI build is uniquely identifiable', () => {
     // The reported problem: two builds a day apart both read "0.17.0", so a
     // tester could not tell whether the download replaced anything.
-    assert.equal(
-      buildVersion({ baseVersion: '0.17.0', runNumber: 42, commitSha: SHA }),
-      '0.17.0-ci.42+sha.be31aea5'
-    )
+    assert.equal(buildVersion({ baseVersion: '0.17.0', runNumber: 42, commitSha: SHA }), '0.17.0-ci.42+sha.be31aea5')
   })
 
   test('successive builds of the same commit stay distinct', () => {

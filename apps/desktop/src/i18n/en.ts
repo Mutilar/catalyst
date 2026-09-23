@@ -133,8 +133,7 @@ export const en: Translations = {
       elevenLabsNeedsKey: 'ElevenLabs STT needs ELEVENLABS_API_KEY.',
       elevenLabsRejectedKey: 'ElevenLabs rejected the API key (401).',
       gatewayAuthFailed: 'Gateway authentication failed — check your API_SERVER_KEY.',
-      methodNotAllowed:
-        'The desktop backend rejected that request (405 Method Not Allowed). Try restarting Catalyst.',
+      methodNotAllowed: 'The desktop backend rejected that request (405 Method Not Allowed). Try restarting Catalyst.',
       microphonePermission: 'Microphone permission was denied.',
       openaiRejectedApiKey: 'OpenAI rejected the API key.',
       openaiRejectedApiKeyWithStatus: status => `OpenAI rejected the API key (${status} invalid_api_key).`,
@@ -694,8 +693,7 @@ export const en: Translations = {
         'The host key has CHANGED since you last connected. Verify this is expected, then run ssh-keygen -R <host> and reconnect.',
       sshErrNotInstalled:
         'Hermes is not installed on the remote host. Install it there (curl -fsSL https://hermes-agent.nousresearch.com/install.sh | sh) or set the Hermes path.',
-      sshErrPlatform:
-        'Unsupported remote platform. Catalyst SSH mode supports Linux, macOS, and Windows remote hosts.',
+      sshErrPlatform: 'Unsupported remote platform. Catalyst SSH mode supports Linux, macOS, and Windows remote hosts.',
       sshErrTimeout: 'SSH connection timed out. The host may be unreachable or asleep.',
       sshErrUpdateRequired: 'Update Hermes on the remote host before connecting with Desktop SSH.',
       sshErrUnknown: 'SSH connection failed.'
@@ -2002,7 +2000,8 @@ export const en: Translations = {
     maybeLater: 'Maybe later',
     moreChanges: count => `+ ${count} more change${count === 1 ? '' : 's'} included.`,
     manualTitle: 'Update from your terminal',
-    manualBody: 'You installed Catalyst from the command line, so updates run there too. Paste this into your terminal:',
+    manualBody:
+      'You installed Catalyst from the command line, so updates run there too. Paste this into your terminal:',
     manualPickedUp: 'Catalyst will pick up the new version next time you launch it.',
     guiSkewTitle: 'Update the desktop app',
     guiSkewBody:
@@ -2096,7 +2095,8 @@ export const en: Translations = {
       xai: { short: 'Grok models', description: 'Direct access to xAI Grok models.' },
       local: {
         short: 'self-hosted',
-        description: 'Point Catalyst at a local or self-hosted OpenAI-compatible endpoint (vLLM, llama.cpp, Ollama, etc).'
+        description:
+          'Point Catalyst at a local or self-hosted OpenAI-compatible endpoint (vLLM, llama.cpp, Ollama, etc).'
       }
     },
     backToSignIn: 'Back to sign in',

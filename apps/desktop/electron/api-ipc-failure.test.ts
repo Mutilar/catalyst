@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  API_FAILURE_SCHEMA,
-  apiIpcFailure,
-  shouldRetryApiRequest,
-  unwrapApiIpcResult
-} from './api-ipc-failure'
+import { API_FAILURE_SCHEMA, apiIpcFailure, shouldRetryApiRequest, unwrapApiIpcResult } from './api-ipc-failure'
 
 describe('desktop API IPC failures', () => {
   it('projects connection resets without transport or framework implementation detail', () => {

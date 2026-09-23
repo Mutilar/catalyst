@@ -32,13 +32,24 @@ interface UguiTextContentProps {
  * Coalesce cosmetic streaming updates; settlement projects immediately. An old
  * async result can never repaint a replacement message or an unmounted part.
  */
-export function UguiTextContent({ text, isRunning, containerClassName, containerProps, copyText, allowContinuations = true, onContinuation }: UguiTextContentProps) {
+export function UguiTextContent({
+  text,
+  isRunning,
+  containerClassName,
+  containerProps,
+  copyText,
+  allowContinuations = true,
+  onContinuation
+}: UguiTextContentProps) {
   const { t } = useI18n()
   const { target } = useComposerScope()
 
-  const submitContinuation = useCallback((prompt: string) => {
-    requestComposerSubmit(prompt, { target })
-  }, [target])
+  const submitContinuation = useCallback(
+    (prompt: string) => {
+      requestComposerSubmit(prompt, { target })
+    },
+    [target]
+  )
 
   const [projection, setProjection] = useState<Projection | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -49,7 +60,9 @@ export function UguiTextContent({ text, isRunning, containerClassName, container
     const project = () => {
       void projectConversationText(text, isRunning).then(
         result => {
-          if (!cancelled) {setProjection({ source: text, documents: result.documents, error: null })}
+          if (!cancelled) {
+            setProjection({ source: text, documents: result.documents, error: null })
+          }
         },
         cause => {
           if (!cancelled) {
@@ -62,12 +75,16 @@ export function UguiTextContent({ text, isRunning, containerClassName, container
 
     const frame = isRunning ? requestAnimationFrame(project) : null
 
-    if (!isRunning) {project()}
+    if (!isRunning) {
+      project()
+    }
 
     return () => {
       cancelled = true
 
-      if (frame !== null) {cancelAnimationFrame(frame)}
+      if (frame !== null) {
+        cancelAnimationFrame(frame)
+      }
     }
   }, [text, isRunning, attempt])
 
@@ -77,34 +94,73 @@ export function UguiTextContent({ text, isRunning, containerClassName, container
   const error = current?.source === text ? current.error : null
 
   const failure: Document = {
-    schema: 'lucid-ugui-response/1', id: 'conversation.projection.error', type: 'document',
-    header: [], actions: [],
+    schema: 'lucid-ugui-response/1',
+    id: 'conversation.projection.error',
+    type: 'document',
+    header: [],
+    actions: [],
     sections: [{ id: 'error', type: 'status', signal: SIGNAL_RED, heading: t.common.error, body: error }]
   }
 
-  if (!text) {return null}
+  if (!text) {
+    return null
+  }
 
   return (
-    <div {...containerProps} aria-busy={isRunning || !current} className={cn('min-w-0 w-full max-w-full space-y-2', containerClassName)} data-ugui-text="true">
+    <div
+      {...containerProps}
+      aria-busy={isRunning || !current}
+      className={cn('min-w-0 w-full max-w-full space-y-2', containerClassName)}
+      data-ugui-text="true"
+    >
       {error ? (
         <>
           <McpUguiDocument copyText={copyText ?? text} document={failure} presentationOnly />
-          <Button onClick={() => setAttempt(value => value + 1)} size="xs" variant="text">{t.common.retry}</Button>
+          <Button onClick={() => setAttempt(value => value + 1)} size="xs" variant="text">
+            {t.common.retry}
+          </Button>
         </>
-      ) : current?.documents ? current.documents.map(document => (
-        <ParagraphDocument copyText={copyText} document={document} key={document.id} onContinuation={allowContinuations ? onContinuation ?? submitContinuation : undefined} />
-      )) : <Loader label={t.common.loading} />}
+      ) : current?.documents ? (
+        current.documents.map(document => (
+          <ParagraphDocument
+            copyText={copyText}
+            document={document}
+            key={document.id}
+            onContinuation={allowContinuations ? (onContinuation ?? submitContinuation) : undefined}
+          />
+        ))
+      ) : (
+        <Loader label={t.common.loading} />
+      )}
     </div>
   )
 }
 
-const ParagraphDocument = memo(function ParagraphDocument({ document, onContinuation, copyText }: {
-  document: ConversationProjection['documents'][number]
-  onContinuation?: (text: string) => void
-  copyText?: string
-}) {
-  return <McpUguiDocument copyText={copyText ?? document.source} document={document} onContinuation={onContinuation} presentationOnly />
-}, (before, after) => before.document.id === after.document.id && before.document.revision === after.document.revision && before.onContinuation === after.onContinuation && before.copyText === after.copyText)
+const ParagraphDocument = memo(
+  function ParagraphDocument({
+    document,
+    onContinuation,
+    copyText
+  }: {
+    document: ConversationProjection['documents'][number]
+    onContinuation?: (text: string) => void
+    copyText?: string
+  }) {
+    return (
+      <McpUguiDocument
+        copyText={copyText ?? document.source}
+        document={document}
+        onContinuation={onContinuation}
+        presentationOnly
+      />
+    )
+  },
+  (before, after) =>
+    before.document.id === after.document.id &&
+    before.document.revision === after.document.revision &&
+    before.onContinuation === after.onContinuation &&
+    before.copyText === after.copyText
+)
 
 export const UguiText = memo(function UguiText() {
   const { text, status } = useMessagePartText()

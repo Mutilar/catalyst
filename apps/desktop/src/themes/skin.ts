@@ -72,9 +72,7 @@ const flatCssColor = (value: string, backdrop: string): string => {
     return normalized
   }
 
-  const match = value.match(
-    /^rgba?\(\s*([0-9.]+)[,\s]+([0-9.]+)[,\s]+([0-9.]+)(?:\s*[,/]\s*([0-9.]+)(%)?)?\s*\)$/i
-  )
+  const match = value.match(/^rgba?\(\s*([0-9.]+)[,\s]+([0-9.]+)[,\s]+([0-9.]+)(?:\s*[,/]\s*([0-9.]+)(%)?)?\s*\)$/i)
 
   if (!match) {
     return backdrop

@@ -320,13 +320,21 @@ function applySkinBinding(root: HTMLElement, binding: UgUiSkinBinding | undefine
   const raisedColors = binding['border-model']['raised-delta']?.match(/#[0-9a-f]{6,8}/gi) ?? []
   const sunkenColors = binding['border-model']['sunken-delta']?.match(/#[0-9a-f]{6,8}/gi) ?? []
 
-  if (raisedColors[0]) {root.style.setProperty('--skin-raised-light', raisedColors[0])}
+  if (raisedColors[0]) {
+    root.style.setProperty('--skin-raised-light', raisedColors[0])
+  }
 
-  if (raisedColors[1]) {root.style.setProperty('--skin-raised-dark', raisedColors[1])}
+  if (raisedColors[1]) {
+    root.style.setProperty('--skin-raised-dark', raisedColors[1])
+  }
 
-  if (sunkenColors[0]) {root.style.setProperty('--skin-sunken-dark', sunkenColors[0])}
+  if (sunkenColors[0]) {
+    root.style.setProperty('--skin-sunken-dark', sunkenColors[0])
+  }
 
-  if (sunkenColors[1]) {root.style.setProperty('--skin-sunken-light', sunkenColors[1])}
+  if (sunkenColors[1]) {
+    root.style.setProperty('--skin-sunken-light', sunkenColors[1])
+  }
   const shadow = binding.elevation['dual-shadow']
 
   if (shadow) {

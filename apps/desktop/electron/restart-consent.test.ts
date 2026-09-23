@@ -4,11 +4,7 @@ import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import {
-  decideCatalystRestart,
-  readCatalystRestartIntent,
-  RESTART_INTENT_SCHEMA
-} from './restart-consent'
+import { decideCatalystRestart, readCatalystRestartIntent, RESTART_INTENT_SCHEMA } from './restart-consent'
 
 const roots: string[] = []
 
@@ -70,11 +66,7 @@ describe('Catalyst restart consent bridge', () => {
 
     const decision = JSON.parse(
       fs.readFileSync(
-        path.join(
-          repoRoot,
-          'run/state/runtime/catalyst-restart-decisions',
-          `${'a'.repeat(64)}.json`
-        ),
+        path.join(repoRoot, 'run/state/runtime/catalyst-restart-decisions', `${'a'.repeat(64)}.json`),
         'utf8'
       )
     )

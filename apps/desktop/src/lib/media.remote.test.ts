@@ -151,9 +151,9 @@ describe('resolveUguiMediaReference', () => {
     vi.stubGlobal('window', { hermesDesktop: { api } })
     $connection.set({ mode: 'remote', profile: 'remote-work' } as never)
 
-    await expect(
-      resolveUguiMediaReference('artifact://screen/screen-123-00-abcdef.preview.png')
-    ).resolves.toBe('data:image/png;base64,iVBORw0KGgo=')
+    await expect(resolveUguiMediaReference('artifact://screen/screen-123-00-abcdef.preview.png')).resolves.toBe(
+      'data:image/png;base64,iVBORw0KGgo='
+    )
     expect(api).toHaveBeenCalledWith({
       path: '/api/artifacts/screen/screen-123-00-abcdef.preview.png',
       profile: 'remote-work'
@@ -174,9 +174,9 @@ describe('resolveUguiMediaReference', () => {
       )
     }
 
-    await expect(
-      resolveUguiMediaReference('artifact://screen/screen-123.preview.png')
-    ).rejects.toThrow('Screen artifact resolver returned an invalid image')
+    await expect(resolveUguiMediaReference('artifact://screen/screen-123.preview.png')).rejects.toThrow(
+      'Screen artifact resolver returned an invalid image'
+    )
   })
 })
 

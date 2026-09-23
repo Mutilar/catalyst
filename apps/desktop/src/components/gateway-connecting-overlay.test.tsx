@@ -203,24 +203,53 @@ describe('WITNESS splash choreography', () => {
     vi.useFakeTimers()
     $desktopBoot.set({ ...$desktopBoot.get(), progress: 2, running: true, visible: true })
     setGatewayState('connecting')
-    vi.stubGlobal('hermesDesktop', { getSplashIdentity: vi.fn().mockResolvedValue({ alias: 'brianhu', glyph: '🐧', image: 'data:image/svg+xml;base64,PHN2Zy8+' }) })
-    vi.stubGlobal('Image', class { src = ''; decode = vi.fn().mockResolvedValue(undefined) })
+    vi.stubGlobal('hermesDesktop', {
+      getSplashIdentity: vi
+        .fn()
+        .mockResolvedValue({ alias: 'brianhu', glyph: '🐧', image: 'data:image/svg+xml;base64,PHN2Zy8+' })
+    })
+    vi.stubGlobal(
+      'Image',
+      class {
+        src = ''
+        decode = vi.fn().mockResolvedValue(undefined)
+      }
+    )
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-      drawImage: vi.fn(), getImageData: () => ({ data: new Uint8ClampedArray(128 * 128 * 4).fill(255) }),
+      drawImage: vi.fn(),
+      getImageData: () => ({ data: new Uint8ClampedArray(128 * 128 * 4).fill(255) }),
       measureText: () => ({ actualBoundingBoxAscent: 4, actualBoundingBoxDescent: 0 })
     } as never)
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-      left: 200, top: 100, width: 8, height: 8, right: 208, bottom: 108, x: 200, y: 100, toJSON: () => ({})
+      left: 200,
+      top: 100,
+      width: 8,
+      height: 8,
+      right: 208,
+      bottom: 108,
+      x: 200,
+      y: 100,
+      toJSON: () => ({})
     })
   })
-  afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
 
-  async function tick(ms: number) { await act(async () => { await vi.advanceTimersByTimeAsync(ms) }) }
+  async function tick(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms)
+    })
+  }
 
   function visiblePunctuation() {
     return Array.from(screen.getByLabelText('Connecting').querySelectorAll('span > span'))
       .filter(mark => (mark as HTMLElement).style.opacity === '1')
-      .map(mark => mark.textContent).join('')
+      .map(mark => mark.textContent)
+      .join('')
   }
 
   async function punctuation() {
@@ -231,12 +260,18 @@ describe('WITNESS splash choreography', () => {
   }
 
   it('loops dots until hydration settles, holds comma for one second, then holds the revealed identity for one second', async () => {
-    await act(async () => { render(<GatewayConnectingOverlay />) })
+    await act(async () => {
+      render(<GatewayConnectingOverlay />)
+    })
     await punctuation()
-    await act(async () => { setGatewayState('open') })
+    await act(async () => {
+      setGatewayState('open')
+    })
     await tick(2000)
     expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('punctuation')
-    await act(async () => { $desktopBoot.set({ ...$desktopBoot.get(), running: false, progress: 100, visible: false }) })
+    await act(async () => {
+      $desktopBoot.set({ ...$desktopBoot.get(), running: false, progress: 100, visible: false })
+    })
     await tick(40)
     expect(visiblePunctuation()).toBe('...,')
     expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('comma')
@@ -267,9 +302,14 @@ describe('WITNESS splash choreography', () => {
 
   it('skips zoom for reduced motion and yields immediately to boot errors', async () => {
     vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
-    await act(async () => { render(<GatewayConnectingOverlay />) })
+    await act(async () => {
+      render(<GatewayConnectingOverlay />)
+    })
     await punctuation()
-    await act(async () => { setGatewayState('open'); $desktopBoot.set({ ...$desktopBoot.get(), running: false, progress: 100 }) })
+    await act(async () => {
+      setGatewayState('open')
+      $desktopBoot.set({ ...$desktopBoot.get(), running: false, progress: 100 })
+    })
     await tick(40)
     expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('comma')
     await tick(1000)
@@ -280,16 +320,25 @@ describe('WITNESS splash choreography', () => {
     expect(isConnectingShown()).toBe(false)
     cleanup()
     $desktopBoot.set({ ...$desktopBoot.get(), running: true, progress: 2 })
-    await act(async () => { render(<GatewayConnectingOverlay />) })
-    await act(async () => { $desktopBoot.set({ ...$desktopBoot.get(), error: 'Boot failed' }) })
+    await act(async () => {
+      render(<GatewayConnectingOverlay />)
+    })
+    await act(async () => {
+      $desktopBoot.set({ ...$desktopBoot.get(), error: 'Boot failed' })
+    })
     expect(isConnectingShown()).toBe(false)
   })
 
   it('does not fabricate an identity or block a ready desktop when the capability is absent', async () => {
     vi.stubGlobal('hermesDesktop', {})
-    await act(async () => { render(<GatewayConnectingOverlay />) })
+    await act(async () => {
+      render(<GatewayConnectingOverlay />)
+    })
     await punctuation()
-    await act(async () => { setGatewayState('open'); $desktopBoot.set({ ...$desktopBoot.get(), running: false, progress: 100 }) })
+    await act(async () => {
+      setGatewayState('open')
+      $desktopBoot.set({ ...$desktopBoot.get(), running: false, progress: 100 })
+    })
     await tick(40)
     expect(screen.getByLabelText('Connecting').getAttribute('data-splash-identity')).toBe('unavailable')
     await tick(1000)
@@ -298,15 +347,24 @@ describe('WITNESS splash choreography', () => {
   })
 
   it('restarts the full comma hold if readiness is lost', async () => {
-    await act(async () => { render(<GatewayConnectingOverlay />) })
-    await act(async () => { setGatewayState('open'); $desktopBoot.set({ ...$desktopBoot.get(), running: false, progress: 100 }) })
+    await act(async () => {
+      render(<GatewayConnectingOverlay />)
+    })
+    await act(async () => {
+      setGatewayState('open')
+      $desktopBoot.set({ ...$desktopBoot.get(), running: false, progress: 100 })
+    })
     await tick(40)
     await tick(600)
-    await act(async () => { setGatewayState('closed') })
+    await act(async () => {
+      setGatewayState('closed')
+    })
     expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('punctuation')
     await tick(1200)
     expect(screen.queryByLabelText('BRIANHU 🐧')).toBeNull()
-    await act(async () => { setGatewayState('open') })
+    await act(async () => {
+      setGatewayState('open')
+    })
     await tick(40)
     await tick(999)
     expect(screen.getByLabelText('Connecting').getAttribute('data-splash-phase')).toBe('comma')
@@ -317,14 +375,21 @@ describe('WITNESS splash choreography', () => {
   it('zooms geometrically from the measured period into an opaque square covering desktop and mobile', () => {
     const pixels = new Uint8ClampedArray(16 * 16 * 4)
 
-    for (let row = 4; row < 14; row++) {for (let column = 3; column < 13; column++) {pixels[(row * 16 + column) * 4 + 3] = 255}}
+    for (let row = 4; row < 14; row++) {
+      for (let column = 3; column < 13; column++) {
+        pixels[(row * 16 + column) * 4 + 3] = 255
+      }
+    }
     const region = opaqueRegion(pixels, 16)
     const start = { left: 200, top: 100, width: 8 }
 
-    for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 390, height: 844 }
+    ]) {
       expect(zoomFrame(start, viewport, region, 0)).toEqual(start)
       const end = zoomFrame(start, viewport, region, 1)
-      expect(end.width).toBeCloseTo(1.25 * Math.max(viewport.width, viewport.height) / region.size)
+      expect(end.width).toBeCloseTo((1.25 * Math.max(viewport.width, viewport.height)) / region.size)
       expect(zoomFrame(start, viewport, region, 0.5).width).toBeCloseTo(start.width * (end.width / start.width) ** 0.25)
       const lateTravel = zoomFrame(start, viewport, region, 0.95).width - zoomFrame(start, viewport, region, 0.9).width
       const finalTravel = end.width - zoomFrame(start, viewport, region, 0.95).width

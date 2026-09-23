@@ -300,7 +300,6 @@ export function usePetRoam({
           break
         }
       }
-
     }
 
     // Roaming while the window is hidden animates a pet nobody can see.

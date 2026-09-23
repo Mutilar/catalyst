@@ -25,10 +25,7 @@ import { useI18n } from '@/i18n'
 import { DELIMITER_SEGMENT, SIGNAL_GREEN, SIGNAL_PENDING, SIGNAL_RED, SIGNAL_WARNING } from '@/lib/ae-glyphs'
 import { codiconForLanguage } from '@/lib/markdown-code'
 import { resolveUguiMediaReference } from '@/lib/media'
-import {
-  extractMcpUguiDocument,
-  type McpUguiDocument as McpUguiDocumentValue
-} from '@/lib/tool-presentation'
+import { extractMcpUguiDocument, type McpUguiDocument as McpUguiDocumentValue } from '@/lib/tool-presentation'
 import {
   inputResidentUguiApp,
   loadResidentUguiApp,
@@ -64,9 +61,7 @@ interface ProjectedAction {
 }
 
 function record(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
 function text(value: unknown): string {
@@ -95,11 +90,7 @@ function uguiDocumentIdentity(document: McpUguiDocumentValue): string {
   return provenanceHash || JSON.stringify([document.schema, document.id, document.state, document.header])
 }
 
-export function projectUguiAction(
-  document: McpUguiDocumentValue,
-  value: unknown,
-  index: number
-): ProjectedAction {
+export function projectUguiAction(document: McpUguiDocumentValue, value: unknown, index: number): ProjectedAction {
   const action = record(value) ?? {}
   const id = text(action.id)
   const label = text(action.label ?? action.title ?? action.action ?? action.id ?? `Action ${index + 1}`)
@@ -128,14 +119,15 @@ export function projectUguiAction(
   const handlerMatches = verbHelp
     ? LUCID_VERBS.has(verb) && Object.keys(argumentsValue ?? {}).length === 0 && action.value === verb
     : nounHelp
-      ? LUCID_VERBS.has(verb) && Object.keys(argumentsValue ?? {}).length === 1 &&
-        typeof argumentsValue?.help === 'string' && argumentsValue.help === action.value &&
+      ? LUCID_VERBS.has(verb) &&
+        Object.keys(argumentsValue ?? {}).length === 1 &&
+        typeof argumentsValue?.help === 'string' &&
+        argumentsValue.help === action.value &&
         /^[A-Za-z0-9][A-Za-z0-9_./:-]{0,127}$/.test(argumentsValue.help)
       : LUCID_VERBS.has(verb) && handler.startsWith(`lucid.${verb}.`)
 
   const choiceTargetValid =
-    handler !== 'lucid.morph.choice' ||
-    (typeof action.value === 'string' && action.value === argumentsValue?.codebook)
+    handler !== 'lucid.morph.choice' || (typeof action.value === 'string' && action.value === argumentsValue?.codebook)
 
   const cancelTargetValid =
     handler !== 'lucid.cancel.dispatch' ||
@@ -172,28 +164,23 @@ export function projectUguiAction(
 
   const complete = Boolean(
     id &&
-      label &&
-      intent &&
-      argumentsValue &&
-      handlerMatches &&
-      morphOperationValid &&
-      semanticTargetValid &&
-      typedInputValid
+    label &&
+    intent &&
+    argumentsValue &&
+    handlerMatches &&
+    morphOperationValid &&
+    semanticTargetValid &&
+    typedInputValid
   )
 
   const requiresExactConfirmation =
     !helpHandler &&
-    (MUTATING_LUCID_VERBS.has(verb) ||
-      (verb === 'morph' && MUTATING_MORPH_OPERATIONS.has(morphOperation)))
+    (MUTATING_LUCID_VERBS.has(verb) || (verb === 'morph' && MUTATING_MORPH_OPERATIONS.has(morphOperation)))
 
   const confirmationPolicyValid = !requiresExactConfirmation || action.requiresConfirmation === 'exact'
 
   const executable =
-    complete &&
-    confirmationPolicyValid &&
-    HASH_RE.test(provenanceHash) &&
-    !producerDisabled &&
-    !unavailable
+    complete && confirmationPolicyValid && HASH_RE.test(provenanceHash) && !producerDisabled && !unavailable
 
   const reason = producerDisabled
     ? text(action.disabledReason) || 'The producer disabled this action.'
@@ -203,22 +190,20 @@ export function projectUguiAction(
         ? 'The action typed-input contract is invalid.'
         : !confirmationPolicyValid
           ? 'Mutating LUCID actions require authored exact confirmation.'
-        : !morphOperationValid
-          ? 'MORPH actions require one closed operation.'
-        : !semanticTargetValid
-          ? 'Action target differs from its exact request.'
-        : !complete
-          ? 'The producer has not supplied a complete typed LUCID intent for this action.'
-          : !HASH_RE.test(provenanceHash)
-            ? 'The document action provenance is invalid.'
-            : ''
+          : !morphOperationValid
+            ? 'MORPH actions require one closed operation.'
+            : !semanticTargetValid
+              ? 'Action target differs from its exact request.'
+              : !complete
+                ? 'The producer has not supplied a complete typed LUCID intent for this action.'
+                : !HASH_RE.test(provenanceHash)
+                  ? 'The document action provenance is invalid.'
+                  : ''
 
   return {
     executable,
     id,
-    input: steerInput
-      ? { id: 'intent_delta', label: text(steerInput.label) || 'Correction', maxLength: 4000 }
-      : null,
+    input: steerInput ? { id: 'intent_delta', label: text(steerInput.label) || 'Correction', maxLength: 4000 } : null,
     label,
     reason,
     requiresConfirmation: action.requiresConfirmation === 'exact'
@@ -305,7 +290,10 @@ function UguiMarkdownCode({ code, language, title }: { code: string; language: s
         <CodeCardTitle>
           <CodeCardIcon name={codiconForLanguage(language)} />
           {title}
-            <CodeCardSubtitle>{DELIMITER_SEGMENT}{language}</CodeCardSubtitle>
+          <CodeCardSubtitle>
+            {DELIMITER_SEGMENT}
+            {language}
+          </CodeCardSubtitle>
         </CodeCardTitle>
         <CopyButton
           appearance="inline"
@@ -326,7 +314,9 @@ function UguiMarkdownCode({ code, language, title }: { code: string; language: s
 }
 
 export function residentUguiActionId(target: EventTarget | null): string {
-  if (!(target instanceof Element)) {return ''}
+  if (!(target instanceof Element)) {
+    return ''
+  }
   const action = target.closest('[data-ugui-action]')
 
   return action?.getAttribute('data-ugui-action') ?? ''
@@ -341,7 +331,9 @@ function UgUiResidentAppReference({ value }: { value: Record<string, unknown> })
   const [error, setError] = useState('')
 
   const send = useCallback(async (message: Record<string, unknown>) => {
-    if (sending.current) {return}
+    if (sending.current) {
+      return
+    }
     sending.current = true
 
     try {
@@ -361,7 +353,9 @@ function UgUiResidentAppReference({ value }: { value: Record<string, unknown> })
     setError('')
     void loadResidentUguiApp(appId, source, 20_260_702)
       .then(next => {
-        if (!cancelled) {setDocument(next)}
+        if (!cancelled) {
+          setDocument(next)
+        }
       })
       .catch(cause => {
         if (!cancelled) {
@@ -376,14 +370,18 @@ function UgUiResidentAppReference({ value }: { value: Record<string, unknown> })
   }, [appId, source])
 
   useEffect(() => {
-    if (!document || !root.current) {return}
+    if (!document || !root.current) {
+      return
+    }
     void mountResidentUguiDocument(root.current, document).catch(cause => {
       setError(cause instanceof Error ? cause.message : 'UGUI browser paint failed')
     })
   }, [document])
 
   useEffect(() => {
-    if (!document) {return}
+    if (!document) {
+      return
+    }
     const timer = window.setInterval(() => void send({ kind: 'tick', dt: 100 }), 100)
 
     return () => window.clearInterval(timer)
@@ -402,10 +400,14 @@ function UgUiResidentAppReference({ value }: { value: Record<string, unknown> })
   }
 
   const pointer = (event: ReactPointerEvent<HTMLDivElement>, phase: 'down' | 'move' | 'up') => {
-    if (!(event.target instanceof HTMLCanvasElement)) {return}
+    if (!(event.target instanceof HTMLCanvasElement)) {
+      return
+    }
     const bounds = event.target.getBoundingClientRect()
 
-    if (!bounds.width || !bounds.height) {return}
+    if (!bounds.width || !bounds.height) {
+      return
+    }
     const x = Math.round(((event.clientX - bounds.left) * event.target.width) / bounds.width)
     const y = Math.round(((event.clientY - bounds.top) * event.target.height) / bounds.height)
     void send({ kind: 'pointer', phase, x, y })
@@ -418,26 +420,36 @@ function UgUiResidentAppReference({ value }: { value: Record<string, unknown> })
         onClick={event => {
           const id = residentUguiActionId(event.target)
 
-          if (id) {void send({ kind: 'tap', id })}
+          if (id) {
+            void send({ kind: 'tap', id })
+          }
         }}
         onInput={event => {
           const target = event.target
 
-          if (!(target instanceof HTMLInputElement)) {return}
+          if (!(target instanceof HTMLInputElement)) {
+            return
+          }
 
-          if (!residentUguiActionId(target)) {return}
+          if (!residentUguiActionId(target)) {
+            return
+          }
           void send({ kind: 'text', value: target.value })
         }}
         onKeyDown={event => {
           const value = key(event.key)
 
-          if (!value) {return}
+          if (!value) {
+            return
+          }
           event.preventDefault()
           void send({ kind: 'key', key: value })
         }}
         onPointerDown={event => pointer(event, 'down')}
         onPointerMove={event => {
-          if (event.buttons) {pointer(event, 'move')}
+          if (event.buttons) {
+            pointer(event, 'move')
+          }
         }}
         onPointerUp={event => pointer(event, 'up')}
         ref={root}
@@ -461,7 +473,9 @@ function UgUiImage({ value }: { value: Record<string, unknown> }) {
     setError('')
     void resolveUguiMediaReference(src)
       .then(result => {
-        if (!cancelled) {setResolvedSrc(result)}
+        if (!cancelled) {
+          setResolvedSrc(result)
+        }
       })
       .catch(cause => {
         if (!cancelled) {
@@ -489,9 +503,7 @@ function UgUiImage({ value }: { value: Record<string, unknown> }) {
           width={Number(value.pixelWidth) || undefined}
         />
       ) : (
-        <p className="text-[0.68rem] text-(--ui-text-tertiary)">
-          {error || 'Resolving image reference…'}
-        </p>
+        <p className="text-[0.68rem] text-(--ui-text-tertiary)">{error || 'Resolving image reference…'}</p>
       )}
       <figcaption className="text-[0.65rem] text-(--ui-text-tertiary)">{alt}</figcaption>
     </figure>
@@ -511,7 +523,9 @@ function UguiSectionImpl({ value, presentationOnly = false }: { value: unknown; 
   const signal = text(section.signal)
 
   if (type === 'app_reference') {
-    if (presentationOnly) {return <CompactMarkdown text={text(section.source)} />}
+    if (presentationOnly) {
+      return <CompactMarkdown text={text(section.source)} />
+    }
 
     return <UgUiResidentAppReference value={section} />
   }
@@ -666,7 +680,12 @@ function uguiResponsiveSpan(value: unknown): string {
   return UGUI_RESPONSIVE_SPAN[span] ?? '@lg:col-span-12'
 }
 
-export function McpUguiDocument({ document, presentationOnly = false, onContinuation, copyText }: {
+export function McpUguiDocument({
+  document,
+  presentationOnly = false,
+  onContinuation,
+  copyText
+}: {
   document: McpUguiDocumentValue
   presentationOnly?: boolean
   onContinuation?: (text: string) => void
@@ -685,7 +704,9 @@ export function McpUguiDocument({ document, presentationOnly = false, onContinua
   const receivedDocumentIdentity = useRef(uguiDocumentIdentity(document))
 
   useEffect(() => {
-    if (presentationOnly) {return}
+    if (presentationOnly) {
+      return
+    }
     const identity = uguiDocumentIdentity(document)
 
     if (receivedDocumentIdentity.current === identity) {
@@ -703,7 +724,9 @@ export function McpUguiDocument({ document, presentationOnly = false, onContinua
   }, [document, presentationOnly])
 
   useEffect(() => {
-    if (presentationOnly) {return}
+    if (presentationOnly) {
+      return
+    }
     const hostEffect = rendered.hostEffect
     const identity = hostEffect ? JSON.stringify(hostEffect) : ''
 
@@ -720,12 +743,16 @@ export function McpUguiDocument({ document, presentationOnly = false, onContinua
     const { executable, id: actionId, label } = projected
 
     if (presentationOnly) {
-      if (executable && projected.conversationText) {onContinuation?.(projected.conversationText)}
+      if (executable && projected.conversationText) {
+        onContinuation?.(projected.conversationText)
+      }
 
       return
     }
 
-    if (!executable) {return}
+    if (!executable) {
+      return
+    }
 
     const inputValue = projected.input ? (actionInputs[actionId] ?? '').trim() : ''
 
@@ -760,8 +787,7 @@ export function McpUguiDocument({ document, presentationOnly = false, onContinua
         projected.input ? { [projected.input.id]: inputValue } : {}
       )
 
-      const next =
-        extractMcpUguiDocument(response.result) ?? (await projectMcpGestaltResult(response.result))
+      const next = extractMcpUguiDocument(response.result) ?? (await projectMcpGestaltResult(response.result))
 
       if (!next) {
         throw new Error('LUCID action completed without a replacement UGUI document')
@@ -787,15 +813,21 @@ export function McpUguiDocument({ document, presentationOnly = false, onContinua
     .filter(action => !presentationOnly || record(action)?.action === 'conversation.submit')
     .slice(0, 32)
     .map((value, index): ProjectedAction => {
-      if (!presentationOnly) {return projectUguiAction(rendered, value, index)}
+      if (!presentationOnly) {
+        return projectUguiAction(rendered, value, index)
+      }
       const action = record(value) ?? {}
       const prompt = typeof action.value === 'string' ? action.value : ''
       const label = text(action.label)
 
       return {
-        id: text(action.id), label, conversationText: prompt,
+        id: text(action.id),
+        label,
+        conversationText: prompt,
         executable: action.disabled !== true && Boolean(prompt && label && onContinuation),
-        input: null, reason: '', requiresConfirmation: false
+        input: null,
+        reason: '',
+        requiresConfirmation: false
       }
     })
 
@@ -811,7 +843,12 @@ export function McpUguiDocument({ document, presentationOnly = false, onContinua
       <header className="flex min-w-0 items-start justify-between gap-2">
         <h4 className="min-w-0 flex-1 wrap-anywhere font-semibold text-(--ui-text-primary)">{heading}</h4>
         <span className="flex shrink-0 items-center gap-1">
-          <CopyButton appearance="inline" label={t.assistant.tool.copyOutput} showLabel text={copyText ?? JSON.stringify(rendered, null, 2)} />
+          <CopyButton
+            appearance="inline"
+            label={t.assistant.tool.copyOutput}
+            showLabel
+            text={copyText ?? JSON.stringify(rendered, null, 2)}
+          />
           {rendered.state && (
             <span className="rounded bg-(--ui-bg-quinary) px-1.5 py-0.5 text-[0.62rem] uppercase tracking-[0.06em] text-(--ui-text-tertiary)">
               {rendered.state}
@@ -864,9 +901,7 @@ export function McpUguiDocument({ document, presentationOnly = false, onContinua
                     aria-label={projected.input.label}
                     className="min-w-32 rounded border border-(--ui-stroke-tertiary) bg-(--ui-bg-primary) px-1.5 py-0.5 text-[0.65rem] text-(--ui-text-primary)"
                     maxLength={projected.input.maxLength}
-                    onChange={event =>
-                      setActionInputs(current => ({ ...current, [projected.id]: event.target.value }))
-                    }
+                    onChange={event => setActionInputs(current => ({ ...current, [projected.id]: event.target.value }))}
                     placeholder={projected.input.label}
                     type="text"
                     value={actionInputs[projected.id] ?? ''}
@@ -894,7 +929,9 @@ export function McpUguiDocument({ document, presentationOnly = false, onContinua
                 onClick={() => {
                   const action = projectedActions.find(value => value.id === confirmationAction)
 
-                  if (action) {void activateAction(action)}
+                  if (action) {
+                    void activateAction(action)
+                  }
                 }}
                 type="button"
               >

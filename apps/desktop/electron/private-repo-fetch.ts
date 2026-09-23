@@ -54,11 +54,7 @@ export function shouldTryGhFallback(status: HttpStatus): boolean {
  * people hunting for a typo in a URL that is perfectly correct. Name the
  * actual cause and the actual fix.
  */
-export function explainFetchFailure(
-  status: HttpStatus,
-  url: string,
-  ghAuthenticated: boolean
-): string {
+export function explainFetchFailure(status: HttpStatus, url: string, ghAuthenticated: boolean): string {
   if (shouldTryGhFallback(status)) {
     if (!ghAuthenticated) {
       return [
@@ -106,7 +102,9 @@ export async function fetchRepoFile(opts: {
   } catch (err: any) {
     const status: HttpStatus = err?.status
 
-    if (!shouldTryGhFallback(status)) {throw err}
+    if (!shouldTryGhFallback(status)) {
+      throw err
+    }
 
     const authenticated = gh.isAuthenticated()
 
@@ -119,9 +117,7 @@ export async function fetchRepoFile(opts: {
     } catch (ghErr: any) {
       // Surface the private-repo explanation, but keep gh's own message —
       // it usually names the real problem (SSO, expired token, no access).
-      throw new Error(
-        `${explainFetchFailure(status, url, true)}\n\ngh error: ${ghErr?.message || ghErr}`
-      )
+      throw new Error(`${explainFetchFailure(status, url, true)}\n\ngh error: ${ghErr?.message || ghErr}`)
     }
   }
 }

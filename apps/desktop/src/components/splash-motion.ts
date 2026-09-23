@@ -44,7 +44,7 @@ export function zoomFrame(
 ) {
   const time = Math.max(0, Math.min(1, progress))
   const travel = time ** 2
-  const finalSize = Math.max(start.width, 1.25 * Math.max(viewport.width, viewport.height) / region.size)
+  const finalSize = Math.max(start.width, (1.25 * Math.max(viewport.width, viewport.height)) / region.size)
   const width = start.width * Math.exp(Math.log(finalSize / start.width) * travel)
   const targetX = start.left + start.width * region.x
   const targetY = start.top + start.width * region.y

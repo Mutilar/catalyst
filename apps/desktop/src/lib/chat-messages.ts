@@ -606,8 +606,7 @@ function toolResult(
 
   const exactMcpResult = mcpToolIdentity(toolName)
     ? {
-        [MODEL_VISIBLE_TOOL_RESULT_KEY]:
-          parsedResult[MODEL_VISIBLE_TOOL_RESULT_KEY] ?? payload?.result ?? parsedResult
+        [MODEL_VISIBLE_TOOL_RESULT_KEY]: parsedResult[MODEL_VISIBLE_TOOL_RESULT_KEY] ?? payload?.result ?? parsedResult
       }
     : {}
 

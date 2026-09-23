@@ -105,7 +105,9 @@ export function GatewayConnectingOverlay() {
       try {
         const value = window.hermesDesktop?.getSplashIdentity
           ? await window.hermesDesktop.getSplashIdentity()
-          : previewing ? await fetch('/__splash-identity').then(response => response.ok ? response.json() : null) : null
+          : previewing
+            ? await fetch('/__splash-identity').then(response => (response.ok ? response.json() : null))
+            : null
 
         if (
           !value ||
@@ -245,10 +247,12 @@ export function GatewayConnectingOverlay() {
 
     fit()
 
-    const entrance = reduce ? undefined : element.animate?.([{ opacity: 0 }, { opacity: 1 }], {
-      duration: IDENTITY_IN_MS,
-      easing: 'ease-out'
-    })
+    const entrance = reduce
+      ? undefined
+      : element.animate?.([{ opacity: 0 }, { opacity: 1 }], {
+          duration: IDENTITY_IN_MS,
+          easing: 'ease-out'
+        })
 
     window.addEventListener('resize', fit)
     const timer = window.setTimeout(() => setPhase(reduce ? 'fade' : 'zoom'), (reduce ? 0 : IDENTITY_IN_MS) + REVEAL_MS)
@@ -379,7 +383,13 @@ export function GatewayConnectingOverlay() {
               className="inline-block"
               ref={marker}
               src={identity.image}
-              style={{ width: '0.1em', height: '0.1em', marginLeft: 1, verticalAlign: 'baseline', opacity: zooming ? 0 : 1 }}
+              style={{
+                width: '0.1em',
+                height: '0.1em',
+                marginLeft: 1,
+                verticalAlign: 'baseline',
+                opacity: zooming ? 0 : 1
+              }}
             />
           </div>
         </div>

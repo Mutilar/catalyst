@@ -639,8 +639,12 @@ describe('assistant-ui streaming renderer', () => {
 
     const reasoningParts = container.querySelectorAll('[data-slot="aui_reasoning-text"]')
     expect(reasoningParts.length).toBe(2)
-    expect((await within(reasoningParts[0] as HTMLElement).findByText('First thought.')).textContent).toBe('First thought.')
-    expect((await within(reasoningParts[1] as HTMLElement).findByText('Second thought.')).textContent).toBe('Second thought.')
+    expect((await within(reasoningParts[0] as HTMLElement).findByText('First thought.')).textContent).toBe(
+      'First thought.'
+    )
+    expect((await within(reasoningParts[1] as HTMLElement).findByText('Second thought.')).textContent).toBe(
+      'Second thought.'
+    )
   })
 
   it('does not reopen an earlier completed thinking group when a later group is running', async () => {

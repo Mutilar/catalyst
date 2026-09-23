@@ -130,13 +130,19 @@ export const onComposerInsertRefsRequest = (handler: (detail: InsertRefsDetail) 
  * the agent a task without the user round-tripping through the input. */
 export const requestComposerSubmit = (
   text: string,
-  { target = 'active', penguinRecovery }: { target?: ComposerTarget | 'active'; penguinRecovery?: SubmitTextOptions['penguinRecovery'] } = {}
+  {
+    target = 'active',
+    penguinRecovery
+  }: { target?: ComposerTarget | 'active'; penguinRecovery?: SubmitTextOptions['penguinRecovery'] } = {}
 ) => {
   const trimmed = text.trim()
 
   if (trimmed) {
-    dispatch<SubmitDetail>(SUBMIT_EVENT, { target: resolve(target), text: penguinRecovery ? text : trimmed,
-      ...(penguinRecovery && { penguinRecovery }) })
+    dispatch<SubmitDetail>(SUBMIT_EVENT, {
+      target: resolve(target),
+      text: penguinRecovery ? text : trimmed,
+      ...(penguinRecovery && { penguinRecovery })
+    })
   }
 }
 

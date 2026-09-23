@@ -172,7 +172,6 @@ export function PixelEggSprite({ mode, size, index = 0, className, style, onDone
     let lastHatch = 0
 
     const tick = (now: number) => {
-
       if (!sheet) {
         return
       }

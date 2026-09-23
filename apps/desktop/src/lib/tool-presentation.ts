@@ -134,7 +134,8 @@ export function extractMcpGestalt(result: unknown): string | null {
   // Transport candidate selection only. The Rust projector owns grammar and
   // refusal; a second parser here rejected valid CLI/semantic continuations.
   const candidateText = (value: string): boolean =>
-    value.length <= 1_048_576 && !/[\r\n\0]/.test(value) &&
+    value.length <= 1_048_576 &&
+    !/[\r\n\0]/.test(value) &&
     [SIGNAL_GREEN, SIGNAL_PENDING, SIGNAL_RED, SIGNAL_WARNING].some(
       signal => value === signal || value.startsWith(`${signal} `)
     )
@@ -182,10 +183,16 @@ export function uguiDocumentIssue(candidate: unknown): { code: string; path: str
     return { code: 'document-invalid', path: '/type', detail: 'expected=document or lucid' }
   }
 
-  for (const [region, maximum] of [['header', 16], ['sections', 32], ['actions', 32]] as const) {
+  for (const [region, maximum] of [
+    ['header', 16],
+    ['sections', 32],
+    ['actions', 32]
+  ] as const) {
     const items = value[region]
 
-    if (region === 'actions' && items === undefined) { continue }
+    if (region === 'actions' && items === undefined) {
+      continue
+    }
 
     if (!Array.isArray(items)) {
       return { code: 'region-invalid', path: `/${region}`, detail: 'expected=array' }

@@ -252,11 +252,12 @@ const ghProbe: GhProbe = {
   fetchFile(repo, ref, filePath) {
     // `gh api` returns base64 with embedded newlines; Buffer.from tolerates
     // them, unlike .NET's FromBase64String (see the README's PowerShell form).
-    const raw = execFileSync(
-      'gh',
-      ['api', `repos/${repo}/contents/${filePath}?ref=${ref}`, '--jq', '.content'],
-      { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024, ...hiddenWindowsChildOptions() }
-    )
+    const raw = execFileSync('gh', ['api', `repos/${repo}/contents/${filePath}?ref=${ref}`, '--jq', '.content'], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      maxBuffer: 64 * 1024 * 1024,
+      ...hiddenWindowsChildOptions()
+    })
 
     return Buffer.from(raw.replace(/\s/g, ''), 'base64')
   }

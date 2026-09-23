@@ -80,11 +80,7 @@ export function decideCatalystRestart(
 
   const current = readCatalystRestartIntent(repoRoot)
 
-  if (
-    !current ||
-    current.intent_id !== request.intent_id ||
-    current.generation_hash !== request.generation_hash
-  ) {
+  if (!current || current.intent_id !== request.intent_id || current.generation_hash !== request.generation_hash) {
     throw new Error('Catalyst restart intent was superseded; reopen the current intent')
   }
 

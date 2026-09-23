@@ -147,8 +147,12 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
         return false
       }
 
-      if (!options?.fromQueue && visibleText && !visibleText.startsWith('/')
-        && !(await prepareSessionForPrompt(visibleText))) {
+      if (
+        !options?.fromQueue &&
+        visibleText &&
+        !visibleText.startsWith('/') &&
+        !(await prepareSessionForPrompt(visibleText))
+      ) {
         return false
       }
 
@@ -226,7 +230,9 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
 
       const releaseSubmitLock = () => {
         for (const [runtimeId, activeSubmission] of _activeIntentSubmissions) {
-          if (activeSubmission === submissionId) {_activeIntentSubmissions.delete(runtimeId)}
+          if (activeSubmission === submissionId) {
+            _activeIntentSubmissions.delete(runtimeId)
+          }
         }
 
         if (!submitLockReleased) {
@@ -568,7 +574,11 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
               }
 
               intentResponse = await withSessionBusyRetry(() =>
-                requestGateway<IntentResponse>('prompt.submit', submitParams(recoveredId), PROMPT_SUBMIT_REQUEST_TIMEOUT_MS)
+                requestGateway<IntentResponse>(
+                  'prompt.submit',
+                  submitParams(recoveredId),
+                  PROMPT_SUBMIT_REQUEST_TIMEOUT_MS
+                )
               )
               sessionId = recoveredId
             } else {
@@ -591,15 +601,23 @@ export function useSubmitPrompt(deps: SubmitPromptDeps) {
 
         if (directOperation) {
           const agentRunning = Boolean(intentResponse?.agent_running)
-          updateSessionState(sessionId, state => ({
-            ...state,
-            messages: [...state.messages.filter(message => message.id !== optimisticId && message.id !== submissionId), {
-              id: submissionId, role: 'system',
-              parts: [textPart(`twitch:${JSON.stringify(directOperation)}`)]
-            }],
-            busy: agentRunning,
-            awaitingResponse: agentRunning
-          }), targetStoredSessionId)
+          updateSessionState(
+            sessionId,
+            state => ({
+              ...state,
+              messages: [
+                ...state.messages.filter(message => message.id !== optimisticId && message.id !== submissionId),
+                {
+                  id: submissionId,
+                  role: 'system',
+                  parts: [textPart(`twitch:${JSON.stringify(directOperation)}`)]
+                }
+              ],
+              busy: agentRunning,
+              awaitingResponse: agentRunning
+            }),
+            targetStoredSessionId
+          )
           releaseSubmitLock()
 
           if (targetIsCurrentView()) {

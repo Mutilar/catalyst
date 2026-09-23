@@ -23,9 +23,9 @@ describe('session row running appearance', () => {
 
   it('uses the needs-input treatment instead of the running arc', () => {
     expect(sessionShowsRunningArc({ isWorking: true, needsInput: true })).toBe(false)
-    expect(
-      state({ hasBackground: true, isStalled: true, isUnread: true, isWorking: true, needsInput: true })
-    ).toBe('needs-input')
+    expect(state({ hasBackground: true, isStalled: true, isUnread: true, isWorking: true, needsInput: true })).toBe(
+      'needs-input'
+    )
   })
 
   it('keeps background and unread states below active-turn states', () => {

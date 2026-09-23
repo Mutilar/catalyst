@@ -186,7 +186,6 @@ describe('worktree refresh', () => {
     refreshWorktrees()
     expect($worktreeRefreshToken.get()).toBe(before + 1)
   })
-
 })
 
 describe('pickProjectFolder', () => {

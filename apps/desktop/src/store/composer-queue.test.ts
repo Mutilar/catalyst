@@ -246,7 +246,6 @@ describe('parked queue sessions', () => {
 
     expect(isQueueParked('rt-new')).toBe(false)
   })
-
 })
 
 describe('queue persistence', () => {
@@ -265,9 +264,7 @@ describe('queue persistence', () => {
 
     enqueueQueuedPrompt(SESSION_KEY, {
       text: 'look at this',
-      attachments: [
-        { id: 'img-1', kind: 'image', label: 'shot.png', previewUrl: bigPreview, path: '/tmp/shot.png' }
-      ]
+      attachments: [{ id: 'img-1', kind: 'image', label: 'shot.png', previewUrl: bigPreview, path: '/tmp/shot.png' }]
     })
 
     const raw = window.localStorage.getItem(QUEUE_STORAGE_KEY) ?? ''
@@ -281,7 +278,13 @@ describe('queue persistence', () => {
     enqueueQueuedPrompt(SESSION_KEY, {
       text: 'look at this',
       attachments: [
-        { id: 'img-1', kind: 'image', label: 'shot.png', previewUrl: 'data:image/png;base64,AAAA', path: '/tmp/shot.png' }
+        {
+          id: 'img-1',
+          kind: 'image',
+          label: 'shot.png',
+          previewUrl: 'data:image/png;base64,AAAA',
+          path: '/tmp/shot.png'
+        }
       ]
     })
 
@@ -306,5 +309,4 @@ describe('queue persistence', () => {
 
     expect(getQueuedPrompts(SESSION_KEY)[0].attachments[0].previewUrl).toBe(previewUrl)
   })
-
 })

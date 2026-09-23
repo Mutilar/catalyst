@@ -48,12 +48,17 @@ describe('McpUguiDocument', () => {
     const provenance = `sha256:${'a'.repeat(64)}`
 
     const action = {
-      id: 'discover-role', label: 'Choose role syntax', action: 'lucid.help.noun', value: 'role',
+      id: 'discover-role',
+      label: 'Choose role syntax',
+      action: 'lucid.help.noun',
+      value: 'role',
       intent: { verb: 'set', arguments: { help: 'role' } }
     }
 
     const value = {
-      ...document, provenance: { parentHash: provenance }, actions: [action],
+      ...document,
+      provenance: { parentHash: provenance },
+      actions: [action],
       receipt: { action_provenance: [{ id: action.id, state: 'AVAILABLE', provenance_hash: provenance }] }
     } satisfies Document
 
@@ -61,7 +66,9 @@ describe('McpUguiDocument', () => {
     expect(projectUguiAction(value, action, 0).requiresConfirmation).toBe(false)
 
     for (const args of [{ path: 'role' }, { help: 'role', value: 'EM' }, { help: 'other' }]) {
-      expect(projectUguiAction(value, { ...action, intent: { verb: 'set', arguments: args } }, 0).executable).toBe(false)
+      expect(projectUguiAction(value, { ...action, intent: { verb: 'set', arguments: args } }, 0).executable).toBe(
+        false
+      )
     }
   })
 
@@ -69,24 +76,44 @@ describe('McpUguiDocument', () => {
     const provenance = `sha256:${'a'.repeat(64)}`
 
     const action = {
-      id: 'onboarding-signin', label: 'Sign in', action: 'lucid.help.verb', value: 'set',
+      id: 'onboarding-signin',
+      label: 'Sign in',
+      action: 'lucid.help.verb',
+      value: 'set',
       intent: { verb: 'set', arguments: {} }
     }
 
     const value = {
-      ...document, provenance: { parentHash: provenance }, actions: [action],
+      ...document,
+      provenance: { parentHash: provenance },
+      actions: [action],
       receipt: { action_provenance: [{ id: action.id, state: 'AVAILABLE', provenance_hash: provenance }] }
     } satisfies Document
 
     expect(projectUguiAction(value, action, 0).executable).toBe(true)
     expect(projectUguiAction(value, action, 0).requiresConfirmation).toBe(false)
-    expect(projectUguiAction(value, {
-      ...action, intent: { verb: 'set', arguments: { path: 'role', value: '<identity>' } }
-    }, 0).executable).toBe(false)
-    expect(projectUguiAction(value, {
-      ...action, action: 'lucid.set.continue', value: provenance,
-      intent: { verb: 'set', arguments: { path: 'role', value: 'EM' } }
-    }, 0).executable).toBe(false)
+    expect(
+      projectUguiAction(
+        value,
+        {
+          ...action,
+          intent: { verb: 'set', arguments: { path: 'role', value: '<identity>' } }
+        },
+        0
+      ).executable
+    ).toBe(false)
+    expect(
+      projectUguiAction(
+        value,
+        {
+          ...action,
+          action: 'lucid.set.continue',
+          value: provenance,
+          intent: { verb: 'set', arguments: { path: 'role', value: 'EM' } }
+        },
+        0
+      ).executable
+    ).toBe(false)
   })
 
   it('consumes a typed LUCID appearance host effect', async () => {

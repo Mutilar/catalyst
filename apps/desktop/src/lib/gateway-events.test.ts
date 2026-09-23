@@ -5,8 +5,14 @@ import { gatewayEventRequiresSessionId, resolveGatewayEventSessionId } from './g
 it('requires an explicit session for preparation and direct-operation events', () => {
   for (const eventType of ['intent.preparation', 'intent.operation']) {
     expect(gatewayEventRequiresSessionId(eventType)).toBe(true)
-    expect(resolveGatewayEventSessionId({ activeSessionId: 'other-session', eventType,
-      explicitSessionId: '', unscopedStreamSessionId: null }).drop).toBe(true)
+    expect(
+      resolveGatewayEventSessionId({
+        activeSessionId: 'other-session',
+        eventType,
+        explicitSessionId: '',
+        unscopedStreamSessionId: null
+      }).drop
+    ).toBe(true)
   }
 })
 

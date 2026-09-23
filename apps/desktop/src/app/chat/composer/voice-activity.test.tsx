@@ -96,10 +96,7 @@ describe('PlaybackWaveform audio context lifecycle', () => {
     vi.unstubAllGlobals()
   })
 
-  async function setup(
-    raf: () => number = () => 1,
-    AudioContextCtor: typeof FakeAudioContext = FakeAudioContext
-  ) {
+  async function setup(raf: () => number = () => 1, AudioContextCtor: typeof FakeAudioContext = FakeAudioContext) {
     vi.stubGlobal('AudioContext', AudioContextCtor)
     vi.stubGlobal('requestAnimationFrame', raf)
     vi.stubGlobal('cancelAnimationFrame', () => undefined)

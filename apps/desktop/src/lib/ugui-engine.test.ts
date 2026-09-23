@@ -5,18 +5,34 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { DELIMITER_SEGMENT, RELATION_ACTION, SIGNAL_GREEN } from './ae-glyphs'
 import { canonicalGestaltStream } from './lucid-gestalt'
-import { initializeUguiModule, parseConversationProjection, resolveUguiModuleUrls, resolveUguiWasmUrl } from './ugui-engine'
+import {
+  initializeUguiModule,
+  parseConversationProjection,
+  resolveUguiModuleUrls,
+  resolveUguiWasmUrl
+} from './ugui-engine'
 
 describe('conversation transport diagnostics', () => {
   const source = 'PRIVATE conversation source'
 
   const projection = () => ({
-    schema: 'ugui-conversation-text/1', authority: 'presentation-only', source,
-    documents: [{
-      schema: 'lucid-ugui-response/1', type: 'document', id: 'conversation.text.0',
-      authority: 'presentation-only', header: [], sections: [], actions: [],
-      source, revision: 'revision', streamState: 'complete'
-    }]
+    schema: 'ugui-conversation-text/1',
+    authority: 'presentation-only',
+    source,
+    documents: [
+      {
+        schema: 'lucid-ugui-response/1',
+        type: 'document',
+        id: 'conversation.text.0',
+        authority: 'presentation-only',
+        header: [],
+        sections: [],
+        actions: [],
+        source,
+        revision: 'revision',
+        streamState: 'complete'
+      }
+    ]
   })
 
   const parse = (value: unknown) => parseConversationProjection(JSON.stringify(value), source)
@@ -31,40 +47,64 @@ describe('conversation transport diagnostics', () => {
   })
 
   it('does not leak malformed JSON or arbitrary refusal text', () => {
-    expect(() => parseConversationProjection(`{${source}`, source)).toThrow('conversation-projector-json-invalid: / expected=JSON object')
-    expect(() => parse({ schema: 'ugui-conversation-text-error/1', code: source })).toThrow('conversation-projector-refused: /code unrecognized-refusal')
-    expect(() => parse({ schema: 'ugui-conversation-text-error/1', code: 'conversation-text-byte-bound' })).toThrow('conversation-projector-refused: /code conversation-text-byte-bound')
+    expect(() => parseConversationProjection(`{${source}`, source)).toThrow(
+      'conversation-projector-json-invalid: / expected=JSON object'
+    )
+    expect(() => parse({ schema: 'ugui-conversation-text-error/1', code: source })).toThrow(
+      'conversation-projector-refused: /code unrecognized-refusal'
+    )
+    expect(() => parse({ schema: 'ugui-conversation-text-error/1', code: 'conversation-text-byte-bound' })).toThrow(
+      'conversation-projector-refused: /code conversation-text-byte-bound'
+    )
   })
 
   it('distinguishes schema drift from obsolete payload shape without a fallback', () => {
-    expect(() => parse({ ...projection(), schema: 'unsupported/1' })).toThrow('expected=ugui-conversation-text/1 observed=unsupported/1')
-    expect(() => parse({ ...projection(), documents: undefined, blocks: [] })).toThrow('conversation-projector-shape-invalid: /documents expected=array')
+    expect(() => parse({ ...projection(), schema: 'unsupported/1' })).toThrow(
+      'expected=ugui-conversation-text/1 observed=unsupported/1'
+    )
+    expect(() => parse({ ...projection(), documents: undefined, blocks: [] })).toThrow(
+      'conversation-projector-shape-invalid: /documents expected=array'
+    )
   })
 
   it.each(['header', 'sections', 'actions'] as const)('identifies the invalid %s region and document index', region => {
     const value = projection()
-    expect(() => parse({ ...value, documents: [value.documents[0], { ...value.documents[0], [region]: null }] })).toThrow(`conversation-projector-region-invalid: /documents/1/${region} expected=array`)
+    expect(() =>
+      parse({ ...value, documents: [value.documents[0], { ...value.documents[0], [region]: null }] })
+    ).toThrow(`conversation-projector-region-invalid: /documents/1/${region} expected=array`)
   })
 
   it('reports bounds without dumping document content', () => {
     const value = projection()
-    expect(() => parse({ ...value, documents: [{ ...value.documents[0], sections: Array(33).fill(source) }] })).toThrow('conversation-projector-region-bound: /documents/0/sections maximum=32 observed=33')
+    expect(() => parse({ ...value, documents: [{ ...value.documents[0], sections: Array(33).fill(source) }] })).toThrow(
+      'conversation-projector-region-bound: /documents/0/sections maximum=32 observed=33'
+    )
   })
 
   it('identifies authority and metadata failures', () => {
     const value = projection()
     expect(() => parse({ ...value, authority: 'tool' })).toThrow('/authority expected=presentation-only')
     expect(() => parse({ ...value, documents: [null] })).toThrow('/documents/0 expected=object')
-    expect(() => parse({ ...value, documents: [{ ...value.documents[0], authority: 'tool' }] })).toThrow('/documents/0/authority expected=presentation-only')
-    expect(() => parse({ ...value, documents: [{ ...value.documents[0], revision: null }] })).toThrow('/documents/0/revision expected=string')
-    expect(() => parse({ ...value, documents: [{ ...value.documents[0], streamState: 'unknown' }] })).toThrow('/documents/0/streamState expected=pending or complete')
+    expect(() => parse({ ...value, documents: [{ ...value.documents[0], authority: 'tool' }] })).toThrow(
+      '/documents/0/authority expected=presentation-only'
+    )
+    expect(() => parse({ ...value, documents: [{ ...value.documents[0], revision: null }] })).toThrow(
+      '/documents/0/revision expected=string'
+    )
+    expect(() => parse({ ...value, documents: [{ ...value.documents[0], streamState: 'unknown' }] })).toThrow(
+      '/documents/0/streamState expected=pending or complete'
+    )
   })
 
   it('refuses source substitution and lost or reordered source fragments', () => {
     const value = projection()
     expect(() => parse({ ...value, source: 'different' })).toThrow('/source expected=exact request source')
-    expect(() => parse({ ...value, documents: [{ ...value.documents[0], source: 'different' }] })).toThrow('/documents expected=ordered lossless source partition')
-    expect(parseConversationProjection(JSON.stringify({ ...value, source: ' \n', documents: [] }), ' \n').documents).toEqual([])
+    expect(() => parse({ ...value, documents: [{ ...value.documents[0], source: 'different' }] })).toThrow(
+      '/documents expected=ordered lossless source partition'
+    )
+    expect(
+      parseConversationProjection(JSON.stringify({ ...value, source: ' \n', documents: [] }), ' \n').documents
+    ).toEqual([])
   })
 })
 
@@ -89,10 +129,18 @@ describe('UGUI WASM module resolution', () => {
     const cyoa = `${SIGNAL_GREEN}${DELIMITER_SEGMENT}${RELATION_ACTION} "Inspect"`
     const choice = JSON.parse(module.ugui_project_conversation_text(cyoa, false))
     expect(choice.documents[0].sections).toEqual([])
-    expect(choice.documents[0].actions).toContainEqual(expect.objectContaining({
-      type: 'button', action: 'conversation.submit', label: 'Inspect', value: 'Inspect', disabled: false
-    }))
-    const adjacent = ['First', 'Second', 'Third'].map(value => canonicalGestaltStream({ signal: SIGNAL_GREEN, data: [value] })).join('\n')
+    expect(choice.documents[0].actions).toContainEqual(
+      expect.objectContaining({
+        type: 'button',
+        action: 'conversation.submit',
+        label: 'Inspect',
+        value: 'Inspect',
+        disabled: false
+      })
+    )
+    const adjacent = ['First', 'Second', 'Third']
+      .map(value => canonicalGestaltStream({ signal: SIGNAL_GREEN, data: [value] }))
+      .join('\n')
     const segmented = parseConversationProjection(module.ugui_project_conversation_text(adjacent, false), adjacent)
     expect(segmented.documents).toHaveLength(3)
     expect(segmented.documents.map(document => document.source).join('')).toBe(adjacent)
@@ -121,9 +169,7 @@ describe('UGUI WASM module resolution', () => {
       resolveUguiWasmUrl(
         'file:///Applications/Catalyst/resources/app/catalyst/apps/desktop/dist/wasm/ugui_gestalt_wasm.js'
       )
-    ).toBe(
-      'file:///Applications/Catalyst/resources/app/catalyst/apps/desktop/dist/wasm/ugui_gestalt_wasm_bg.wasm'
-    )
+    ).toBe('file:///Applications/Catalyst/resources/app/catalyst/apps/desktop/dist/wasm/ugui_gestalt_wasm_bg.wasm')
     expect(resolveUguiWasmUrl('http://127.0.0.1:5174/wasm/catalyst_wasm.js')).toBe(
       'http://127.0.0.1:5174/wasm/catalyst_wasm_bg.wasm'
     )

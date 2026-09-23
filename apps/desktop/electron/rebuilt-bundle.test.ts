@@ -118,7 +118,9 @@ test('a throwing readDir does not abort the search', () => {
       isDirectory: () => true,
       modifiedAtMs: () => 0,
       readDir: dirPath => {
-        if (dirPath.endsWith('mac-arm64')) {throw new Error('EACCES')}
+        if (dirPath.endsWith('mac-arm64')) {
+          throw new Error('EACCES')
+        }
 
         return dirPath.endsWith(`${path.sep}mac`) ? ['Catalyst.app'] : []
       }

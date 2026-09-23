@@ -155,7 +155,15 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
   const hasError = useStore($erroredSessionIds).includes(storedSessionId)
   const hasSubagents = useStore($subagentWaitingSessionIds).includes(storedSessionId)
 
-  const dotState = sessionDotState({ hasBackground, hasError, hasSubagents, isStalled, isUnread, isWorking, needsInput })
+  const dotState = sessionDotState({
+    hasBackground,
+    hasError,
+    hasSubagents,
+    isStalled,
+    isUnread,
+    isWorking,
+    needsInput
+  })
 
   return (
     <span className={cn('flex items-center', branchStem ? 'gap-1' : 'gap-0.5', className)}>

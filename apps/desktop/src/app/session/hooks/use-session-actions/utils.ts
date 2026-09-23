@@ -540,7 +540,16 @@ export async function resolveSessionProfile(storedSessionId: null | string): Pro
 type SessionRuntimeStatePatch = Partial<
   Pick<
     ClientSessionState,
-    'branch' | 'cwd' | 'fast' | 'model' | 'personality' | 'provider' | 'reasoningEffort' | 'serviceTier' | 'usage' | 'yolo'
+    | 'branch'
+    | 'cwd'
+    | 'fast'
+    | 'model'
+    | 'personality'
+    | 'provider'
+    | 'reasoningEffort'
+    | 'serviceTier'
+    | 'usage'
+    | 'yolo'
   >
 >
 
