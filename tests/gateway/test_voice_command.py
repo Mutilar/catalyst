@@ -1550,9 +1550,25 @@ class TestAutoTtsEmptyTextGuard:
 
 
 class TestStreamTtsToSpeaker:
-    """Functional tests for the streaming TTS pipeline."""
+    """Exercise sentence handling without live synthesis or audio playback.
 
-    def test_none_sentinel_flushes_buffer(self):
+    A display callback observes text; it does not disable speech synthesis.
+    """
+
+    @pytest.fixture(autouse=True)
+    def mock_tts_synthesis(self):
+        with (
+            patch("tools.tts_tool._load_tts_config", return_value={}),
+            patch("tools.tts_streaming.resolve_streaming_provider", return_value=None),
+            patch("tools.tts_tool.text_to_speech_tool", autospec=True) as synthesize,
+            patch("tools.tts_tool._import_sounddevice", autospec=True) as audio_device,
+            patch("tools.voice_mode.play_audio_file", autospec=True) as playback,
+        ):
+            yield synthesize
+            audio_device.assert_not_called()
+            playback.assert_not_called()
+
+    def test_none_sentinel_flushes_buffer(self, mock_tts_synthesis):
         """None sentinel causes remaining buffer to be spoken."""
         from tools.tts_tool import stream_tts_to_speaker
         text_q = queue.Queue()
@@ -1568,9 +1584,10 @@ class TestStreamTtsToSpeaker:
 
         stream_tts_to_speaker(text_q, stop_evt, done_evt, display_callback=display)
         assert done_evt.is_set()
-        assert any("Hello" in s for s in spoken)
+        assert spoken == ["Hello world."]
+        assert [call.kwargs["text"] for call in mock_tts_synthesis.call_args_list] == ["Hello world."]
 
-    def test_stop_event_aborts_early(self):
+    def test_stop_event_aborts_early(self, mock_tts_synthesis):
         """Setting stop_event causes early exit."""
         from tools.tts_tool import stream_tts_to_speaker
         text_q = queue.Queue()
@@ -1585,8 +1602,9 @@ class TestStreamTtsToSpeaker:
         stream_tts_to_speaker(text_q, stop_evt, done_evt, display_callback=lambda t: spoken.append(t))
         assert done_evt.is_set()
         assert len(spoken) == 0
+        mock_tts_synthesis.assert_not_called()
 
-    def test_done_event_set_on_exception(self):
+    def test_done_event_set_on_exception(self, mock_tts_synthesis):
         """tts_done_event is set even when an exception occurs."""
         from tools.tts_tool import stream_tts_to_speaker
         text_q = queue.Queue()
@@ -1599,8 +1617,9 @@ class TestStreamTtsToSpeaker:
 
         stream_tts_to_speaker(text_q, stop_evt, done_evt)
         assert done_evt.is_set()
+        mock_tts_synthesis.assert_not_called()
 
-    def test_think_blocks_stripped(self):
+    def test_think_blocks_stripped(self, mock_tts_synthesis):
         """<think>...</think> content is not spoken."""
         from tools.tts_tool import stream_tts_to_speaker
         text_q = queue.Queue()
@@ -1617,8 +1636,9 @@ class TestStreamTtsToSpeaker:
         joined = " ".join(spoken)
         assert "internal reasoning" not in joined
         assert "Visible" in joined
+        assert [call.kwargs["text"] for call in mock_tts_synthesis.call_args_list] == ["Visible response."]
 
-    def test_sentence_splitting(self):
+    def test_sentence_splitting(self, mock_tts_synthesis):
         """Sentences are split at boundaries and spoken individually."""
         from tools.tts_tool import stream_tts_to_speaker
         text_q = queue.Queue()
@@ -1633,9 +1653,11 @@ class TestStreamTtsToSpeaker:
 
         stream_tts_to_speaker(text_q, stop_evt, done_evt, display_callback=lambda t: spoken.append(t))
         assert done_evt.is_set()
-        assert len(spoken) >= 2
+        expected = ["This is the first sentence.", "This is the second sentence."]
+        assert [sentence.strip() for sentence in spoken] == expected
+        assert [call.kwargs["text"] for call in mock_tts_synthesis.call_args_list] == expected
 
-    def test_markdown_stripped_in_speech(self):
+    def test_markdown_stripped_in_speech(self, mock_tts_synthesis):
         """Markdown formatting is removed before display/speech."""
         from tools.tts_tool import stream_tts_to_speaker
         text_q = queue.Queue()
@@ -1648,10 +1670,10 @@ class TestStreamTtsToSpeaker:
 
         stream_tts_to_speaker(text_q, stop_evt, done_evt, display_callback=lambda t: spoken.append(t))
         assert done_evt.is_set()
-        # Display callback gets raw text (before markdown stripping)
-        # But the actual TTS audio would be stripped — we verify pipeline doesn't crash
+        assert [sentence.strip() for sentence in spoken] == ["**Bold text** and `code`."]
+        assert [call.kwargs["text"] for call in mock_tts_synthesis.call_args_list] == ["Bold text and code."]
 
-    def test_duplicate_sentences_deduped(self):
+    def test_duplicate_sentences_deduped(self, mock_tts_synthesis):
         """Repeated sentences are spoken only once."""
         from tools.tts_tool import stream_tts_to_speaker
         text_q = queue.Queue()
@@ -1668,9 +1690,12 @@ class TestStreamTtsToSpeaker:
         assert done_evt.is_set()
         # First occurrence is spoken, second is deduped
         assert len(spoken) == 1
+        assert [call.kwargs["text"] for call in mock_tts_synthesis.call_args_list] == [
+            "This is a repeated sentence."
+        ]
 
-    def test_no_api_key_display_only(self):
-        """Without ELEVENLABS_API_KEY, display callback still works."""
+    def test_display_callback_without_api_key(self, mock_tts_synthesis):
+        """Without an API key, the callback still runs alongside sync synthesis."""
         from tools.tts_tool import stream_tts_to_speaker
         text_q = queue.Queue()
         stop_evt = threading.Event()
@@ -1684,9 +1709,10 @@ class TestStreamTtsToSpeaker:
             stream_tts_to_speaker(text_q, stop_evt, done_evt,
                                   display_callback=lambda t: spoken.append(t))
         assert done_evt.is_set()
-        assert len(spoken) >= 1
+        assert [sentence.strip() for sentence in spoken] == ["Display only text."]
+        assert [call.kwargs["text"] for call in mock_tts_synthesis.call_args_list] == ["Display only text."]
 
-    def test_long_buffer_flushed_on_timeout(self):
+    def test_long_buffer_flushed_on_timeout(self, mock_tts_synthesis):
         """Buffer longer than long_flush_len is flushed on queue timeout."""
         from tools.tts_tool import stream_tts_to_speaker
         text_q = queue.Queue()
@@ -1709,7 +1735,8 @@ class TestStreamTtsToSpeaker:
                               display_callback=lambda t: spoken.append(t))
         t.join(timeout=5)
         assert done_evt.is_set()
-        assert len(spoken) >= 1
+        assert spoken == [long_text]
+        assert [call.kwargs["text"] for call in mock_tts_synthesis.call_args_list] == [long_text]
 
 
 # =====================================================================

@@ -52,6 +52,17 @@ def test_receipt_is_applied_only_after_context_persistence():
         receiver.close()
     assert host.calls[-1]["operation"] == "close"
 
+def test_sidekick_can_deliver_broker_admitted_corrections():
+    host = Host([message(caller_role="SIDEKICK")])
+    receiver = RoleControlReceiver(agent(), host, "session")
+    try:
+        messages = []
+        assert receiver.apply(messages)
+        assert host.calls[-1]["status"] == "applied"
+        assert len(messages) == 1
+    finally:
+        receiver.close()
+
 def test_late_control_keeps_the_interim_answer_and_does_not_settle_it():
     host = Host([message()])
     target = agent()

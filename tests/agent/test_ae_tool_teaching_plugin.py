@@ -214,6 +214,31 @@ def test_artifact_build_teaching_never_exposes_internal_run_qualify(plugin, work
     assert "run.qualify" not in json.dumps(suggestion["candidate"], sort_keys=True)
 
 
+def test_retired_quality_projection_cannot_teach_a_removed_dispatch_task(plugin, workspace):
+    target = {"compiled": {
+        "kind": "call", "tool": "mcp__LUCID__dispatch", "verb": "dispatch",
+        "target": {"registry": "dispatch-variant", "id": "run-qualification"},
+        "arguments": {"area": {"$const": "run"}, "task": {"$const": "run.qualify"}},
+        "explanation": "stale",
+    }}
+    with pytest.raises(ValueError, match="retired-quality-target"):
+        plugin._heuristic_candidate({}, {}, target, workspace)
+
+
+def test_current_quality_projection_preserves_the_explicit_operation(plugin, workspace):
+    target = {"compiled": {
+        "kind": "call", "tool": "mcp__LUCID__dispatch", "verb": "dispatch",
+        "target": {"registry": "dispatch-variant", "id": "quality"},
+        "arguments": {"area": {"$const": "run"}, "operation": {"$const": "test"}},
+        "explanation": "current",
+    }}
+    candidate = plugin._heuristic_candidate({}, {}, target, workspace)
+    assert candidate["arguments"] == {"area": "run", "operation": "test"}
+    target["compiled"]["arguments"]["operation"] = {"$const": "unknown"}
+    with pytest.raises(ValueError, match="quality-operation-invalid"):
+        plugin._heuristic_candidate({}, {}, target, workspace)
+
+
 @pytest.mark.parametrize("pattern", ["target_registry", r"target_\w+", "*.py"])
 def test_search_files_requires_proven_equivalence_before_teaching(
     plugin, workspace, monkeypatch, pattern

@@ -34,6 +34,9 @@ Usage:
     completion counts as one HERMES_TEST_SUMMARY JSON record. Approximate
     discovery counts are progress hints only, never quality evidence.
 
+    SIGTERM/SIGINT stop scheduling and retries, terminate retained descendants
+    across process sessions, and reap active pytest workers before exit.
+
 Environment:
     HERMES_TEST_WORKERS  Override worker count (default: os.cpu_count())
     HERMES_TEST_PATHS    Override discovery roots (colon-sep, default: 'tests')
@@ -46,6 +49,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -53,6 +57,34 @@ import time
 from concurrent.futures import ThreadPoolExecutor, Future
 from pathlib import Path
 from typing import Dict, List, Tuple
+
+import psutil
+
+
+_STOP = threading.Event()
+_STOP_SIGNAL = 0
+_PROCESS_POLL_SECONDS = 0.1
+
+
+def _request_stop(signum: int, _frame: object) -> None:
+    global _STOP_SIGNAL
+    if not _STOP_SIGNAL:
+        _STOP_SIGNAL = signum
+    _STOP.set()
+
+
+def _remember_descendants(proc: subprocess.Popen, owned: dict[int, psutil.Process]) -> None:
+    try:
+        if proc.pid not in owned:
+            owned[proc.pid] = psutil.Process(proc.pid)
+        root = owned[proc.pid]
+        if not root.is_running():
+            return
+        for child in root.children(recursive=True):
+            # Process objects retain their creation time and refuse PID-reuse kills.
+            owned[child.pid] = child
+    except psutil.NoSuchProcess:
+        pass
 
 
 # Default test discovery roots.
@@ -176,7 +208,11 @@ def _discover_files(roots: List[Path]) -> List[Path]:
     return sorted(out)
 
 
-def _kill_tree(proc: "subprocess.Popen", pgid: int | None = None) -> None:
+def _kill_tree(
+    proc: "subprocess.Popen",
+    pgid: int | None = None,
+    owned: dict[int, psutil.Process] | None = None,
+) -> None:
     """Kill the pytest subprocess and every descendant it spawned.
 
     A test run can spin up uvicorn servers, async runtimes, or other
@@ -193,31 +229,23 @@ def _kill_tree(proc: "subprocess.Popen", pgid: int | None = None) -> None:
     the group are still alive. SIGKILL'ing the captured pgid takes out
     everything in that group atomically.
 
-    Windows: ``taskkill /F /T /PID`` walks the recorded ppid chain and
-    terminates the whole tree, even when the root has already exited.
-
-    Why not psutil: psutil walks the parent-child tree, but in the
-    happy path the root has already been reaped so ``psutil.Process(pid)``
-    can't find it; grandchildren reparented to PID 1 are also
-    unreachable by tree walk at that point. The platform-native
-    primitives (process groups / taskkill) handle both cases correctly
-    without an extra abstraction layer.
+    Retained psutil identities cover descendants that create new sessions,
+    including after reparenting. POSIX also closes the freshly owned process
+    group to catch short-lived parents between snapshots. Direct children
+    are reaped by the caller before the runner exits.
     """
     if proc.pid is None:
         return
 
-    if sys.platform == "win32":
+    tracked = owned if owned is not None else {}
+    _remember_descendants(proc, tracked)
+    for child in reversed(list(tracked.values())):
         try:
-            
-            subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=10,
-            )  # windows-footgun: ok
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            child.kill()
+        except psutil.NoSuchProcess:
             pass
-    else:
+
+    if sys.platform != "win32":
         # POSIX: kill the captured pgid. Local-import signal so the
         # SIGKILL attribute is never referenced on Windows.
         if pgid is not None:
@@ -278,7 +306,7 @@ def _run_one_file(
         file, pytest_args, repo_root, file_timeout, coverage
     )
     attempt = 0
-    while rc != 0 and attempt < retries:
+    while rc != 0 and attempt < retries and not _STOP.is_set():
         attempt += 1
         first_output = output
         file, rc, output, summary, subproc_wall2 = _run_one_file_once(
@@ -317,7 +345,9 @@ def _run_one_file_once(
     if coverage:
         command = ["coverage", "run", "--branch", "--parallel-mode", "--source=.", "-m", "pytest"]
     cmd = [sys.executable, "-m", *command, str(file), *pytest_args]
-    
+
+    if _STOP.is_set():
+        return file, 128 + (_STOP_SIGNAL or signal.SIGTERM), "runner stopped", {}, 0.0
     subproc_start = time.monotonic()
     # launch the pytest process
     proc = subprocess.Popen(
@@ -329,10 +359,9 @@ def _run_one_file_once(
         env=os.environ,
         # POSIX: place the child at the head of its own process group so
         # _kill_tree can SIGKILL the group atomically.
-        # Windows: this maps to CREATE_NEW_PROCESS_GROUP in CPython 3.12+;
-        # _kill_tree handles the Windows path via taskkill /F /T.
-        start_new_session=True,
+        start_new_session=sys.platform != "win32",
     )
+    owned: dict[int, psutil.Process] = {}
 
     # Capture the pgid NOW, before the leader can exit and be reaped. Once
     # the leader is reaped, os.getpgid(proc.pid) raises ProcessLookupError
@@ -346,12 +375,28 @@ def _run_one_file_once(
             pgid = None
 
     try:
-        output, _ = proc.communicate(timeout=file_timeout)
+        while True:
+            _remember_descendants(proc, owned)
+            if _STOP.is_set():
+                _kill_tree(proc, pgid=pgid, owned=owned)
+                output, _ = proc.communicate(timeout=2)
+                return (
+                    file, 128 + (_STOP_SIGNAL or signal.SIGTERM),
+                    output + "\nrunner stopped", {}, time.monotonic() - subproc_start,
+                )
+            remaining = file_timeout - (time.monotonic() - subproc_start)
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(cmd, file_timeout)
+            try:
+                output, _ = proc.communicate(timeout=min(_PROCESS_POLL_SECONDS, remaining))
+                break
+            except subprocess.TimeoutExpired:
+                continue
         rc = proc.returncode
     except subprocess.TimeoutExpired:
-        _kill_tree(proc, pgid=pgid)
+        _kill_tree(proc, pgid=pgid, owned=owned)
         try:
-            output, _ = proc.communicate(timeout=10)
+            output, _ = proc.communicate(timeout=2)
         except subprocess.TimeoutExpired:
             output = "(file timeout exceeded; output unavailable)"
         rc = 124  # de facto convention for "killed by timeout".
@@ -360,16 +405,19 @@ def _run_one_file_once(
             f"process tree SIGKILL'd)\n{output}"
         )
     except BaseException:
-        # KeyboardInterrupt / runner crash — make sure no zombie
-        # grandchildren outlive us.
-        _kill_tree(proc, pgid=pgid)
+        # KeyboardInterrupt / runner crash — no live descendants may outlive us.
+        _kill_tree(proc, pgid=pgid, owned=owned)
         raise
     else:
         # Happy path: pytest exited on its own. Kill the group anyway in
         # case it left grandchildren behind; already-dead is a no-op.
-        _kill_tree(proc, pgid=pgid)
+        _kill_tree(proc, pgid=pgid, owned=owned)
 
         output +=  "\n"
+    finally:
+        if proc.returncode is None:
+            _kill_tree(proc, pgid=pgid, owned=owned)
+            proc.wait(timeout=2)
 
     empty_collection = rc == 5
     if empty_collection:
@@ -987,6 +1035,10 @@ def main() -> int:
         for fut in futures:
             fut.result() if fut.exception() is None else None
 
+    if _STOP.is_set():
+        print("Test runner interrupted; owned workers reaped.", file=sys.stderr)
+        return 128 + (_STOP_SIGNAL or signal.SIGTERM)
+
     elapsed = time.monotonic() - started
     print()
     pct = min(100, (tests_done / approx_total_tests * 100)) if approx_total_tests else 0
@@ -1084,4 +1136,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, _request_stop)
+    signal.signal(signal.SIGINT, _request_stop)
     sys.exit(main())

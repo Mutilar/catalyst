@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { runCommand } from './command.mjs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -9,8 +9,8 @@ if (process.argv.length !== 3 || process.argv[2] !== '--check') {
   process.exit(2)
 }
 
-function execute(command, args, environment = {}, summaryMarker) {
-  const result = spawnSync(command, args, {
+async function execute(command, args, environment = {}, summaryMarker) {
+  const result = await runCommand(command, args, {
     cwd: repository,
     env: {
       ...process.env,
@@ -32,7 +32,7 @@ function execute(command, args, environment = {}, summaryMarker) {
   return { output, status: result.status }
 }
 
-const python = execute('uv', [
+const python = await execute('uv', [
   'run',
   '--directory',
   'catalyst',
@@ -59,7 +59,7 @@ const python = execute('uv', [
   '--',
   '-q'
 ], { PYTEST_ADDOPTS: '' }, /^HERMES_TEST_SUMMARY /m)
-const desktop = execute('npm', [
+const desktop = await execute('npm', [
   '--prefix',
   'catalyst/apps/desktop',
   'run',

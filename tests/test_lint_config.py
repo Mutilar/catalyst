@@ -120,6 +120,8 @@ QUALITY_ADAPTER_PROBE = r"""
 import assert from 'node:assert/strict'
 import childProcess from 'node:child_process'
 import { syncBuiltinESMExports } from 'node:module'
+import { EventEmitter } from 'node:events'
+import { PassThrough } from 'node:stream'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -136,11 +138,11 @@ const expected = [
     ['npm', '--prefix', 'catalyst/apps/desktop', 'run', lint ? 'check:lint' : 'test:ui']
 ]
 const calls = []
-childProcess.spawnSync = (command, args, options) => {
+const resultFor = (command, args, options) => {
     calls.push([command, ...args])
     assert.equal(options.cwd, repository)
-    assert.equal(options.encoding, 'utf8')
-    assert.equal(options.maxBuffer, 16 * 1024 * 1024)
+    assert.equal(options.detached, process.platform !== 'win32')
+    assert.deepEqual(options.stdio, ['ignore', 'pipe', 'pipe'])
     if (calls.length === 1) {
         if (!lint) {
             assert.equal(options.env.PYTEST_ADDOPTS, '')
@@ -164,6 +166,19 @@ childProcess.spawnSync = (command, args, options) => {
         status: scenario === 'desktop-failure' ? 9 : outputs.desktop_status ?? 0,
         stdout: scenario === 'missing-summary' || lint ? '' : outputs.desktop ?? 'Tests  2 passed (2)\n'
     }
+}
+childProcess.spawn = (command, args, options) => {
+    const result = resultFor(command, args, options)
+    const child = new EventEmitter()
+    child.stdout = new PassThrough()
+    child.stderr = new PassThrough()
+    queueMicrotask(() => {
+        if (result.stdout) child.stdout.write(result.stdout)
+        if (result.stderr) child.stderr.write(result.stderr)
+        if (result.error) child.emit('error', result.error)
+        child.emit('close', result.status, result.signal)
+    })
+    return child
 }
 syncBuiltinESMExports()
 process.on('exit', () => {

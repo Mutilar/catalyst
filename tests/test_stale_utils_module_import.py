@@ -41,7 +41,7 @@ def _import_fresh_consumer(name: str, source: str) -> types.ModuleType:
     """Import a brand-new module whose body runs ``source`` -- mimicking a
     consumer module being imported for the first time on the model-switch path."""
     mod = types.ModuleType(name)
-    mod.__file__ = f"{name}.py"
+    mod.__file__ = f"<{name}>"
     sys.modules.pop(name, None)
     exec(compile(source, mod.__file__, "exec"), mod.__dict__)
     sys.modules[name] = mod

@@ -786,12 +786,14 @@ def _heuristic_candidate(
     target_identity = declaration.get("target")
     explanation = declaration.get("explanation")
     if isinstance(target_identity, dict) and target_identity.get("id") == "run-qualification":
+        raise ValueError("retired-quality-target: publish the current tool-teaching projection")
+    if isinstance(target_identity, dict) and target_identity.get("id") == "quality":
         area = arguments.get("area")
         if not isinstance(area, str) or not area:
             raise ValueError("quality-area-missing")
         operation = arguments.get("operation")
         if operation not in {"test", "lint", "line_coverage", "branch_coverage"}:
-            operation = "test"
+            raise ValueError("quality-operation-invalid")
         arguments = {"area": area, "operation": operation}
         explanation = f"Use LUCID DISPATCH {operation.upper()} {area.upper()}."
     return {

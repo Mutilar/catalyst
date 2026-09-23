@@ -3067,6 +3067,12 @@ async def get_ssh_ownership(request: Request):
     return {"ok": True, "sshOwnerNonce": _SSH_OWNER_NONCE, "protocolVersion": 1}
 
 
+@app.get("/api/ready")
+async def get_ready():
+    """Lightweight serving-plane probe for authenticated desktop startup."""
+    return {"ready": True, "version": __version__}
+
+
 @app.get("/api/status")
 async def get_status(profile: Optional[str] = None):
     status_scope = None

@@ -103,7 +103,7 @@ class RoleControlReceiver:
                 or len(control["intent_delta"].encode("utf-8")) > 4000
                 or "\0" in control["intent_delta"]
                 or control["expected_revision"] != self.revision
-                or control["caller_role"] not in {"BUTLER", "EM", "WITNESS"}
+                or control["caller_role"] not in {"BUTLER", "EM", "SIDEKICK", "WITNESS"}
                 or type(control["expires_epoch"]) is not int
             ):
                 raise RoleControlError("role-control-delivery-invalid")

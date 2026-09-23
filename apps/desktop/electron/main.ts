@@ -4726,7 +4726,7 @@ function closePreviewWatchers() {
   }
 }
 
-async function waitForHermes(baseUrl, token, signal?) {
+async function waitForHermes(baseUrl, token, signal?, probePath = '/api/status') {
   const deadline = Date.now() + 45_000
   let lastError = null
 
@@ -4738,11 +4738,21 @@ async function waitForHermes(baseUrl, token, signal?) {
     }
 
     try {
-      await fetchJson(`${baseUrl}/api/status`, token)
+      await fetchJson(`${baseUrl}${probePath}`, token)
 
       return
     } catch (error) {
-      lastError = error
+      if (probePath !== '/api/status' && /^404:/.test(String(error?.message || error))) {
+        try {
+          await fetchJson(`${baseUrl}/api/status`, token)
+
+          return
+        } catch (fallbackError) {
+          lastError = fallbackError
+        }
+      } else {
+        lastError = error
+      }
       await new Promise((resolve, reject) => {
         const timer = setTimeout(resolve, 500)
         signal?.addEventListener(
@@ -7769,7 +7779,7 @@ async function spawnPoolBackend(profile, entry) {
   entry.port = port
 
   const baseUrl = `http://127.0.0.1:${port}`
-  await Promise.race([waitForHermes(baseUrl, token), startFailed])
+  await Promise.race([waitForHermes(baseUrl, token, undefined, '/api/ready'), startFailed])
   ready = true
 
   const authToken = await adoptServedDashboardToken(baseUrl, token, {
@@ -8083,7 +8093,7 @@ async function startHermes() {
 
     const baseUrl = `http://127.0.0.1:${port}`
     await advanceBootProgress('backend.wait', 'Waiting for Hermes backend to become ready', 90)
-    await Promise.race([waitForHermes(baseUrl, token), backendStartFailed])
+    await Promise.race([waitForHermes(baseUrl, token, undefined, '/api/ready'), backendStartFailed])
     backendReady = true
     backendStartFailure = null
 

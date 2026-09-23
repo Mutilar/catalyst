@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { runCommand } from './command.mjs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -9,8 +9,8 @@ if (process.argv.length !== 3 || process.argv[2] !== '--check') {
   process.exit(2)
 }
 
-function execute(command, args) {
-  const result = spawnSync(command, args, {
+async function execute(command, args) {
+  const result = await runCommand(command, args, {
     cwd: repository,
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024
@@ -24,7 +24,7 @@ function execute(command, args) {
   if (result.status !== 0) process.exit(result.status ?? 1)
 }
 
-execute('uv', [
+await execute('uv', [
   'tool',
   'run',
   '--offline',
@@ -34,7 +34,7 @@ execute('uv', [
   'check',
   'catalyst'
 ])
-execute('npm', [
+await execute('npm', [
   '--prefix',
   'catalyst/apps/desktop',
   'run',

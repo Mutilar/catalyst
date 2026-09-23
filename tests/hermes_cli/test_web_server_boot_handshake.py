@@ -99,6 +99,36 @@ def test_lifespan_installs_loop_filter_before_gateway_warmup():
         assert warmup_started.wait(timeout=1)
 
 
+def test_ready_probe_does_not_run_full_status_work():
+    """Desktop readiness stays responsive when machine status work is slow."""
+    import httpx
+
+    async def _run():
+        transport = httpx.ASGITransport(app=web_server_mod.app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={
+                web_server_mod._SESSION_HEADER_NAME:
+                    web_server_mod._SESSION_TOKEN,
+            },
+        ) as client:
+            response = await client.get("/api/ready")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "ready": True,
+            "version": web_server_mod.__version__,
+        }
+
+    with patch.object(
+        web_server_mod,
+        "check_config_version",
+        side_effect=AssertionError("/api/ready must not run /api/status work"),
+    ):
+        asyncio.run(_run())
+
+
 # ---------------------------------------------------------------------------
 # Test 2 — get_status run_in_executor keeps event loop free for other requests
 # ---------------------------------------------------------------------------
