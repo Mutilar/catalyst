@@ -56,8 +56,6 @@
       "heading": "🔎 Navigate",
       "ordered": false,
       "items": [
-        "[Root README](../README.md)",
-        "[Root specification map](../SPEC.md)",
         "[JSON owner](CANON.json)"
       ],
       "semanticKind": "list"
@@ -102,14 +100,14 @@
   "provenance": {
     "schema": "ugui-provenance/1",
     "sourceSchema": "envelope-semantic-document/1",
-    "parentHash": "sha256:c84c7956111da1255402967786f132045dfe6df929cd18653f5b98e46183b74b",
+    "parentHash": "sha256:f9b10e98afdfa01cdb814ea18d025ec539a3094500a0b494b3e08c65a22c4b98",
     "observedEpoch": 0,
     "sourceField": "intent.args.document"
   },
   "projectionReceipt": {
     "schema": "envelope-document-projection/1",
-    "semanticHash": "sha256:c84c7956111da1255402967786f132045dfe6df929cd18653f5b98e46183b74b",
-    "markdownHash": "sha256:989d5c82d7ad9d559324e45e7417d2a890a599d9abddab30b8ed0c15ef68aec6",
+    "semanticHash": "sha256:f9b10e98afdfa01cdb814ea18d025ec539a3094500a0b494b3e08c65a22c4b98",
+    "markdownHash": "sha256:ad9327e7116e83225681c5d7281b7a9ca546e11e31cd2d23fafad2d1fc25a1b4",
     "sections": 5,
     "omitted": []
   }

@@ -34,4 +34,3 @@ Catalyst is the desktop executive shell that packages Hermes Agent, hosts Electr
 
 - ➡️ [JSON OWNER](CANON.json)
 - ➡️ [README](README.md)
-- ➡️ [ROOT CANON](../CANON.md)

@@ -80,8 +80,7 @@
       "ordered": false,
       "items": [
         "➡️ [JSON OWNER](CANON.json)",
-        "➡️ [README](README.md)",
-        "➡️ [ROOT CANON](../CANON.md)"
+        "➡️ [README](README.md)"
       ],
       "semanticKind": "list"
     }
@@ -96,14 +95,14 @@
   "provenance": {
     "schema": "ugui-provenance/1",
     "sourceSchema": "envelope-semantic-document/1",
-    "parentHash": "sha256:c29dbbc40f0c92b613d208ce6cc5ce3acf57ad7715b33eb691173e7f863aa2bf",
+    "parentHash": "sha256:bde9f7ccd9741c6f753861f4ef0057b8d6c6c859f819b0ce5b16ac079b5b514f",
     "observedEpoch": 0,
     "sourceField": "intent.args.document"
   },
   "projectionReceipt": {
     "schema": "envelope-document-projection/1",
-    "semanticHash": "sha256:c29dbbc40f0c92b613d208ce6cc5ce3acf57ad7715b33eb691173e7f863aa2bf",
-    "markdownHash": "sha256:2089deb85ba4904ae200c7f5490bdebfc45b0697082cab1e193f3852fe9bdfcb",
+    "semanticHash": "sha256:bde9f7ccd9741c6f753861f4ef0057b8d6c6c859f819b0ce5b16ac079b5b514f",
+    "markdownHash": "sha256:1a7a8ff0602074e8a346887a21bc5710e5f496229214b1b3f58f573a1b128b85",
     "sections": 6,
     "omitted": []
   }
